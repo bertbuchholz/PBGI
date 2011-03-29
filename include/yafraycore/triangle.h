@@ -50,6 +50,8 @@ class YAFRAYCORE_EXPORT triangle_t
 		void setNormals(int a, int b, int c){ na=a, nb=b, nc=c; }
 		virtual void recNormal();
 
+        point3d_t const& getVertex(int i) const;
+
 	private:
 		int pa, pb, pc; //!< indices in point array, referenced in mesh.
 		int na, nb, nc; //!< indices in normal array, if mesh is smoothed.

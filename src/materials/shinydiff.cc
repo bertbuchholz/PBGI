@@ -232,6 +232,16 @@ color_t shinyDiffuseMat_t::eval(const renderState_t &state, const surfacePoint_t
 	return mD * (diffuseS ? diffuseS->getColor(stack) : color);
 }
 
+color_t shinyDiffuseMat_t::getDiffuseAtPoint(const renderState_t &state, const surfacePoint_t &sp) const {
+    SDDat_t *dat = (SDDat_t *)state.userdata;
+    nodeStack_t stack(dat->nodeStack);
+
+    float mD = dat->component[3];
+    return mD * (diffuseS ? diffuseS->getColor(stack) : color);
+
+    return color_t(0.0f);
+}
+
 color_t shinyDiffuseMat_t::emit(const renderState_t &state, const surfacePoint_t &sp, const vector3d_t &wo)const
 {
 	SDDat_t *dat = (SDDat_t *)state.userdata;

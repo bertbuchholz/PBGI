@@ -166,6 +166,14 @@ inline void triangle_t::sample(float s1, float s2, point3d_t &p, vector3d_t &n) 
 	n = getNormal();
 }
 
+point3d_t const& triangle_t::getVertex(int i) const
+{
+    int index = pa ? 0 : (pb ? 1 : pc);
+
+    return mesh->getVertex(index);
+}
+
+
 // triangleInstance_t Methods
 
 inline void triangleInstance_t::getSurface(surfacePoint_t &sp, const point3d_t &hit, intersectData_t &data) const
@@ -716,3 +724,4 @@ void bsTriangle_t::getSurface(surfacePoint_t &sp, const point3d_t &hit, intersec
 
 
 __END_YAFRAY
+

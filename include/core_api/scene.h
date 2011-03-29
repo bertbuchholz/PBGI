@@ -201,15 +201,17 @@ class YAFRAYCORE_EXPORT scene_t
 		enum sceneState { READY, GEOMETRY, OBJECT, VMAP };
 		enum changeFlags { C_NONE=0, C_GEOM=1, C_LIGHT= 1<<1, C_OTHER=1<<2,
 							C_ALL=C_GEOM|C_LIGHT|C_OTHER };
-		
+
 		std::vector<light_t *> lights;
 		volumeIntegrator_t *volIntegrator;
 		
+        std::map<objID_t, objData_t> meshes;
+
+
 	protected:
 
 		sceneGeometryState_t state;
 		std::map<objID_t, object3d_t *> objects;
-		std::map<objID_t, objData_t> meshes;
         std::map< std::string, material_t * > materials;
 		std::vector<VolumeRegion *> volumes;
 		camera_t *camera;
