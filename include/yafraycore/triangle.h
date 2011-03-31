@@ -45,12 +45,15 @@ class YAFRAYCORE_EXPORT triangle_t
 		virtual void sample(float s1, float s2, point3d_t &p, vector3d_t &n) const;
 		
 		virtual vector3d_t getNormal() const{ return vector3d_t(normal); }
+
+        virtual point3d_t getVertex(int i) const;
+
 		void setVertexIndices(int a, int b, int c){ pa=a, pb=b, pc=c; }
 		void setMaterial(const material_t *m) { material = m; }
 		void setNormals(int a, int b, int c){ na=a, nb=b, nc=c; }
 		virtual void recNormal();
 
-	private:
+    private:
 		int pa, pb, pc; //!< indices in point array, referenced in mesh.
 		int na, nb, nc; //!< indices in normal array, if mesh is smoothed.
 		const material_t* material;

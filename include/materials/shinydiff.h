@@ -37,6 +37,8 @@ class shinyDiffuseMat_t: public nodeMaterial_t
 		virtual void getSpecular(const renderState_t &state, const surfacePoint_t &sp, const vector3d_t &wo,
 								bool &reflect, bool &refract, vector3d_t *const dir, color_t *const col)const;
 		virtual CFLOAT getAlpha(const renderState_t &state, const surfacePoint_t &sp, const vector3d_t &wo)const;
+
+        virtual color_t getDiffuseAtPoint(const renderState_t &state, const surfacePoint_t &sp) const;
 		
 		static material_t* factory(paraMap_t &params, std::list<paraMap_t> &eparams, renderEnvironment_t &render);
 		struct SDDat_t
