@@ -106,6 +106,14 @@ public:
         return _data;
     }
 
+    bool isNodeBehindPlane(Point const& pos, Point const& normal) const
+    {
+        Point pos_to_min = _cellMin - pos;
+        Point pos_to_max = _cellMax - pos;
+
+        return (pos_to_min * normal <= 0.0f && pos_to_max * normal <= 0.0f);
+    }
+
     RegularBspTree<Point, dim, Data> & addPoint(Point const& point, Data const& data = Data())
 	{
         // std::cout << "Depth: " << _depth << " adding point: " << point << std::endl;
@@ -277,7 +285,7 @@ public:
 
     void printAveraged() const
     {
-        std::cout << "p:" << _averagedData.radius << " (d: " << _depth << ", " << _isLeaf << ", " << _data.size() << ")" << std::endl;
+        std::cout << "p:" << _clusteredData.radius << " (d: " << _depth << ", " << _isLeaf << ", " << _data.size() << ")" << std::endl;
 
         for (unsigned int i = 0; i < _children.size(); ++i)
         {
@@ -304,15 +312,11 @@ public:
         {
             RegularBspTree & node = *nodeQueue[i];
 
-            // std::cout << "d: " << node._depth << std::endl;
-
             if (node.getIsLeaf() && node._data.size() > 0)
             {
-//                std::cout << "leaf" << std::endl;
+                node._clusteredData = averageGiPoints(node._data);
 
-                node._averagedData = averageGiPoints(node._data);
-
-                if (node._averagedData.radius < 0.0f)
+                if (node._clusteredData.area < 0.0f)
                 {
                     std::cout << "Invalid averaged leaf:" << std::endl;
 
@@ -326,10 +330,9 @@ public:
             }
             else if (!node.getIsLeaf())
             {
-                // std::cout << "node" << std::endl;
-
                 std::vector<Data> leafData;
 
+                /*
                 for (unsigned int j = 0; j < node._children.size(); ++j)
                 {
                     if (node._children[j].getIsLeaf() && node._children[j]._data.size() > 0)
@@ -337,15 +340,23 @@ public:
                         leafData.push_back(node._children[j]._averagedData);
                     }
                 }
+                */
 
-                node._averagedData = averageGiPoints(leafData);
+                for (unsigned int j = 0; j < node._children.size(); ++j)
+                {
+                    leafData.push_back(node._children[j]._clusteredData);
+                }
+
+                node._clusteredData = averageGiPoints(leafData);
+
+                // node._averagedData.pos = (node._cellMin + node._cellMax) * 0.5f;
             }
         }
     }
 
     Data const& getAveragedData() const
     {
-        return _averagedData;
+        return _clusteredData;
     }
 
     std::vector<RegularBspTree const*> getNodes(int depth)
@@ -436,7 +447,7 @@ private:
 	std::vector<Point> _points;
     std::vector<Data> _data;
 
-    Data _averagedData;
+    Data _clusteredData;
 
 	bool _isLeaf;
 	int _depth;
