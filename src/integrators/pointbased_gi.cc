@@ -337,7 +337,6 @@ bool pbLighting_t::preprocess()
 
             ray_t ray;
 
-
             float area = tri.surfaceArea();
 
             int sampleCount = samplesPerArea * area;
@@ -728,7 +727,6 @@ colorA_t pbLighting_t::integrate(renderState_t &state, diffRay_t &ray) const
 	bool oldIncludeLights = state.includeLights;
 
 	// Shoot ray into scene
-
     bool useTree = true;
 	
 	if(scene->intersect(ray, sp)) // If it hits

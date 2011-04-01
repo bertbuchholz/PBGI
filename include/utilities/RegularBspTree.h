@@ -91,7 +91,7 @@ public:
 		return _cellMax;
 	}
 
-    std::vector< RegularBspTree<Point, dim, Data> > const& getChildren() const
+    std::vector<RegularBspTree> const& getChildren() const
 	{
 		return _children;
 	}
@@ -116,7 +116,6 @@ public:
 			// and add then
 			if ((int)_points.size() >= _maxPoints && _depth < _maxDepth)
 			{
-                // std::cout << "Full leaf, splitting." << std::endl;
 				split();
 
                 return addPoint(point, data);
@@ -236,7 +235,6 @@ public:
             std::cout << "[" << q._points[i] << "] Data: " << q._data[i] << std::endl;
 		}
         */
-
 
 		if (!q._isLeaf)
 		{
