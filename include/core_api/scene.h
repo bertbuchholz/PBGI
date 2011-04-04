@@ -72,6 +72,7 @@ struct YAFRAYCORE_EXPORT renderState_t
 	float dc1, dc2; //!< used to decorrelate samples from trajectory splitting
 	PFLOAT traveled;
 	int pixelNumber;
+    int pixel_x, pixel_y;
 	int threadID; //!< identify the current render thread; shall range from 0 to scene_t::getNumThreads() - 1
 	unsigned int samplingOffs; //!< a "noise-like" pixel offset you may use to decorelate sampling of adjacent pixel.
 	//point3d_t screenpos; //!< the image coordinates of the pixel being computed currently

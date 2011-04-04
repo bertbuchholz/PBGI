@@ -241,7 +241,9 @@ bool tiledIntegrator_t::renderTile(renderArea_t &a, int n_samples, int offset, b
 			}
 
 			rstate.pixelNumber = x*i+j;
-			rstate.samplingOffs = fnv_32a_buf(i*fnv_32a_buf(j));//fnv_32a_buf(rstate.pixelNumber);
+            rstate.pixel_x = j;
+            rstate.pixel_y = y - i - 1;
+            rstate.samplingOffs = fnv_32a_buf(i*fnv_32a_buf(j));//fnv_32a_buf(state.pixelNumber);
 			float toff = scrHalton(5, pass_offs+rstate.samplingOffs); // **shall be just the pass number...**
 			
 			halU.setStart(pass_offs+rstate.samplingOffs);

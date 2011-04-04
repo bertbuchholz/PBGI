@@ -89,10 +89,10 @@ GiPoint averageGiPoints(std::vector<GiPoint> const& points)
             result.sh_color_coefficients[j] += p.sh_color_coefficients[j];
         }
 
-        result.pos    += p.pos;
+        result.pos += p.pos;
     }
 
-    result.pos    *= 1.0f / float(points.size());
+    result.pos *= 1.0f / float(points.size());
 
     return result;
 
@@ -158,6 +158,7 @@ public:
     color_t doPointBasedGi(renderState_t & state, surfacePoint_t const& sp, vector3d_t const& wo) const;
     color_t doPointBasedGiTree(renderState_t & state, surfacePoint_t const& sp, vector3d_t const& wo) const;
     color_t doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t const& sp, vector3d_t const& wo) const;
+    color_t doPointBasedGiTreeSH_leafs_only(renderState_t & state, surfacePoint_t const& sp, vector3d_t const& wo) const;
 
     void calcShCoefficients(GiPoint & p);
 
@@ -169,6 +170,8 @@ private:
     float maxSolidAngle;
     int debugTreeDepth;
     bool debugOutputPointsToFile;
+
+    int pixel_x, pixel_y;
 
     MyTree* _bspTree;
     std::vector<MyTree *> leafNodes;
@@ -188,6 +191,9 @@ pbLighting_t::pbLighting_t(bool transpShad, int shadowDepth, int rayDepth) : max
 	intpb = 0;
     integratorName = "PointBased";
     integratorShortName = "PBGI";
+
+    pixel_x = 418;
+    pixel_y = 246;
 }
 
 void get_sh_lm_from_index(int index, int & l, int & m)
@@ -280,6 +286,7 @@ float get_sh_area(GiPoint const& p, vector3d_t const& dir)
     float result = 0.0f;
 
     for (int i = 0; i < 9; ++i)
+//    for (int i = 0; i < 1; ++i)
     {
         int l, m;
         get_sh_lm_from_index(i, l, m);
@@ -296,6 +303,7 @@ color_t get_sh_color(GiPoint const& p, vector3d_t const& dir)
     color_t result(0.0f);
 
     for (int i = 0; i < 9; ++i)
+//    for (int i = 0; i < 1; ++i)
     {
         int l, m;
         get_sh_lm_from_index(i, l, m);
@@ -552,12 +560,10 @@ bool pbLighting_t::preprocess()
             float accDiscAreas = samplingPoints.size() * 2.0f * M_PI * radius * radius;
 
             float ratio = triArea / accDiscAreas;
+            std::cout << "ratio: " << ratio << " area: " << triArea << " accDiscArea: " << accDiscAreas << std::endl;
 
             radius *= std::sqrt(ratio * 2.0f);
             float singleDiscArea = 2.0f * M_PI * radius * radius;
-
-            std::cout << "ratio: " << ratio << " area: " << triArea << " accDiscArea: " << accDiscAreas << std::endl;
-
 
             for (unsigned int i = 0; i < samplingPoints.size(); ++i)
             {
@@ -585,7 +591,7 @@ bool pbLighting_t::preprocess()
                     loffs++;
                 }
 
-                giPoint.energy = incomingLight;
+                giPoint.energy = incomingLight + material->emit(state, sp, vector3d_t());
 
                 calcShCoefficients(giPoint);
 
@@ -627,7 +633,7 @@ bool pbLighting_t::preprocess()
 
             for (unsigned int i = 0; i < nodes.size(); ++i)
             {
-                fileStream_depth << nodes[i]->getAveragedData() << std::endl;
+                fileStream_depth << nodes[i]->getClusteredData() << std::endl;
             }
         }
 
@@ -640,7 +646,7 @@ bool pbLighting_t::preprocess()
 
         for (unsigned int i = 0; i < leafs.size(); ++i)
         {
-            fileStream_leafs << leafs[i]->getAveragedData() << std::endl;
+            fileStream_leafs << leafs[i]->getClusteredData() << std::endl;
         }
 
         return false;
@@ -653,6 +659,8 @@ bool pbLighting_t::preprocess()
     Y_INFO << "PBGI: Created " << giPoints.size() << " gi points, solid angle: "
            << maxSolidAngle << " "
            << debugTreeDepth << " "
+           << "max depth: " << _bspTree->getMaxDepth() << " "
+           << "min leaf depth: " << _bspTree->getMinLeafDepth() << " "
            << std::endl;
 
 	return success;
@@ -710,7 +718,7 @@ color_t pbLighting_t::doPointBasedGiTree(renderState_t & state, surfacePoint_t c
         }
         else
         {
-            GiPoint const& giP = node->getAveragedData();
+            GiPoint const& giP = node->getClusteredData();
 
             if (giP.area > 0.0f)
             {
@@ -782,6 +790,8 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
     int shadingNodes = 0;
     int shadingDiscs = 0;
 
+    std::vector<GiPoint const*> debugStorage;
+
     while (!queue.empty())
     {
         MyTree const* node = queue.front();
@@ -809,11 +819,21 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
 
                 ray_t raySpToGiP(giP.pos, giToSp, 0.0001f, distance);
 
-                if (!scene->isShadowed(state, raySpToGiP) && !(cos_sp_gip <= 0.0f) && !(cos_normal_gip <= 0.0f))
+                // if (!scene->isShadowed(state, raySpToGiP) && !(cos_sp_gip <= 0.0f) && !(cos_normal_gip <= 0.0f))
                 {
                     color_t surfCol = material->eval(state, sp, wo, -giToSp, BSDF_ALL);
 
                     col += solidAngle * giP.color * giP.energy * cos_normal_gip * surfCol;
+
+                    if (pixel_x == state.pixel_x && pixel_y == state.pixel_y)
+                    {
+                        GiPoint * p = new GiPoint(giP);
+                        p->area = get_sh_area(giP, giToSp);
+                        p->color = get_sh_color(giP, giToSp);
+                        p->energy = 1.0f;
+
+                        debugStorage.push_back(p);
+                    }
                 }
 
                 ++shadingDiscs;
@@ -821,9 +841,9 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
         }
         else
         {
-            if (node->isNodeBehindPlane(vector3d_t(sp.P), sp.N)) continue;
+            // if (node->isNodeBehindPlane(vector3d_t(sp.P), sp.N)) continue;
 
-            GiPoint const& giP = node->getAveragedData();
+            GiPoint const& giP = node->getClusteredData();
 
             vector3d_t giToSp = (vector3d_t(sp.P) - giP.pos);
 
@@ -835,10 +855,11 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
 
             float area = get_sh_area(giP, giToSp);
 
-            //float solidAngle = cos_sp_gip * calcSolidAngle(giP.radius, distance);
+            if (area < 0.0001f) continue;
+
             float solidAngle = area / (distance * distance);
 
-            if (std::abs(solidAngle) > maxSolidAngle)
+            if (solidAngle > maxSolidAngle || area <= 0.0f)
             {
                 std::vector<MyTree> const& children = node->getChildren();
                 for (unsigned int i = 0; i < children.size(); ++i)
@@ -857,12 +878,127 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
                 {
                     color_t surfCol = material->eval(state, sp, wo, -giToSp, BSDF_ALL);
 
-                    color_t cluster_contribution = area * get_sh_color(giP, giToSp);
+                    color_t cluster_contribution = get_sh_color(giP, giToSp);
 
-                    col += cos_normal_gip * surfCol * cluster_contribution;
+                    if (cluster_contribution.R >= 0.0f &&
+                           cluster_contribution.G >= 0.0f &&
+                           cluster_contribution.B >= 0.0f)
+                    {
+
+                    }
+
+                    col += surfCol * cluster_contribution * (cos_normal_gip / (distance * distance));
+
+                    if (pixel_x == state.pixel_x && pixel_y == state.pixel_y)
+                    {
+                        GiPoint * p = new GiPoint(giP);
+                        p->area = area;
+                        p->color = cluster_contribution;
+                        p->energy = 1.0f;
+
+                        debugStorage.push_back(p);
+                    }
                 }
 
                 ++shadingNodes;
+            }
+        }
+    }
+
+
+    if (pixel_x == state.pixel_x && pixel_y == state.pixel_y)
+    {
+        std::cout << "shadingDiscs: " << shadingDiscs << " shadingNodes: " << shadingNodes << std::endl;
+
+        std::string fileName = "/tmp/pbgi_points_debug_pixel";
+
+        std::ofstream fileStream(fileName.c_str());
+
+        for (unsigned int i = 0; i < debugStorage.size(); ++i)
+        {
+            fileStream << *debugStorage[i] << std::endl;
+        }
+
+        /*
+        std::cout << "points for " << pixel_x << ", " << pixel_y << ":" << std::endl;
+        for (unsigned int i = 0; i < debugStorage.size(); ++i)
+        {
+            std::cout << *debugStorage[i] << std::endl;
+        }
+        */
+    }
+
+    return col;
+}
+
+
+
+color_t pbLighting_t::doPointBasedGiTreeSH_leafs_only(renderState_t & state, surfacePoint_t const& sp, vector3d_t const& wo) const
+{
+    color_t col(0.0f);
+    const material_t *material = sp.material;
+
+    // traverse tree, if solid angle of node > max, traverse into the children
+    std::queue<MyTree const*> queue;
+    queue.push(_bspTree);
+
+    int shadingNodes = 0;
+    int shadingDiscs = 0;
+
+    while (!queue.empty())
+    {
+        MyTree const* node = queue.front();
+        queue.pop();
+
+        // if we are here and we have a leaf, we sample all points in the leaf
+        if (node->getIsLeaf())
+        {
+            // if (node->isNodeBehindPlane(vector3d_t(sp.P), sp.N)) continue;
+
+            GiPoint const& giP = node->getClusteredData();
+
+            vector3d_t giToSp = (vector3d_t(sp.P) - giP.pos);
+
+            float distance = giToSp.length();
+
+            giToSp.normalize();
+
+            // float cos_sp_gip = giP.normal * giToSp;
+
+            float cos_normal_gip = -giToSp * sp.N;
+
+            ray_t raySpToGiP(giP.pos, giToSp, 0.0001f, distance);
+
+            // if (!scene->isShadowed(state, raySpToGiP) && !(cos_normal_gip <= 0.0f))
+            if (!scene->isShadowed(state, raySpToGiP))
+            {
+                color_t surfCol = material->eval(state, sp, wo, -giToSp, BSDF_ALL);
+
+                color_t cluster_contribution = get_sh_color(giP, giToSp);
+
+
+                /*
+                if (cluster_contribution.R < 0.0f ||
+                       cluster_contribution.G < 0.0f ||
+                       cluster_contribution.B < 0.0f)
+                {
+                    std::cout << "color < 0: " << cluster_contribution << std::endl;
+                }
+                */
+
+
+                // col += cos_normal_gip * cluster_contribution / (distance * distance);
+                col += cos_normal_gip * surfCol * cluster_contribution / (distance * distance);
+            }
+
+            ++shadingNodes;
+        }
+        else
+        {
+            std::vector<MyTree> const& children = node->getChildren();
+            for (unsigned int i = 0; i < children.size(); ++i)
+            {
+                queue.push(&children[i]);
             }
         }
     }
@@ -871,7 +1007,6 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
 
     return col;
 }
-
 
 
 
@@ -970,6 +1105,11 @@ color_t pbLighting_t::doPointBasedGi(renderState_t & state, surfacePoint_t const
 
 colorA_t pbLighting_t::integrate(renderState_t &state, diffRay_t &ray) const
 {
+//    if (pixel_x != state.pixel_x || pixel_y != state.pixel_y)
+//    {
+//        return color_t(0.0);
+//    }
+
 	color_t col(0.0);
 	float alpha = 0.0;
 	surfacePoint_t sp;
@@ -1012,7 +1152,7 @@ colorA_t pbLighting_t::integrate(renderState_t &state, diffRay_t &ray) const
 
             for (unsigned int i = 0; i < points.size(); ++i)
             {
-                GiPoint const& p = points[i]->getAveragedData();
+                GiPoint const& p = points[i]->getClusteredData();
 
                 float distSqr = (p.pos - sp.P).lengthSqr();
 
@@ -1023,7 +1163,7 @@ colorA_t pbLighting_t::integrate(renderState_t &state, diffRay_t &ray) const
                 }
             }
 
-            GiPoint const& p = points[index]->getAveragedData();
+            GiPoint const& p = points[index]->getClusteredData();
 
             /*
             MyTree const& t = _bspTree->query(vector3d_t(sp.P));
@@ -1056,6 +1196,7 @@ colorA_t pbLighting_t::integrate(renderState_t &state, diffRay_t &ray) const
 
             if (useTree)
             {
+//                col += doPointBasedGiTreeSH_leafs_only(state, sp, wo);
                 col += doPointBasedGiTreeSH(state, sp, wo);
             }
             else

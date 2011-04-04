@@ -349,12 +349,12 @@ public:
 
                 node._clusteredData = averageGiPoints(leafData);
 
-                // node._averagedData.pos = (node._cellMin + node._cellMax) * 0.5f;
+                node._clusteredData.pos = (node._cellMin + node._cellMax) * 0.5f;
             }
         }
     }
 
-    Data const& getAveragedData() const
+    Data const& getClusteredData() const
     {
         return _clusteredData;
     }
@@ -413,6 +413,33 @@ public:
         }
 
         return maxDepth;
+    }
+
+    // the leaf closest to the root
+    int getMinLeafDepth() const
+    {
+        int minDepth = 10000;
+
+        std::queue<RegularBspTree const*> queue;
+        queue.push(this);
+
+        while (!queue.empty())
+        {
+            RegularBspTree const* node = queue.front();
+            queue.pop();
+
+            if (node->getIsLeaf() && node->_depth < minDepth)
+            {
+                minDepth = node->_depth;
+            }
+
+            for (unsigned int i = 0; i < node->_children.size(); ++i)
+            {
+                queue.push(&(node->_children[i]));
+            }
+        }
+
+        return minDepth;
     }
 
     int getNodeCount() const
