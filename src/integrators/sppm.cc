@@ -477,7 +477,7 @@ GatherInfo SPPM::traceGatherRay(yafaray::renderState_t &state, yafaray::diffRay_
 		vector3d_t wo = -ray.dir;
 		const material_t *material = sp.material;
 		material->initBSDF(state, sp, bsdfs);
-		gInfo.constantRandiance += material->emit(state, sp, wo); //add only once, but FG seems add twice?
+        gInfo.constantRandiance += material->emission(state, sp, wo); //add only once, but FG seems add twice?
 		state.includeLights = false;
 		spDifferentials_t spDiff(sp, ray);
 

@@ -43,7 +43,7 @@
 __BEGIN_YAFRAY
 
 scene_t::scene_t():  volIntegrator(0), camera(0), imageFilm(0), tree(0), vtree(0), background(0), surfIntegrator(0),
-					AA_samples(1), AA_passes(1), AA_threshold(0.05), nthreads(1), mode(1), do_depth(false), signals(0)
+                    AA_samples(1), AA_passes(1), AA_threshold(0.05), nthreads(1), mode(1), do_depth(false), yaf_signals(0)
 {
 	state.changes = C_ALL;
 	state.stack.push_front(READY);
@@ -68,7 +68,7 @@ scene_t::~scene_t()
 void scene_t::abort()
 {
 	sig_mutex.lock();
-	signals |= Y_SIG_ABORT;
+    yaf_signals |= Y_SIG_ABORT;
 	sig_mutex.unlock();
 }
 
@@ -76,7 +76,7 @@ int scene_t::getSignals() const
 {
 	int sig;
 	sig_mutex.lock();
-	sig = signals;
+    sig = yaf_signals;
 	sig_mutex.unlock();
 	return sig;
 }
@@ -886,7 +886,7 @@ bool scene_t::isShadowed(renderState_t &state, const ray_t &ray, int maxDepth, c
 bool scene_t::render()
 {
 	sig_mutex.lock();
-	signals = 0;
+    yaf_signals = 0;
 	sig_mutex.unlock();
 
 	if(!update()) return false;

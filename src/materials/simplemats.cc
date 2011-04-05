@@ -40,7 +40,7 @@ class lightMat_t: public material_t
 		virtual void initBSDF(const renderState_t &state, const surfacePoint_t &sp, unsigned int &bsdfTypes) const { bsdfTypes=bsdfFlags; }
 		virtual color_t eval(const renderState_t &state, const surfacePoint_t &sp, const vector3d_t &wo, const vector3d_t &wl, BSDF_t bsdfs) const {return color_t(0.0);}
 		virtual color_t sample(const renderState_t &state, const surfacePoint_t &sp, const vector3d_t &wo, vector3d_t &wi, sample_t &s, float &W) const;
-		virtual color_t emit(const renderState_t &state, const surfacePoint_t &sp, const vector3d_t &wo) const;
+        virtual color_t emission(const renderState_t &state, const surfacePoint_t &sp, const vector3d_t &wo) const;
 		virtual float pdf(const renderState_t &state, const surfacePoint_t &sp, const vector3d_t &wo, const vector3d_t &wi, BSDF_t bsdfs) const;
 		static material_t* factory(paraMap_t &params, std::list< paraMap_t > &eparans, renderEnvironment_t &env);
 	protected:
@@ -60,7 +60,7 @@ color_t lightMat_t::sample(const renderState_t &state, const surfacePoint_t &sp,
 	return color_t(0.f);
 }
 
-color_t lightMat_t::emit(const renderState_t &state, const surfacePoint_t &sp, const vector3d_t &wo)const
+color_t lightMat_t::emission(const renderState_t &state, const surfacePoint_t &sp, const vector3d_t &wo)const
 {
 	if(!state.includeLights) return color_t(0.f);
 	if(doubleSided) return lightCol;

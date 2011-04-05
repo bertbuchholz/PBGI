@@ -229,7 +229,7 @@ class YAFRAYCORE_EXPORT scene_t
 		int nthreads;
 		int mode; //!< sets the scene mode (triangle-only, virtual primitives)
 		bool do_depth;
-		int signals;
+        int yaf_signals;
 		mutable yafthreads::mutex_t sig_mutex;
 };
 

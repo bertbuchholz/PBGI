@@ -7,7 +7,8 @@
 //#include "scene.h"
 #include "ray.h"
 #include "surface.h"
-#include "utilities/sample_utils.h"
+#include <utilities/sample_utils.h>
+#include <core_api/color.h>
 
 
 __BEGIN_YAFRAY
@@ -122,7 +123,7 @@ class YAFRAYCORE_EXPORT material_t
 		
 		/*!	allow light emitting materials, for realizing correctly visible area lights.
 			default implementation returns black obviously.	*/
-		virtual color_t emit(const renderState_t &state, const surfacePoint_t &sp, const vector3d_t &wo)const { return color_t(0.0); }
+        virtual color_t emission(const renderState_t &state, const surfacePoint_t &sp, const vector3d_t &wo)const { return color_t(0.0); }
 		
 		/*! get the volumetric handler for space at specified side of the surface
 			\param inside true means space opposite of surface normal, which is considered "inside" */

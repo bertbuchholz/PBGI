@@ -27,7 +27,7 @@ class blendMat_t: public nodeMaterial_t
 		virtual float getMatIOR ()const;
 		virtual bool isTransparent() const;
 		virtual color_t getTransparency(const renderState_t &state, const surfacePoint_t &sp, const vector3d_t &wo)const;
-		virtual color_t emit(const renderState_t &state, const surfacePoint_t &sp, const vector3d_t &wo)const;
+        virtual color_t emission(const renderState_t &state, const surfacePoint_t &sp, const vector3d_t &wo)const;
 		virtual void getSpecular(const renderState_t &state, const surfacePoint_t &sp, const vector3d_t &wo,
 								bool &reflect, bool &refract, vector3d_t *const dir, color_t *const col)const;
 		virtual CFLOAT getAlpha(const renderState_t &state, const surfacePoint_t &sp, const vector3d_t &wo)const;

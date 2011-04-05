@@ -107,13 +107,13 @@ void maskMat_t::getSpecular(const renderState_t &state, const surfacePoint_t &sp
 	state.userdata = PTR_ADD(state.userdata, -sizeof(bool));
 }
 
-color_t maskMat_t::emit(const renderState_t &state, const surfacePoint_t &sp, const vector3d_t &wo)const
+color_t maskMat_t::emission(const renderState_t &state, const surfacePoint_t &sp, const vector3d_t &wo)const
 {
 	bool mv = *(bool*)state.userdata;
 	color_t col;
 	state.userdata = PTR_ADD(state.userdata, sizeof(bool));
-	if(mv) col = mat2->emit(state, sp, wo);
-	else   col = mat1->emit(state, sp, wo);
+    if(mv) col = mat2->emission(state, sp, wo);
+    else   col = mat1->emission(state, sp, wo);
 	state.userdata = PTR_ADD(state.userdata, -sizeof(bool));
 	return col;
 }

@@ -705,7 +705,7 @@ color_t photonIntegrator_t::finalGathering(renderState_t &state, const surfacePo
 				
 				if(close || caustic)
 				{
-					if(matBSDFs & BSDF_EMIT) lcol += p_mat->emit(state, hit, pwo);
+                    if(matBSDFs & BSDF_EMIT) lcol += p_mat->emission(state, hit, pwo);
 					pathCol += lcol*throughput;
 				}
 			}
@@ -760,7 +760,7 @@ color_t photonIntegrator_t::finalGathering(renderState_t &state, const surfacePo
 				vector3d_t sf = FACE_FORWARD(hit.Ng, hit.N, -pRay.dir);
 				const photon_t *nearest = radianceMap.findNearest(hit.P, sf, lookupRad);
 				if(nearest) lcol = nearest->color();
-				if(matBSDFs & BSDF_EMIT) lcol += p_mat->emit(state, hit, -pRay.dir);
+                if(matBSDFs & BSDF_EMIT) lcol += p_mat->emission(state, hit, -pRay.dir);
 				pathCol += lcol * throughput;
 			}
 		}
@@ -794,7 +794,7 @@ colorA_t photonIntegrator_t::integrate(renderState_t &state, diffRay_t &ray) con
 		vector3d_t wo = -ray.dir;
 		const material_t *material = sp.material;
 		material->initBSDF(state, sp, bsdfs);
-		col += material->emit(state, sp, wo);
+        col += material->emission(state, sp, wo);
 		state.includeLights = false;
 		spDifferentials_t spDiff(sp, ray);
 		
@@ -809,7 +809,7 @@ colorA_t photonIntegrator_t::integrate(renderState_t &state, diffRay_t &ray) con
 			else
 			{
 				// contribution of light emitting surfaces
-				if(bsdfs & BSDF_EMIT) col += material->emit(state, sp, wo);
+                if(bsdfs & BSDF_EMIT) col += material->emission(state, sp, wo);
 				
 				if(bsdfs & BSDF_DIFFUSE)
 				{
@@ -828,7 +828,7 @@ colorA_t photonIntegrator_t::integrate(renderState_t &state, diffRay_t &ray) con
 			}
 			else
 			{
-				if(bsdfs & BSDF_EMIT) col += material->emit(state, sp, wo);
+                if(bsdfs & BSDF_EMIT) col += material->emission(state, sp, wo);
 				
 				if(bsdfs & BSDF_DIFFUSE)
 				{

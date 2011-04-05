@@ -110,7 +110,7 @@ colorA_t directLighting_t::integrate(renderState_t &state, diffRay_t &ray) const
 		
 		material->initBSDF(state, sp, bsdfs);
 		
-		if(bsdfs & BSDF_EMIT) col += material->emit(state, sp, wo);
+        if(bsdfs & BSDF_EMIT) col += material->emission(state, sp, wo);
 		
 		if(bsdfs & BSDF_DIFFUSE)
 		{

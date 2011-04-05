@@ -61,8 +61,8 @@ struct YAFRAYCORE_EXPORT setColor
 		fgCol = fgColor;
 		bgCol = (bgColor != Default) ? bgColor << 4 : Default;
 		#else
-		fgCol = (fgColor != Default) ? fgColor + 30 : Default;
-		bgCol = (bgColor != Default) ? bgColor + 40 : Default;
+        fgCol = (fgColor != yColor(Default)) ? fgColor + 30 : Default;
+        bgCol = (bgColor != yColor(Default)) ? bgColor + 40 : Default;
 		#endif
 		intense = intensecolor;
 	}

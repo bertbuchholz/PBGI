@@ -349,7 +349,7 @@ public:
 
                 node._clusteredData = averageGiPoints(leafData);
 
-                node._clusteredData.pos = (node._cellMin + node._cellMax) * 0.5f;
+//                node._clusteredData.pos = (node._cellMin + node._cellMax) * 0.5f;
             }
         }
     }

@@ -325,7 +325,7 @@ CFLOAT blendMat_t::getAlpha(const renderState_t &state, const surfacePoint_t &sp
 	return 1.0;
 }
 
-color_t blendMat_t::emit(const renderState_t &state, const surfacePoint_t &sp, const vector3d_t &wo)const
+color_t blendMat_t::emission(const renderState_t &state, const surfacePoint_t &sp, const vector3d_t &wo)const
 {
 	float val, ival;
 	getBlendVal(state, sp, val, ival);
@@ -334,10 +334,10 @@ color_t blendMat_t::emit(const renderState_t &state, const surfacePoint_t &sp, c
 	void *old_udat = state.userdata;
 
 	state.userdata = PTR_ADD(state.userdata, reqMem);
-	col1 = mat1->emit(state, sp, wo);
+    col1 = mat1->emission(state, sp, wo);
 	
 	state.userdata = PTR_ADD(state.userdata, mmem1);
-	col2 = mat2->emit(state, sp, wo);
+    col2 = mat2->emission(state, sp, wo);
 	
 	col1 = addColors(col1, col2, ival, val);
 		

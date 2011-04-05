@@ -137,7 +137,7 @@ colorA_t pathIntegrator_t::integrate(renderState_t &state, diffRay_t &ray/*, sam
 		color_t vcol(0.f);
 
 		// contribution of light emitting surfaces		
-		if(bsdfs & BSDF_EMIT) col += material->emit(state, sp, wo);
+        if(bsdfs & BSDF_EMIT) col += material->emission(state, sp, wo);
 		
 		if(bsdfs & BSDF_DIFFUSE)
 		{
@@ -201,7 +201,7 @@ colorA_t pathIntegrator_t::integrate(renderState_t &state, diffRay_t &ray/*, sam
 				p_mat->initBSDF(state, *hit, matBSDFs);
 				pwo = -pRay.dir;
 				lcol = estimateOneDirectLight(state, *hit, pwo, offs);
-				if(matBSDFs & BSDF_EMIT) lcol += p_mat->emit(state, *hit, pwo);
+                if(matBSDFs & BSDF_EMIT) lcol += p_mat->emission(state, *hit, pwo);
 
 				pathCol += lcol*throughput;
 				
@@ -256,7 +256,7 @@ colorA_t pathIntegrator_t::integrate(renderState_t &state, diffRay_t &ray/*, sam
 						if(vol->transmittance(state, pRay, vcol)) throughput *= vcol;
 					}
 					
-					if (matBSDFs & BSDF_EMIT && caustic) lcol += p_mat->emit(state, *hit, pwo);
+                    if (matBSDFs & BSDF_EMIT && caustic) lcol += p_mat->emission(state, *hit, pwo);
 					
 					pathCol += lcol*throughput;
 				}

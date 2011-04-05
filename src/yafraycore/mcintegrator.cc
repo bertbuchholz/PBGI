@@ -615,7 +615,7 @@ color_t mcIntegrator_t::sampleAmbientOcclusion(renderState_t &state, const surfa
 		
 		if(material->getFlags() & BSDF_EMIT)
 		{
-			col += material->emit(state, sp, wo) * s.pdf;
+            col += material->emission(state, sp, wo) * s.pdf;
 		}
 		
 		shadowed = (trShad) ? scene->isShadowed(state, lightRay, sDepth, scol) : scene->isShadowed(state, lightRay);
