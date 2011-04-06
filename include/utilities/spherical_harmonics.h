@@ -94,7 +94,7 @@ class GiSphericalHarmonics
         random_t random;
 
         float res_u = 20.0f;
-        float res_v = 20.0f;
+        float res_v = 40.0f;
 
         for (int u = 0; u < res_u; ++u)
         {
@@ -461,11 +461,11 @@ class GiSphericalHarmonics
 
     friend GiSphericalHarmonics operator+(GiSphericalHarmonics const& lhs, GiSphericalHarmonics const& rhs)
     {
-        assert(lhs.bands == rhs.bands);
+        assert(lhs.bands == rhs.bands && lhs.exact == rhs.exact);
 
-        GiSphericalHarmonics result(lhs.bands);
+        GiSphericalHarmonics result(lhs.exact, lhs.bands);
 
-        for (int j = 0; j < lhs.bands; ++j)
+        for (int j = 0; j < lhs.bands * lhs.bands; ++j)
         {
             result.sh_area_coefficients[j] = lhs.sh_area_coefficients[j] + rhs.sh_area_coefficients[j];
             result.sh_color_coefficients[j] = lhs.sh_color_coefficients[j] + rhs.sh_color_coefficients[j];

@@ -66,6 +66,11 @@ public:
 		_depth = d;
 	}
 
+    int getDepth() const
+    {
+        return _depth;
+    }
+
 	bool getIsLeaf() const
 	{
 		return _isLeaf;
@@ -312,6 +317,8 @@ public:
         {
             RegularBspTree & node = *nodeQueue[i];
 
+            std::cout << "node depth: " << node._depth << " node: " << &node << std::endl;
+
             if (node.getIsLeaf() && node._data.size() > 0)
             {
                 node._clusteredData = averageGiPoints(node._data);
@@ -351,7 +358,7 @@ public:
 
                 node._clusteredData = averageGiPoints(leafData);
 
-//                node._clusteredData.pos = (node._cellMin + node._cellMax) * 0.5f;
+                node._clusteredData.pos = (node._cellMin + node._cellMax) * 0.5f;
             }
         }
     }

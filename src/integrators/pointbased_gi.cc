@@ -37,6 +37,24 @@ GiPoint averageGiPoints(std::vector<GiPoint> const& points)
 
     result.pos *= 1.0f / float(points.size());
 
+    // sanity check
+    yafaray::vector3d_t mainDir(0.5f, 0.5f, 0.5f);
+    mainDir.normalize();
+
+    float accAreaChildren = 0;
+    float accAreaParent = result.sh_representation.get_sh_area(mainDir);
+
+    for (int i = 0; i < points.size(); ++i)
+    {
+        accAreaChildren += points[i].sh_representation.get_sh_area(mainDir);
+    }
+
+    // if (std::abs(accAreaParent / accAreaChildren) < 0.5f || std::abs(accAreaParent / accAreaChildren) > 2.0f)
+    {
+        std::cout << "parent: " << accAreaParent << " children: " << accAreaChildren << std::endl;
+    }
+
+
     return result;
 
 #if 0
@@ -101,9 +119,6 @@ pbLighting_t::pbLighting_t(bool transpShad, int shadowDepth, int rayDepth) : max
 	intpb = 0;
     integratorName = "PointBased";
     integratorShortName = "PBGI";
-
-    pixel_x = 185;
-    pixel_y = 226;
 }
 
 
@@ -423,7 +438,14 @@ bool pbLighting_t::preprocess()
 
             for (unsigned int i = 0; i < nodes.size(); ++i)
             {
-                fileStream_depth << nodes[i]->getClusteredData() << std::endl;
+                GiPoint p = nodes[i]->getClusteredData();
+                p.area = p.sh_representation.get_area_coefficient(0);
+                p.color = p.sh_representation.get_color_coefficient(0);
+                p.energy = 1.0f;
+
+                fileStream_depth << p << std::endl;
+
+                // fileStream_depth << nodes[i]->getClusteredData() << std::endl;
             }
         }
 
@@ -592,8 +614,13 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
         MyTree const* node = queue.front();
         queue.pop();
 
+        if (col.col2bri() < 0)
+        {
+            std::cout << "col 0 < 0: " << col << " " << state.pixel_x << " " << state.pixel_y << std::endl;
+        }
+
         // if we are here and we have a leaf, we sample all points in the leaf
-        if (node->getIsLeaf())
+        if (node->getIsLeaf() && node->getData().size() > 0)
         {
             std::vector<GiPoint> const& points = node->getData();
 
@@ -613,6 +640,12 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
                 // float solidAngle = cos_sp_gip * giP.area / (distance * distance);
 
                 float area = giP.sh_representation.get_sh_area(giToSp);
+
+                if (area < 0.0f)
+                {
+                    std::cout << "area 2 < 0, " << area << " " << node->getDepth() << std::endl;
+                }
+
                 // area = cos_sp_gip * giP.area;
                 float solidAngle = area / (distance * distance);
 
@@ -624,17 +657,31 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
 
                     color_t cluster_contribution = giP.sh_representation.get_sh_color(giToSp);
 
+                    if (cluster_contribution.col2bri() < 0.0f) continue;
+
 //                    color_t contribution = solidAngle * giP.color * giP.energy * cos_normal_gip;
                     color_t contribution = cluster_contribution * (cos_normal_gip / (distance * distance));
 
                     col += contribution * surfCol;
 
-                    if (pixel_x == state.pixel_x && pixel_y == state.pixel_y && distance < 100)
+                    if (pixel_x == state.pixel_x && pixel_y == state.pixel_y)
                     {
                         if (area <= 0.0f)
                         {
                             std::cout << giToSp << std::endl;
                         }
+
+                        if (contribution.col2bri() > 0.01f)
+                        {
+                            std::cout << "contr 2 > 0.01" << std::endl;
+                            std::cout << "cur col 2: " << col << std::endl;
+                        }
+
+                        if (contribution.col2bri() < 0.0f)
+                        {
+                            std::cout << "contr 2 < 0" << std::endl;
+                        }
+
 
                         GiPoint * p = new GiPoint(giP);
                         // p->area = get_sh_area(giP, giToSp);
@@ -650,6 +697,40 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
 
                 ++shadingDiscs;
             }
+
+            /*
+            GiPoint const& parent = node->getClusteredData();
+            vector3d_t parentToSp = (vector3d_t(sp.P) - parent.pos);
+//            vector3d_t parentToSp(0.5f, 0.5f, 0.5f);
+            parentToSp.normalize();
+            float parentColorContribution = parent.sh_representation.get_sh_color(parentToSp).col2bri();
+            float parentAreaContribution = parent.sh_representation.get_sh_area(parentToSp);
+
+            float accColorContribution = 0.0f;
+            float accAreaContribution = 0.0f;
+
+            for (unsigned int i = 0; i < points.size(); ++i)
+            {
+                GiPoint const& giP = points[i];
+
+                vector3d_t giToSp = (vector3d_t(sp.P) - giP.pos);
+                giToSp.normalize();
+
+                accColorContribution += giP.sh_representation.get_sh_color(giToSp).col2bri();
+                // accAreaContribution += giP.sh_representation.get_sh_area(parentToSp);
+                accAreaContribution += giP.sh_representation.get_sh_area(giToSp);
+            }
+
+            std::cout << "depth: " << node->getDepth() << " node: " << node << std::endl;
+
+            std::cout << "children/parent color ratio: " << (accColorContribution / parentColorContribution) << " "
+                      << accColorContribution << " "
+                      << parentColorContribution << std::endl;
+
+            std::cout << "children/parent area ratio: " << (accAreaContribution / parentAreaContribution) << " "
+                      << accAreaContribution << " "
+                      << parentAreaContribution << std::endl;
+            */
         }
         else
         {
@@ -667,12 +748,18 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
 
             float area = giP.sh_representation.get_sh_area(giToSp);
 
-            // if (area < 0.0001f) continue;
+            if (area < 0.0f)
+            {
+                // std::cout << "area 1 < 0, " << area << " " << node->getDepth() << std::endl;
+                // area = -area;
+            }
 
             float solidAngle = area / (distance * distance);
 
-            if (solidAngle > maxSolidAngle)
+            // if (true)
+            // if (solidAngle > maxSolidAngle)
             // if (solidAngle > maxSolidAngle || area <= 0.0f)
+            if (node->getDepth() < debugTreeDepth)
             {
                 std::vector<MyTree> const& children = node->getChildren();
                 for (unsigned int i = 0; i < children.size(); ++i)
@@ -682,21 +769,37 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
             }
             else
             {
+                // if (solidAngle < 0.0001f) continue;
+
                 float cos_normal_gip = -giToSp * sp.N;
 
                 ray_t raySpToGiP(giP.pos, giToSp, 0.0001f, distance);
 
                 // if (!scene->isShadowed(state, raySpToGiP) && !(cos_normal_gip <= 0.0f))
-                if (!scene->isShadowed(state, raySpToGiP))
+                // if (!scene->isShadowed(state, raySpToGiP))
                 {
                     color_t surfCol = material->eval(state, sp, wo, -giToSp, BSDF_ALL);
 
                     color_t cluster_contribution = giP.sh_representation.get_sh_color(giToSp);
 
+                    cluster_contribution.clampRGB0();
+
+                    if (cluster_contribution.col2bri() < 0.0f) continue;
+
                     col += surfCol * cluster_contribution * (cos_normal_gip / (distance * distance));
 
                     if (pixel_x == state.pixel_x && pixel_y == state.pixel_y)
                     {
+                        if (col.col2bri() < 0)
+                        {
+                            std::cout << "col 1 < 0: " << col << " " << area << std::endl;
+                        }
+
+                        if (cluster_contribution.col2bri() < 0)
+                        {
+                            std::cout << "cluster_contribution 1 < 0 " << cluster_contribution << " " << col << " " << area << std::endl;
+                        }
+
                         GiPoint * p = new GiPoint(giP);
                         p->area = area;
                         p->color = cluster_contribution;
