@@ -344,6 +344,8 @@ public:
 
                 for (unsigned int j = 0; j < node._children.size(); ++j)
                 {
+                    if (node._children[j].getIsLeaf() && node._children[j]._data.size() == 0) continue;
+
                     leafData.push_back(node._children[j]._clusteredData);
                 }
 

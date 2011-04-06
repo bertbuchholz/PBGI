@@ -32,14 +32,6 @@ GiPoint averageGiPoints(std::vector<GiPoint> const& points)
 
         result.sh_representation = result.sh_representation + p.sh_representation;
 
-        /*
-        for (int j = 0; j < 9; ++j)
-        {
-            result.sh_area_coefficients[j] += p.sh_area_coefficients[j];
-            result.sh_color_coefficients[j] += p.sh_color_coefficients[j];
-        }
-        */
-
         result.pos += p.pos;
     }
 
@@ -392,7 +384,6 @@ bool pbLighting_t::preprocess()
                 giPoint.energy = incomingLight + material->emission(state, sp, vector3d_t());
 
                 giPoint.sh_representation.calc_coefficients_random(giPoint.normal, giPoint.color, giPoint.energy, giPoint.area);
-                // calcShCoefficients(giPoint);
 
                 giPoints.push_back(giPoint);
 
@@ -680,7 +671,8 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
 
             float solidAngle = area / (distance * distance);
 
-            if (solidAngle > maxSolidAngle || area <= 0.0f)
+            if (solidAngle > maxSolidAngle)
+            // if (solidAngle > maxSolidAngle || area <= 0.0f)
             {
                 std::vector<MyTree> const& children = node->getChildren();
                 for (unsigned int i = 0; i < children.size(); ++i)
@@ -700,13 +692,6 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
                     color_t surfCol = material->eval(state, sp, wo, -giToSp, BSDF_ALL);
 
                     color_t cluster_contribution = giP.sh_representation.get_sh_color(giToSp);
-
-                    if (cluster_contribution.R >= 0.0f &&
-                           cluster_contribution.G >= 0.0f &&
-                           cluster_contribution.B >= 0.0f)
-                    {
-
-                    }
 
                     col += surfCol * cluster_contribution * (cos_normal_gip / (distance * distance));
 

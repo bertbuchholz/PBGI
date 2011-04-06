@@ -22,9 +22,9 @@ struct GiPoint
         normal(0.0f),
         color(0.0f),
         area(0.0f),
-        energy(0.0f)
-    {
-    }
+        energy(0.0f),
+        sh_representation(GiSphericalHarmonics<vector3d_t, color_t>(true, 3))
+    { }
 
     vector3d_t pos;
     vector3d_t normal;

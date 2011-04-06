@@ -4,19 +4,86 @@
 #include <yafray_config.h>
 #include <utilities/mcqmc.h>
 #include <cmath>
+#include <stdint.h>
 
 __BEGIN_YAFRAY
+
+static unsigned int factorial_table[] =
+{
+1,
+1,
+2,
+6,
+24,
+120,
+720,
+5040,
+40320,
+362880,
+3628800,
+39916800,
+479001600 };
+
+/*,
+6227020800,
+87178291200,
+1307674368000,
+20922789888000,
+355687428096000,
+6402373705728000,
+121645100408832000,
+2432902008176640000,
+51090942171709440000,
+1124000727777607680000,
+25852016738884976640000,
+620448401733239439360000,
+15511210043330985984000000,
+403291461126605635584000000,
+10888869450418352160768000000,
+304888344611713860501504000000,
+8841761993739701954543616000000,
+265252859812191058636308480000000,
+8222838654177922817725562880000000,
+263130836933693530167218012160000000,
+8683317618811886495518194401280000000 };
+*/
 
 template <class Point, class Color>
 class GiSphericalHarmonics
 {
     public:
-    GiSphericalHarmonics(int b = 3)
+    typedef float (GiSphericalHarmonics::*sh_coefficient_func)(Point const& dir) const; // sh_coefficient_func;
+
+    GiSphericalHarmonics(bool exact = false, int b = 3)
     {
-        bands = b;
+        // bands = b;
+        bands = 3;
+        this->exact = exact;
 
         sh_color_coefficients = std::vector<Color>(bands * bands, Color(0.0f));
         sh_area_coefficients = std::vector<float>(bands * bands, 0.0f);
+
+        // index function: sh_index = l * (l + 1) + m
+        // l   m   index
+        // 0   0   0
+        // 1  -1   1
+        // 1   0   2
+        // 1   1   3
+        // 2  -2   4
+        // 2  -1   5
+        // 2   0   6
+        // 2   1   7
+        // 2   2   8
+
+        sh_functions[0] = &GiSphericalHarmonics::SH_precomputed_0;
+        sh_functions[1] = &GiSphericalHarmonics::SH_precomputed_1;
+        sh_functions[2] = &GiSphericalHarmonics::SH_precomputed_2;
+        sh_functions[3] = &GiSphericalHarmonics::SH_precomputed_3;
+        sh_functions[4] = &GiSphericalHarmonics::SH_precomputed_4;
+        sh_functions[5] = &GiSphericalHarmonics::SH_precomputed_5;
+        sh_functions[6] = &GiSphericalHarmonics::SH_precomputed_6;
+        sh_functions[7] = &GiSphericalHarmonics::SH_precomputed_7;
+        sh_functions[8] = &GiSphericalHarmonics::SH_precomputed_8;
     }
 
     void calc_coefficients_random(Point const& normal, Color const& color, Color const& energy, float const area)
@@ -43,13 +110,32 @@ class GiSphericalHarmonics
                           std::sin(theta) * std::sin(phi),
                           std::cos(theta));
 
-                for (int l = 0; l < bands; ++l)
-                {
-                    for(int m = -l; m <= l; ++m)
-                    {
-                        int sh_index = l * (l + 1) + m;
+                // std::cout << "---" << std::endl;
 
-                        float Y_l_m = SH(l, m, theta, phi);
+                if (exact)
+                {
+                    for (int l = 0; l < bands; ++l)
+                    {
+                        for(int m = -l; m <= l; ++m)
+                        {
+                            int sh_index = l * (l + 1) + m;
+
+                            float Y_l_m = SH(l, m, theta, phi);
+
+                            // std::cout << Y_l_m << " " << Y_index << std::endl;
+
+                            float area_coeff = area * std::max(dir * normal, 0.0f) * Y_l_m;
+
+                            sh_color_coefficients[sh_index] += color * energy * area_coeff;
+                            sh_area_coefficients[sh_index]  += area_coeff;
+                        }
+                    }
+                }
+                else
+                {
+                    for (int sh_index = 0; sh_index < 9; ++sh_index)
+                    {
+                        float Y_l_m = SH_precomputed(sh_index, dir);
 
                         float area_coeff = area * std::max(dir * normal, 0.0f) * Y_l_m;
 
@@ -94,9 +180,17 @@ class GiSphericalHarmonics
                           std::sin(theta) * std::sin(phi),
                           std::cos(theta));
 
-                test_area_real += area * std::max(dir * normal, 0.0f);
 
-                test_area_sh += get_sh_area(theta, phi);
+                if (exact)
+                {
+                    test_area_sh += get_sh_area(theta, phi);
+                }
+                else
+                {
+                    test_area_sh += get_sh_area(dir);
+                }
+
+                test_area_real += area * std::max(dir * normal, 0.0f);
             }
         }
 
@@ -111,14 +205,31 @@ class GiSphericalHarmonics
 
     float get_sh_area(Point const& dir) const
     {
+        if (!exact)
+        {
+            float result = 0.0f;
+
+            for (int sh_index = 0; sh_index < 9; ++sh_index)
+            {
+                float Y_l_m = SH_precomputed(sh_index, dir);
+
+                result += sh_area_coefficients[sh_index] * Y_l_m;
+
+            }
+
+            return result;
+        }
+
         float theta = std::acos(dir.z);
         float phi = std::atan2(dir.y, dir.x);
-
         return get_sh_area(theta, phi);
     }
 
     float get_sh_area(float const theta, float const phi) const
     {
+        if (!exact)
+            std::cout << "shouldn't be used!" << std::endl;
+
         float result = 0.0f;
 
         for (int l = 0; l < bands; ++l)
@@ -138,6 +249,21 @@ class GiSphericalHarmonics
 
     Color get_sh_color(Point const& dir) const
     {
+        if (!exact)
+        {
+            Color result(0.0f);
+
+            for (int sh_index = 0; sh_index < 9; ++sh_index)
+            {
+                float Y_l_m = SH_precomputed(sh_index, dir);
+
+                result += sh_color_coefficients[sh_index] * Y_l_m;
+
+            }
+
+            return result;
+        }
+
         float theta = std::acos(dir.z);
         float phi = std::atan2(dir.y, dir.x);
 
@@ -146,6 +272,9 @@ class GiSphericalHarmonics
 
     Color get_sh_color(float const theta, float const phi) const
     {
+        if (!exact)
+            std::cout << "shouldn't be used!" << std::endl;
+
         Color result(0.0f);
 
         for (int l = 0; l < bands; ++l)
@@ -195,6 +324,10 @@ class GiSphericalHarmonics
 
     int factorial(int num) const
     {
+        if (num < 13) return factorial_table[num];
+
+        std::cout << "factorial(): num > 12 ..." << std::endl;
+
         int result = 1;
         for (int i = 1; i <= num; ++i)
         {
@@ -244,11 +377,69 @@ class GiSphericalHarmonics
 
     float SH(int const l, int const m, float const theta, float const phi) const
     {
-        const float sqrt2 = std::sqrt(2.0f);
         if (m == 0) return K(l, 0) * P(l, m, std::cos(theta));
-        else if (m > 0) return sqrt2 * K(l, m) * std::cos(m * phi) * P(l, m, std::cos(theta));
-        else return sqrt2 * K(l, -m) * std::sin(-m * phi) * P(l, -m, std::cos(theta));
+        else if (m > 0) return M_SQRT2 * K(l, m) * std::cos(m * phi) * P(l, m, std::cos(theta));
+        else return M_SQRT2 * K(l, -m) * std::sin(-m * phi) * P(l, -m, std::cos(theta));
     }
+
+    float SH_precomputed(int const index, Point const& dir) const
+    {
+        sh_coefficient_func f = sh_functions[index];
+
+        return (this->*(f))(dir);
+    }
+
+    inline float square(float x) const { return x * x; }
+
+    // http://en.wikipedia.org/wiki/Table_of_spherical_harmonics
+
+    float SH_precomputed_0(Point const& /* dir */) const
+    {
+        return 0.28209;
+    }
+
+    float SH_precomputed_1(Point const& dir) const
+    {
+        return 0.34549 * dir[0];
+    }
+
+    float SH_precomputed_2(Point const& dir) const
+    {
+        return 0.34549 * dir[1];
+    }
+
+    float SH_precomputed_3(Point const& dir) const
+    {
+        return 0.34549 * dir[2];
+    }
+
+    float SH_precomputed_7(Point const& dir) const
+    {
+        return 0.31539 * (2 * square(dir[2]) - square(dir[0]) - square(dir[1]));
+    }
+
+    float SH_precomputed_5(Point const& dir) const
+    {
+        return 1.0925 * dir[1] * dir[2];
+    }
+
+    float SH_precomputed_4(Point const& dir) const
+    {
+        return 1.0925 * dir[2] * dir[0];
+    }
+
+    float SH_precomputed_6(Point const& dir) const
+    {
+        return 1.0925 * dir[0] * dir[1];
+    }
+
+    float SH_precomputed_8(Point const& dir) const
+    {
+        return 0.54627 * (square(dir[0]) - square(dir[1]));
+    }
+
+
+
 
     friend std::istream & operator>>(std::istream & s, GiSphericalHarmonics & p)
     {
@@ -288,6 +479,10 @@ class GiSphericalHarmonics
 
     std::vector<Color> sh_color_coefficients;
     std::vector<float> sh_area_coefficients;
+
+    sh_coefficient_func sh_functions[9];
+
+    bool exact;
 };
 
 
