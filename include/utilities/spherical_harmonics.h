@@ -93,8 +93,8 @@ class GiSphericalHarmonics
 
         random_t random;
 
-        float res_u = 20.0f;
-        float res_v = 40.0f;
+        float res_u = 50.0f;
+        float res_v = 100.0f;
 
         for (int u = 0; u < res_u; ++u)
         {

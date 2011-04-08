@@ -22,8 +22,8 @@ struct GiPoint
         normal(0.0f),
         color(0.0f),
         area(0.0f),
-        energy(0.0f)
-
+        energy(0.0f),
+        depth(-1)
     {
         sh_representation = GiSphericalHarmonics<vector3d_t, color_t>(true, 3);
     }
@@ -33,6 +33,7 @@ struct GiPoint
     color_t    color;
     float      area;
     color_t    energy;
+    int        depth;
 
     GiSphericalHarmonics<vector3d_t, color_t> sh_representation;
 
@@ -44,6 +45,7 @@ struct GiPoint
              p.color.R << " " << p.color.G << " " << p.color.B << " " <<
              p.area << " " <<
              p.energy.R << " " << p.energy.G << " " << p.energy.B << " " <<
+             p.depth << " " <<
              p.sh_representation
              ;
 
@@ -58,6 +60,7 @@ struct GiPoint
              p.color.R >> p.color.G >> p.color.B >>
              p.area >>
              p.energy.R >> p.energy.G >> p.energy.B >>
+             p.depth >>
              p.sh_representation
              ;
 

@@ -419,33 +419,19 @@ bool pbLighting_t::preprocess()
 
         std::ofstream fileStream(fileName.c_str());
 
-        for (unsigned int i = 0; i < giPoints.size(); ++i)
-        {
-            fileStream << giPoints[i] << std::endl;
-        }
-
         for (int depth = 0; depth < 20; ++depth)
         {
             std::vector<MyTree const*> nodes = _bspTree->getNodes(depth);
             if (nodes.size() == 0) break;
 
-            std::stringstream ss;
-            ss << "/tmp/pbgi_points_" << depth;
-
-            fileName = ss.str();
-
-            std::ofstream fileStream_depth(fileName.c_str());
-
             for (unsigned int i = 0; i < nodes.size(); ++i)
             {
                 GiPoint p = nodes[i]->getClusteredData();
-                p.area = p.sh_representation.get_area_coefficient(0);
-                p.color = p.sh_representation.get_color_coefficient(0);
                 p.energy = 1.0f;
+                p.area = p.sh_representation.get_area_coefficient(0);
+                p.depth = nodes[i]->getDepth();
 
-                fileStream_depth << p << std::endl;
-
-                // fileStream_depth << nodes[i]->getClusteredData() << std::endl;
+                fileStream << p << std::endl;
             }
         }
 
@@ -462,8 +448,19 @@ bool pbLighting_t::preprocess()
             p.area = p.sh_representation.get_area_coefficient(0);
             p.color = p.sh_representation.get_color_coefficient(0);
             p.energy = 1.0f;
+            p.depth = 0;
 
             fileStream_leafs << p << std::endl;
+
+            for (unsigned int j = 0; j < leafs[i]->getData().size(); ++j)
+            {
+                GiPoint p = leafs[i]->getData()[j];
+                p.area = p.sh_representation.get_area_coefficient(0);
+                p.color = p.sh_representation.get_color_coefficient(0);
+                p.energy = 1.0f;
+                p.depth = 1;
+                fileStream_leafs << p << std::endl;
+            }
         }
 
         return false;
@@ -607,7 +604,8 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
     int shadingNodes = 0;
     int shadingDiscs = 0;
 
-    std::vector<GiPoint const*> debugStorage;
+    std::vector<GiPoint const*> debugStorageAllClusters;
+    std::vector<GiPoint const*> debugStorageShadingClusters;
 
     while (!queue.empty())
     {
@@ -682,7 +680,6 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
                             std::cout << "contr 2 < 0" << std::endl;
                         }
 
-
                         GiPoint * p = new GiPoint(giP);
                         // p->area = get_sh_area(giP, giToSp);
                         p->area = area; //  * cos_normal_gip;
@@ -690,12 +687,24 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
                         // p->color = p->sh_representation.get_sh_color(giToSp);
                         p->color = contribution;
                         p->energy = 1.0f;
+                        p->depth = node->getDepth();
 
-                        debugStorage.push_back(p);
+                        debugStorageShadingClusters.push_back(p);
                     }
                 }
 
                 ++shadingDiscs;
+
+                if (pixel_x == state.pixel_x && pixel_y == state.pixel_y)
+                {
+                    GiPoint * p = new GiPoint(giP);
+                    p->area = area;
+                    p->color = giP.sh_representation.get_sh_color(giToSp);
+                    p->energy = 1.0f;
+                    p->depth = node->getDepth();
+
+                    debugStorageAllClusters.push_back(p);
+                }
             }
 
             /*
@@ -746,7 +755,7 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
 
             // float cos_sp_gip = giP.normal * giToSp;
 
-            float area = giP.sh_representation.get_sh_area(giToSp);
+            float const area = giP.sh_representation.get_sh_area(giToSp);
 
             if (area < 0.0f)
             {
@@ -754,12 +763,12 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
                 // area = -area;
             }
 
-            float solidAngle = area / (distance * distance);
+            float solidAngle = (area + 1.0f) / (distance * distance);
 
             // if (true)
             // if (solidAngle > maxSolidAngle)
             // if (solidAngle > maxSolidAngle || area <= 0.0f)
-            if (node->getDepth() < debugTreeDepth)
+            if (solidAngle > maxSolidAngle || area <= 0.0f)
             {
                 std::vector<MyTree> const& children = node->getChildren();
                 for (unsigned int i = 0; i < children.size(); ++i)
@@ -804,12 +813,26 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
                         p->area = area;
                         p->color = cluster_contribution;
                         p->energy = 1.0f;
+                        p->depth = node->getDepth();
 
-                        debugStorage.push_back(p);
+                        debugStorageShadingClusters.push_back(p);
                     }
                 }
 
+
                 ++shadingNodes;
+            } // else (bad solid angle)
+
+
+            if (pixel_x == state.pixel_x && pixel_y == state.pixel_y)
+            {
+                GiPoint * p = new GiPoint(giP);
+                p->area = area;
+                p->color = giP.sh_representation.get_sh_color(giToSp);
+                p->energy = 1.0f;
+                p->depth = node->getDepth();
+
+                debugStorageAllClusters.push_back(p);
             }
         }
     }
@@ -823,9 +846,18 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
 
         std::ofstream fileStream(fileName.c_str());
 
-        for (unsigned int i = 0; i < debugStorage.size(); ++i)
+        for (unsigned int i = 0; i < debugStorageAllClusters.size(); ++i)
         {
-            fileStream << *debugStorage[i] << std::endl;
+            fileStream << *debugStorageAllClusters[i] << std::endl;
+        }
+
+        fileName = "/tmp/pbgi_points_debug_pixel_shading_clusters";
+
+        std::ofstream fileStream2(fileName.c_str());
+
+        for (unsigned int i = 0; i < debugStorageShadingClusters.size(); ++i)
+        {
+            fileStream2 << *debugStorageShadingClusters[i] << std::endl;
         }
 
         /*

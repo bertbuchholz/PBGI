@@ -94,6 +94,8 @@ class YAFRAYCORE_EXPORT vector3d_t
         PFLOAT & operator[] (int i)       { return (&x)[i]; } //Bert ;-)
 		void abs() { x=std::fabs(x);  y=std::fabs(y);  z=std::fabs(z); }
 		~vector3d_t() {};
+        PFLOAT * data() { return &x; }
+
 		PFLOAT x,y,z;
 };
 

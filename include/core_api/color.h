@@ -109,6 +109,12 @@ class YAFRAYCORE_EXPORT color_t
 			if (G<0.0) G=0.0; else if (G>1.0) G=1.0;
 			if (B<0.0) B=0.0; else if (B>1.0) B=1.0;
 		}
+
+        float * data()
+        {
+            return &R;
+        }
+
 //	protected:
 		CFLOAT R, G, B;
 };
