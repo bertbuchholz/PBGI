@@ -38,6 +38,7 @@ GiPoint averageGiPoints(std::vector<GiPoint> const& points)
     result.pos *= 1.0f / float(points.size());
 
     // sanity check
+    /*
     yafaray::vector3d_t mainDir(0.5f, 0.5f, 0.5f);
     mainDir.normalize();
 
@@ -53,6 +54,7 @@ GiPoint averageGiPoints(std::vector<GiPoint> const& points)
     {
         std::cout << "parent: " << accAreaParent << " children: " << accAreaChildren << std::endl;
     }
+    */
 
 
     return result;
@@ -249,27 +251,11 @@ color_t pbLighting_t::estimateIncomingLight(renderState_t & state, light_t *ligh
 }
 
 
-
-bool pbLighting_t::preprocess()
+void pbLighting_t::generate_gi_points(renderState_t & state)
 {
-    Y_INFO << "PBGI Preprocess" << std::endl;
+    std::string fileName = "/tmp/pbgi_points_store";
 
-	bool success = true;
-	settings = "";
-	
-	background = scene->getBackground();
-	lights = scene->lights;
-
-    renderState_t state;
-    unsigned char userdata[USER_DATA_SIZE+7];
-    state.userdata = (void *)( &userdata[7] - ( ((size_t)&userdata[7])&7 ) ); // pad userdata to 8 bytes
-    state.cam = scene->getCamera();
-
-    Halton hal2(2);
-    Halton hal3(3);
-
-    bound_t const& sceneBound = scene->getSceneBound();
-    _bspTree = new RegularBspTree<vector3d_t, 3, GiPoint>(vector3d_t(sceneBound.a), vector3d_t(sceneBound.g), 1000, 16);
+    std::ofstream fileStream(fileName.c_str());
 
     for (std::map<objID_t, objData_t>::const_iterator iter = scene->meshes.begin(); iter != scene->meshes.end(); ++iter)
     {
@@ -281,9 +267,6 @@ bool pbLighting_t::preprocess()
 
         for (unsigned int i = 0; i < triangles.size(); ++i)
         {
-            hal2.setStart(i);
-            hal3.setStart(i);
-
             triangle_t const& tri = triangles[i];
 
             float t;
@@ -403,13 +386,56 @@ bool pbLighting_t::preprocess()
                 giPoints.push_back(giPoint);
 
                 _bspTree->addPoint(giPoint.pos, giPoint);
+
+                fileStream << giPoint << std::endl;
             }
         }
     }
 
-    MyTree::averageData(_bspTree);
+    fileStream.close();
+}
 
-    _bspTree->getLeafs(leafNodes);
+
+bool pbLighting_t::preprocess()
+{
+    Y_INFO << "PBGI Preprocess" << std::endl;
+
+	bool success = true;
+	settings = "";
+	
+	background = scene->getBackground();
+	lights = scene->lights;
+
+    renderState_t state;
+    unsigned char userdata[USER_DATA_SIZE+7];
+    state.userdata = (void *)( &userdata[7] - ( ((size_t)&userdata[7])&7 ) ); // pad userdata to 8 bytes
+    state.cam = scene->getCamera();
+
+
+    bound_t const& sceneBound = scene->getSceneBound();
+    _bspTree = new RegularBspTree<vector3d_t, 3, GiPoint>(vector3d_t(sceneBound.a), vector3d_t(sceneBound.g), 1000, 16);
+
+    if (do_load_gi_points)
+    {
+        std::string fileName = "/tmp/pbgi_points_store";
+
+        std::ifstream fileStream(fileName.c_str());
+
+        while (fileStream.good())
+        {
+            GiPoint p;
+            fileStream >> p;
+            _bspTree->addPoint(p.pos, p);
+        }
+
+        fileStream.close();
+    }
+    else
+    {
+        generate_gi_points(state);
+    }
+
+    MyTree::averageData(_bspTree);
 
     if (debugOutputPointsToFile)
     {
@@ -635,30 +661,28 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
                 float cos_normal_gip = std::max(-giToSp * sp.N, 0.0f);
                 float cos_sp_gip = std::max(giP.normal * giToSp, 0.0f);
 
-                // float solidAngle = cos_sp_gip * giP.area / (distance * distance);
+                float area = cos_sp_gip * giP.area;
+                // float area = giP.sh_representation.get_sh_area(giToSp);
 
-                float area = giP.sh_representation.get_sh_area(giToSp);
+                float solidAngle = area / (distance * distance);
 
                 if (area < 0.0f)
                 {
                     std::cout << "area 2 < 0, " << area << " " << node->getDepth() << std::endl;
                 }
 
-                // area = cos_sp_gip * giP.area;
-                float solidAngle = area / (distance * distance);
-
                 ray_t raySpToGiP(giP.pos, giToSp, 0.0001f, distance);
 
-                // if (!scene->isShadowed(state, raySpToGiP) && !(cos_sp_gip <= 0.0f) && !(cos_normal_gip <= 0.0f))
+                if (!scene->isShadowed(state, raySpToGiP) && !(cos_sp_gip <= 0.0f) && !(cos_normal_gip <= 0.0f))
                 {
                     color_t surfCol = material->eval(state, sp, wo, -giToSp, BSDF_ALL);
 
-                    color_t cluster_contribution = giP.sh_representation.get_sh_color(giToSp);
+                    // color_t cluster_contribution = giP.sh_representation.get_sh_color(giToSp);
 
-                    if (cluster_contribution.col2bri() < 0.0f) continue;
+                    // if (cluster_contribution.col2bri() < 0.0f) continue;
 
-//                    color_t contribution = solidAngle * giP.color * giP.energy * cos_normal_gip;
-                    color_t contribution = cluster_contribution * (cos_normal_gip / (distance * distance));
+                    color_t contribution = solidAngle * giP.color * giP.energy * cos_normal_gip;
+//                    color_t contribution = cluster_contribution * (cos_normal_gip / (distance * distance));
 
                     col += contribution * surfCol;
 
@@ -743,7 +767,7 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
         }
         else
         {
-            // if (node->isNodeBehindPlane(vector3d_t(sp.P), sp.N)) continue;
+            if (node->isNodeBehindPlane(vector3d_t(sp.P), sp.N)) continue;
 
             GiPoint const& giP = node->getClusteredData();
 
@@ -763,12 +787,12 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
                 // area = -area;
             }
 
-            float solidAngle = (area + 1.0f) / (distance * distance);
+            float solidAngle = (area) / (distance * distance);
 
             // if (true)
             // if (solidAngle > maxSolidAngle)
             // if (solidAngle > maxSolidAngle || area <= 0.0f)
-            if (solidAngle > maxSolidAngle || area <= 0.0f)
+            if (solidAngle > maxSolidAngle || distance < node->getRadius() * 4.0f)
             {
                 std::vector<MyTree> const& children = node->getChildren();
                 for (unsigned int i = 0; i < children.size(); ++i)
@@ -785,15 +809,15 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
                 ray_t raySpToGiP(giP.pos, giToSp, 0.0001f, distance);
 
                 // if (!scene->isShadowed(state, raySpToGiP) && !(cos_normal_gip <= 0.0f))
-                // if (!scene->isShadowed(state, raySpToGiP))
+                if (!scene->isShadowed(state, raySpToGiP))
                 {
                     color_t surfCol = material->eval(state, sp, wo, -giToSp, BSDF_ALL);
 
                     color_t cluster_contribution = giP.sh_representation.get_sh_color(giToSp);
 
-                    cluster_contribution.clampRGB0();
+                    // cluster_contribution.clampRGB0();
 
-                    if (cluster_contribution.col2bri() < 0.0f) continue;
+                    // if (cluster_contribution.col2bri() < 0.0f) continue;
 
                     col += surfCol * cluster_contribution * (cos_normal_gip / (distance * distance));
 
@@ -1195,6 +1219,7 @@ integrator_t* pbLighting_t::factory(paraMap_t &params, renderEnvironment_t &rend
     bool render_single_pixel = false;
     int pixel_x = -1;
     int pixel_y = -1;
+    bool do_load_gi_points = false;
 
 	params.getParam("raydepth", raydepth);
 	params.getParam("transpShad", transpShad);
@@ -1219,6 +1244,7 @@ integrator_t* pbLighting_t::factory(paraMap_t &params, renderEnvironment_t &rend
     params.getParam("render_single_pixel", render_single_pixel);
     params.getParam("pixel_x", pixel_x);
     params.getParam("pixel_y", pixel_y);
+    params.getParam("do_load_gi_points", do_load_gi_points);
 	
     pbLighting_t *inte = new pbLighting_t(transpShad, shadowDepth, raydepth);
 	// caustic settings
@@ -1249,6 +1275,8 @@ integrator_t* pbLighting_t::factory(paraMap_t &params, renderEnvironment_t &rend
     inte->render_single_pixel = render_single_pixel;
     inte->pixel_x = pixel_x;
     inte->pixel_y = pixel_y;
+
+    inte->do_load_gi_points = do_load_gi_points;
 
 	return inte;
 }

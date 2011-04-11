@@ -25,7 +25,7 @@ struct GiPoint
         energy(0.0f),
         depth(-1)
     {
-        sh_representation = GiSphericalHarmonics<vector3d_t, color_t>(true, 3);
+        sh_representation = GiSphericalHarmonics<vector3d_t, color_t>(false, 3);
     }
 
     vector3d_t pos;
@@ -85,6 +85,8 @@ public:
     color_t doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t const& sp, vector3d_t const& wo) const;
     color_t doPointBasedGiTreeSH_leafs_only(renderState_t & state, surfacePoint_t const& sp, vector3d_t const& wo) const;
 
+    void generate_gi_points(renderState_t & state);
+
 private:
     enum Debug_type { NoTree, Tree, Tree_sh, Tree_sh_leafs };
 
@@ -100,8 +102,9 @@ private:
     bool render_single_pixel;
     int pixel_x, pixel_y;
 
+    bool do_load_gi_points;
+
     MyTree* _bspTree;
-    std::vector<MyTree *> leafNodes;
 };
 
 __END_YAFRAY

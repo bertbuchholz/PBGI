@@ -111,6 +111,11 @@ public:
         return _data;
     }
 
+    float getRadius() const
+    {
+        return (_cellMax - _cellMin).length() * 0.5f;
+    }
+
     bool isNodeBehindPlane(Point const& pos, Point const& normal) const
     {
         Point pos_to_min = _cellMin - pos;
@@ -317,7 +322,7 @@ public:
         {
             RegularBspTree & node = *nodeQueue[i];
 
-            std::cout << "node depth: " << node._depth << " node: " << &node << std::endl;
+            // std::cout << "node depth: " << node._depth << " node: " << &node << std::endl;
 
             if (node.getIsLeaf() && node._data.size() > 0)
             {
@@ -358,7 +363,7 @@ public:
 
                 node._clusteredData = averageGiPoints(leafData);
 
-//                node._clusteredData.pos = (node._cellMin + node._cellMax) * 0.5f;
+                node._clusteredData.pos = (node._cellMin + node._cellMax) * 0.5f;
             }
         }
     }
