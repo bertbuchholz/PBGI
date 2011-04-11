@@ -95,6 +95,7 @@ class YAFRAYCORE_EXPORT vector3d_t
 		void abs() { x=std::fabs(x);  y=std::fabs(y);  z=std::fabs(z); }
 		~vector3d_t() {};
         PFLOAT * data() { return &x; }
+        PFLOAT const* data() const { return &x; }
 
 		PFLOAT x,y,z;
 };

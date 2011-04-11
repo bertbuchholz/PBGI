@@ -12,6 +12,7 @@
 #include <utilities/spherical_harmonics.h>
 
 #include <utilities/RegularBspTree.h>
+#include <utilities/CubeRasterBuffer.h>
 
 __BEGIN_YAFRAY
 
@@ -73,6 +74,7 @@ class YAFRAYPLUGIN_EXPORT pbLighting_t: public mcIntegrator_t
 {
 public:
     typedef RegularBspTree<vector3d_t, 3, GiPoint> MyTree;
+    typedef Cube_raster_buffer<8, vector3d_t, color_t> cube_raster_buffer_type;
 
     pbLighting_t(bool transpShad=false, int shadowDepth=4, int rayDepth=6);
     virtual bool preprocess();

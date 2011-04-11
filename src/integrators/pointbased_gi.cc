@@ -14,6 +14,7 @@
 #include <utilities/spherical_harmonics.h>
 
 #include <utilities/RegularBspTree.h>
+#include <utilities/CubeRasterBuffer.h>
 #include <integrators/pointbased_gi.h>
 
 __BEGIN_YAFRAY
@@ -633,6 +634,8 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
     std::vector<GiPoint const*> debugStorageAllClusters;
     std::vector<GiPoint const*> debugStorageShadingClusters;
 
+    cube_raster_buffer_type frame_buffer;
+
     while (!queue.empty())
     {
         MyTree const* node = queue.front();
@@ -640,7 +643,7 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
 
         if (col.col2bri() < 0)
         {
-            std::cout << "col 0 < 0: " << col << " " << state.pixel_x << " " << state.pixel_y << std::endl;
+//            std::cout << "col 0 < 0: " << col << " " << state.pixel_x << " " << state.pixel_y << std::endl;
         }
 
         // if we are here and we have a leaf, we sample all points in the leaf
@@ -714,6 +717,8 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
                         p->depth = node->getDepth();
 
                         debugStorageShadingClusters.push_back(p);
+
+                        frame_buffer.add_point(-giToSp, contribution, 1.0f, distance);
                     }
                 }
 
@@ -840,6 +845,8 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
                         p->depth = node->getDepth();
 
                         debugStorageShadingClusters.push_back(p);
+
+                        frame_buffer.add_point(-giToSp, cluster_contribution, 1.0f, distance);
                     }
                 }
 
@@ -891,6 +898,13 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
             std::cout << *debugStorage[i] << std::endl;
         }
         */
+
+        fileName = "/tmp/pbgi_frame_buffer";
+
+        std::ofstream file_stream_fb(fileName.c_str());
+
+        frame_buffer.accumulate();
+        file_stream_fb << frame_buffer;
     }
 
     return col;
