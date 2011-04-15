@@ -93,8 +93,8 @@ class GiSphericalHarmonics
 
         random_t random;
 
-        float res_u = 50.0f;
-        float res_v = 100.0f;
+        float res_u = 10.0f;
+        float res_v = 20.0f;
 
         for (int u = 0; u < res_u; ++u)
         {
@@ -102,6 +102,8 @@ class GiSphericalHarmonics
             {
                 float x = (u + random()) / res_u;
                 float y = (v + random()) / res_v;
+//                float x = u / res_u;
+//                float y = v / res_v;
 
                 float theta = 2.0f * std::acos(std::sqrt(1.0f - x));
                 float phi = 2.0f * M_PI * y;

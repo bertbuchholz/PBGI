@@ -73,8 +73,8 @@ struct GiPoint
 class YAFRAYPLUGIN_EXPORT pbLighting_t: public mcIntegrator_t
 {
 public:
-    typedef RegularBspTree<vector3d_t, 3, GiPoint> MyTree;
-    typedef Cube_raster_buffer<4, vector3d_t, color_t> cube_raster_buffer_type;
+    typedef RegularBspTree<vector3d_t, 3, GiPoint*> MyTree;
+    typedef Cube_raster_buffer<8, vector3d_t, color_t> cube_raster_buffer_type;
 
     pbLighting_t(bool transpShad=false, int shadowDepth=4, int rayDepth=6);
     virtual bool preprocess();
@@ -85,12 +85,13 @@ public:
     color_t doPointBasedGi(renderState_t & state, surfacePoint_t const& sp, vector3d_t const& wo) const;
     color_t doPointBasedGiTree(renderState_t & state, surfacePoint_t const& sp, vector3d_t const& wo) const;
     color_t doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t const& sp, vector3d_t const& wo) const;
+    color_t doPointBasedGiTree_sh_fb(renderState_t & state, surfacePoint_t const& sp, vector3d_t const& wo) const;
     color_t doPointBasedGiTreeSH_leafs_only(renderState_t & state, surfacePoint_t const& sp, vector3d_t const& wo) const;
 
     void generate_gi_points(renderState_t & state);
 
 private:
-    enum Debug_type { NoTree, Tree, Tree_sh, Tree_sh_leafs };
+    enum Debug_type { NoTree, Tree, Tree_sh, Tree_sh_fb, Tree_sh_leafs };
 
     std::vector<GiPoint> giPoints;
     int samplesPerArea;
