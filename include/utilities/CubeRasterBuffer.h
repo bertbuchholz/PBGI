@@ -445,7 +445,7 @@ public:
 
     float get_solid_angle(Cube_cell const& c) const
     {
-        Point normals[6] =
+        Point const normals[6] =
         {
             Point( 1.0f,  0.0f,  0.0f),
             Point(-1.0f,  0.0f,  0.0f),
@@ -469,6 +469,16 @@ public:
 
     Color get_diffuse(Point const& normal)
     {
+        Point const normals[6] =
+        {
+            Point( 1.0f,  0.0f,  0.0f),
+            Point(-1.0f,  0.0f,  0.0f),
+            Point( 0.0f,  1.0f,  0.0f),
+            Point( 0.0f, -1.0f,  0.0f),
+            Point( 0.0f,  0.0f,  1.0f),
+            Point( 0.0f,  0.0f, -1.0f),
+        };
+
         Color diffuse(0.0f);
 
         Cube_cell c;
@@ -492,9 +502,10 @@ public:
 
                     p.normalize();
 
-                    float cos_normal_dir = std::max(0.0f, p * normal);
+                    float cos_sp_normal_cell_dir = std::max(0.0f, p * normal);
+                    float cos_plane_normal_cell_dir = std::max(0.0f, normals[c.plane] * p);
 
-                    diffuse += color * cos_normal_dir; // / lSqr;
+                    diffuse += color * cos_sp_normal_cell_dir * cos_plane_normal_cell_dir; // / lSqr;
                 }
             }
         }
