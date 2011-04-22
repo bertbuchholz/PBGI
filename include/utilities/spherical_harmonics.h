@@ -126,10 +126,10 @@ class GiSphericalHarmonics
 
                             // std::cout << Y_l_m << " " << Y_index << std::endl;
 
-                            float area_coeff = area * std::max(dir * normal, 0.0f) * Y_l_m;
+                            float base_coeff = std::max(dir * normal, 0.0f) * Y_l_m;
 
-                            sh_color_coefficients[sh_index] += color * energy * area_coeff;
-                            sh_area_coefficients[sh_index]  += area_coeff;
+                            sh_color_coefficients[sh_index] += color * energy * base_coeff;
+                            sh_area_coefficients[sh_index]  += base_coeff * area;
                         }
                     }
                 }
@@ -139,10 +139,10 @@ class GiSphericalHarmonics
                     {
                         float Y_l_m = SH_precomputed(sh_index, dir);
 
-                        float area_coeff = area * std::max(dir * normal, 0.0f) * Y_l_m;
+                        float base_coeff = std::max(dir * normal, 0.0f) * Y_l_m;
 
-                        sh_color_coefficients[sh_index] += color * energy * area_coeff;
-                        sh_area_coefficients[sh_index]  += area_coeff;
+                        sh_color_coefficients[sh_index] += color * energy * base_coeff;
+                        sh_area_coefficients[sh_index]  += base_coeff * area;
                     }
                 }
             }
@@ -304,26 +304,6 @@ class GiSphericalHarmonics
         return sh_area_coefficients[index];
     }
 
-    friend std::ostream & operator<<(std::ostream & s, GiSphericalHarmonics const& p)
-    {
-        for (int i = 0; i < 9; ++i)
-        {
-            s <<
-                 p.sh_color_coefficients[i].R << " " <<
-                 p.sh_color_coefficients[i].G << " " <<
-                 p.sh_color_coefficients[i].B << " ";
-        }
-
-        s << std::endl;
-
-        for (int i = 0; i < 9; ++i)
-        {
-            s << p.sh_area_coefficients[i] << " ";
-        }
-
-        return s;
-    }
-
     int factorial(int num) const
     {
         if (num < 13) return factorial_table[num];
@@ -441,7 +421,25 @@ class GiSphericalHarmonics
     }
 
 
+    friend std::ostream & operator<<(std::ostream & s, GiSphericalHarmonics const& p)
+    {
+        for (int i = 0; i < 9; ++i)
+        {
+            s <<
+                 p.sh_color_coefficients[i].R << " " <<
+                 p.sh_color_coefficients[i].G << " " <<
+                 p.sh_color_coefficients[i].B << " ";
+        }
 
+        s << std::endl;
+
+        for (int i = 0; i < 9; ++i)
+        {
+            s << p.sh_area_coefficients[i] << " ";
+        }
+
+        return s;
+    }
 
     friend std::istream & operator>>(std::istream & s, GiSphericalHarmonics & p)
     {
@@ -471,6 +469,20 @@ class GiSphericalHarmonics
         {
             result.sh_area_coefficients[j] = lhs.sh_area_coefficients[j] + rhs.sh_area_coefficients[j];
             result.sh_color_coefficients[j] = lhs.sh_color_coefficients[j] + rhs.sh_color_coefficients[j];
+        }
+
+        return result;
+    }
+
+    friend GiSphericalHarmonics operator/(GiSphericalHarmonics const& lhs, float const& rhs)
+    {
+        GiSphericalHarmonics result(lhs);
+
+        float inv = 1.0f / rhs;
+
+        for (int j = 0; j < result.bands * result.bands; ++j)
+        {
+            result.sh_color_coefficients[j] *= inv;
         }
 
         return result;

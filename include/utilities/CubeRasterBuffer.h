@@ -37,6 +37,43 @@ struct Frame_buffer
 {
     void add_point(int const x, int const y, Color const& color, float const filling_degree, float const depth)
     {
+        //add_point_accumulate(x, y, color, filling_degree, depth);
+        add_point_store(x, y, color, filling_degree, depth);
+    }
+
+    // take always only the closest sample and replace the previous
+    void add_point_accumulate(int const x, int const y, Color const& color, float const filling_degree, float const depth)
+    {
+        int pixel = (x + size / 2) + size * (y + size / 2);
+
+        assert(pixel < size * size);
+
+        if (data[pixel].size() == 0)
+        {
+            Color_depth_pixel<Color> c;
+            c.color = color;
+            c.depth = depth;
+            c.filling_degree = filling_degree;
+
+            data[pixel].push_back(c);
+        }
+        else
+        {
+            if (depth < data[pixel][0].depth)
+            {
+                data[pixel][0].color = color;
+                data[pixel][0].depth = depth;
+                data[pixel][0].filling_degree = filling_degree;
+            }
+        }
+
+        assert(data[pixel].size() == 1);
+    }
+
+
+    // store all samples per pixel for later sorting
+    void add_point_store(int const x, int const y, Color const& color, float const filling_degree, float const depth)
+    {
         int pos = (x + size / 2) + size * (y + size / 2);
 
         assert(pos < size * size);
@@ -52,6 +89,8 @@ struct Frame_buffer
     float accumulate()
     {
 //        std::cout << "accumulate()" << std::endl;
+
+        int non_zero_pixels = 0;
 
         int samples_sum = 0;
         float total_energy = 0.0f;
@@ -75,7 +114,7 @@ struct Frame_buffer
                 if (acc_filling_degree + c.filling_degree > 1.0f)
                 {
                     data_accumulated[pixel] += c.color * (1.0f - acc_filling_degree);
-                    total_energy += (c.color * (1.0f - acc_filling_degree)).col2bri();
+                    total_energy += (c.color * (1.0f - acc_filling_degree)).energy();
                     break;
                 }
                 else
@@ -83,7 +122,9 @@ struct Frame_buffer
                     acc_filling_degree += c.filling_degree;
                     data_accumulated[pixel] += c.color * c.filling_degree;
                     // data_accumulated[pixel] += c.color;
-                    total_energy += c.color.col2bri();
+                    total_energy += c.color.energy();
+
+                    ++non_zero_pixels;
 
 //                    std::cout << "pixel: " << pixel << " " << data_accumulated[pixel] << std::endl;
                 }
@@ -93,6 +134,8 @@ struct Frame_buffer
         }
 
         // std::cout << "accumulate(), samples: " << samples_sum << std::endl;
+
+        // std::cout << "accumulate(), non_zero_pixels: " << non_zero_pixels << std::endl;
 
         return total_energy;
     }
@@ -235,10 +278,73 @@ public:
         return std::floor(u + 1.0f);
     }
 
-    void add_point(Point const& direction, Color const& color, float const solid_angle, float const depth)
+    inline int add_point(Point const& direction, Color const& color, float const solid_angle, float const depth, bool use_rays = false)
     {
+        if (use_rays)
+        {
+            return add_point_rays(direction, color, solid_angle, depth);
+        }
+        else
+        {
+            add_point_square_rasterization(direction, color, solid_angle, depth);
+        }
+        return 0;
+    }
+
+    int add_point_rays(Point const& direction, Color const& color, float const solid_angle, float const depth)
+    {
+        Cube_cell c;
+
+        int hit_cells = 0;
+
+        Point dir = direction;
+        dir.normalize();
+
+        float const disc_angle = std::acos(1.0f - solid_angle / (2.0f * M_PI));
+        // float cos_disc_angle = 1.0f - solid_angle / (2.0f * M_PI);
+
+        for (int plane_index = 0; plane_index < 6; ++plane_index)
+        {
+            c.plane = plane_index;
+
+            for (int u = -resolution_2; u < resolution_2; ++u)
+            {
+                c.pos[0] = u;
+
+                for (int v = -resolution_2; v < resolution_2; ++v)
+                {
+                    c.pos[1] = v;
+
+                    Point cell_center = get_cell_center(c);
+                    cell_center.normalize();
+
+                    float const angle_dir_cell_center = std::acos(dir * cell_center);
+                    // float cos_dir_cell_center = dir * cell_center;
+
+                    if (angle_dir_cell_center < disc_angle)
+                    {
+                        buffers[plane_index].add_point(u, v, color, 1.0f, depth);
+                        ++hit_cells;
+                    }
+                }
+            }
+        }
+
+        return hit_cells;
+    }
+
+    void add_point_square_rasterization(Point const& direction, Color const& color, float const solid_angle, float const depth)
+    {
+        if (std::abs(solid_angle) > 1.0f)
+        {
+//            std::cout << "solid angle > 1" << std::endl;
+            return;
+        }
+
+
         if (std::abs(solid_angle) < 1e-10f)
         {
+//            std::cout << "solid angle 0" << std::endl;
             return;
         }
 
@@ -298,7 +404,7 @@ public:
             Point( 0.0f,  0.0f, -1.0f),
         };
 
-        float inv_cell_area = 1.0f / float(resolution_2 * resolution_2);
+        // float inv_cell_area = 1.0f / float(resolution_2 * resolution_2);
 
         // find intersection point on plane
 
@@ -330,7 +436,7 @@ public:
             // float const square_area = solid_angle * alpha * alpha / (dir * normals[plane_index]);
             // float const square_area = solid_angle * alpha * alpha * (dir * normals[plane_index]);
             float const square_area = solid_angle; // * (dir * normals[plane_index]);
-            float const square_width_2 = std::sqrt(square_area / 4.0f);
+            float const square_width_2 = std::sqrt(square_area / 2.0f);
 
             int const axis_0 = (longest_axis + 1) % 3;
             int const axis_1 = (longest_axis + 2) % 3;
@@ -346,14 +452,6 @@ public:
 
             u_plus = into_range(-float(resolution_2), float(resolution_2), u_plus);
             v_plus = into_range(-float(resolution_2), float(resolution_2), v_plus);
-
-/*
-            u_minus = std::max(-float(resolution_2), u_minus);
-            v_minus = std::max(-float(resolution_2), v_minus);
-
-            u_plus = std::min(float(resolution_2), u_plus);
-            v_plus = std::min(float(resolution_2), v_plus);
-*/
 
             float u = u_minus;
 
@@ -387,7 +485,8 @@ public:
                     int const cell_u = into_range(-resolution_2, resolution_2 - 1, int(std::floor(u)));
                     int const cell_v = into_range(-resolution_2, resolution_2 - 1, int(std::floor(v)));
 
-                    buffers[plane_index].add_point(cell_u, cell_v, color * inv_cell_area, ratio, depth);
+                    buffers[plane_index].add_point(cell_u, cell_v, color, ratio, depth);
+                    // buffers[plane_index].add_point(cell_u, cell_v, color * inv_cell_area, ratio, depth);
 
                     //                std::cout << "add to cell: " << cell_u << " " << cell_v << " area: " << area << " ratio: " << ratio << std::endl;
 
@@ -460,14 +559,14 @@ public:
         Point p = get_cell_center(c);
         p.normalize();
 
-        float corrected_area = 2.0f * M_PI * radius * radius * M_PI * 0.5f;
+        // float corrected_area = 2.0f * M_PI * radius * radius * M_PI * 0.5f;
 
-        float solid_angle = (normals[c.plane] * p) * corrected_area;
+        float solid_angle = (normals[c.plane] * p) * radius * radius;
 
         return solid_angle;
     }
 
-    Color get_diffuse(Point const& normal)
+    Color get_diffuse(Point const& normal) const
     {
         Point const normals[6] =
         {
@@ -483,34 +582,35 @@ public:
 
         Cube_cell c;
 
+        float inv_cell_area = 1.0f / float(resolution_2 * resolution_2);
+
         for (int i = 0; i < 6; ++i)
         {
             c.plane = i;
 
-            for (int x = -size / 2; x < size / 2; ++x)
+            for (int x = -resolution_2; x < resolution_2; ++x)
             {
                 c.pos[0] = x;
 
-                for (int y = -size / 2; y < size / 2; ++y)
+                for (int y = -resolution_2; y < resolution_2; ++y)
                 {
                     c.pos[1] = y;
 
                     Point p = get_cell_center(c);
                     Color const& color = get_color(c);
 
-                    float lSqr = p.lengthSqr();
-
                     p.normalize();
 
                     float cos_sp_normal_cell_dir = std::max(0.0f, p * normal);
                     float cos_plane_normal_cell_dir = std::max(0.0f, normals[c.plane] * p);
 
-                    diffuse += color * cos_sp_normal_cell_dir * cos_plane_normal_cell_dir; // / lSqr;
+                    diffuse += color * cos_sp_normal_cell_dir * cos_plane_normal_cell_dir;
+                    // diffuse += color;
                 }
             }
         }
 
-        return diffuse; // * inv_cell_area;
+        return diffuse * inv_cell_area;
     }
 
     float get_total_energy()
