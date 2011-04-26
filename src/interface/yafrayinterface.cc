@@ -341,6 +341,16 @@ void yafrayInterface_t::render(colorOutput_t &output, progressBar_t *pb)
 	//delete film;
 }
 
+void yafrayInterface_t::prepareRender(colorOutput_t &output, progressBar_t *pb)
+{
+    if (!env->setupScene(*scene, *params, output, pb))
+    {
+        std::cout << "Couldn't prepare render!" << std::endl;
+    }
+
+    scene->update();
+}
+
 void yafrayInterface_t::setDrawParams(bool on)
 {
 	(*params)["drawParams"] = on;

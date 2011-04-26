@@ -122,7 +122,7 @@ struct Frame_buffer
                     acc_filling_degree += c.filling_degree;
                     data_accumulated[pixel] += c.color * c.filling_degree;
                     // data_accumulated[pixel] += c.color;
-                    total_energy += c.color.energy();
+                    total_energy += (c.color * c.filling_degree).energy();
 
                     ++non_zero_pixels;
 
@@ -250,6 +250,22 @@ public:
         return result;
     }
 
+    // p0, p1: edge to test
+    // v0: point on the plane, n: plane normal
+    // alpha: return value, intersection point: p0 + alpha * (p1 - p0)
+    bool linePlaneIntersection(Point const& p0, Point const& p1, Point const& v0, Point const& n, float & alpha)
+    {
+        float d1 = dot(n, v0 - p0);
+        float d2 = dot(n, p1 - p0);
+
+        if (std::abs(d2) < 1e-5) return false;
+
+        alpha = d1 / d2;
+
+        return (alpha >= 0.0f && alpha <= 1.0f);
+    }
+
+
     // dir: direction of line, always starting in the origin
     // n: plane normal
     // alpha: return value,
@@ -291,6 +307,51 @@ public:
         return 0;
     }
 
+    // raytrace a disc through every pixel
+    void add_point_exact(Color const& color,
+                         Point const& disc_normal, Point const& disc_center, float const disc_radius,
+                         float const depth)
+    {
+        Cube_cell c;
+
+        float disc_radius_sqr = disc_radius * disc_radius;
+
+        for (int plane_index = 0; plane_index < 6; ++plane_index)
+        {
+            c.plane = plane_index;
+
+            for (int u = -resolution_2; u < resolution_2; ++u)
+            {
+                c.pos[0] = u;
+
+                for (int v = -resolution_2; v < resolution_2; ++v)
+                {
+                    c.pos[1] = v;
+
+                    Point cell_center = get_cell_center(c);
+                    cell_center.normalize();
+
+                    float alpha;
+
+                    bool hit = linePlaneIntersection(Point(0.0f), cell_center, disc_center, disc_normal, alpha);
+
+                    // if (alpha > 0.0f)
+                    {
+                        Point hit_point = alpha * cell_center;
+
+                        float dist_sqr = (hit_point - disc_center).lengthSqr();
+
+                        if (dist_sqr < disc_radius_sqr)
+                        {
+                            buffers[plane_index].add_point(u, v, color, 1.0f, depth);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // raytrace against the solid angle
     int add_point_rays(Point const& direction, Color const& color, float const solid_angle, float const depth)
     {
         Cube_cell c;
@@ -505,7 +566,7 @@ public:
         }
     }
 
-    void accumulate()
+    float accumulate()
     {
         total_energy = 0.0f;
 
@@ -513,6 +574,8 @@ public:
         {
             total_energy += buffers[i].accumulate();
         }
+
+        return total_energy;
 
         // std::cout << "accumulate(): total_energy: " << total_energy << std::endl;
     }

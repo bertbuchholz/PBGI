@@ -82,7 +82,7 @@ class YAFRAYPLUGIN_EXPORT yafrayInterface_t
 		virtual imageHandler_t*	createImageHandler	(const char* name, bool addToTable = true); //!< The addToTable parameter, if true, allows to avoid the interface from taking ownership of the image handler
 		virtual unsigned int 	createObject		(const char* name);
 		virtual void clearAll(); //!< clear the whole environment + scene, i.e. free (hopefully) all memory.
-		virtual void render(colorOutput_t &output, progressBar_t *pb = 0); //!< render the scene...
+        virtual void render(colorOutput_t &output, progressBar_t *pb = 0); //!< render the scene...
 		virtual bool startScene(int type=0); //!< start a new scene; Must be called before any of the scene_t related callbacks!
 		virtual void setInputGamma(float gammaVal, bool enable);
 		virtual void abort();
@@ -92,6 +92,9 @@ class YAFRAYPLUGIN_EXPORT yafrayInterface_t
 		virtual std::vector<std::string> listImageHandlersFullName();
 		virtual std::string getImageFormatFromFullName(const std::string &fullname);
 		virtual std::string getImageFullNameFromFormat(const std::string &format);
+
+        virtual void prepareRender(colorOutput_t &output, progressBar_t *pb = 0);
+        virtual scene_t * getScene() { return scene; }
 		
 		virtual void setVerbosityLevel(int vlevel);
 		virtual void setVerbosityInfo();

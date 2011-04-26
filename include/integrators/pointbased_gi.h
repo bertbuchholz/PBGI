@@ -70,6 +70,7 @@ struct GiPoint
 };
 
 
+
 class YAFRAYPLUGIN_EXPORT pbLighting_t: public mcIntegrator_t
 {
 public:
@@ -82,10 +83,9 @@ public:
     static integrator_t* factory(paraMap_t &params, renderEnvironment_t &render);
 
     color_t estimateIncomingLight(renderState_t & state, light_t *light, const surfacePoint_t &sp, const unsigned int &loffs) const;
-    color_t doPointBasedGi(renderState_t & state, surfacePoint_t const& sp, vector3d_t const& wo) const;
     color_t doPointBasedGiTree(renderState_t & state, surfacePoint_t const& sp, vector3d_t const& wo) const;
     color_t doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t const& sp, vector3d_t const& wo) const;
-    color_t doPointBasedGiTree_sh_fb(renderState_t & state, surfacePoint_t const& sp, vector3d_t const& wo) const;
+    // color_t doPointBasedGiTree_sh_fb(renderState_t & state, surfacePoint_t const& sp, vector3d_t const& wo) const;
     color_t doPointBasedGiTreeSH_leafs_only(renderState_t & state, surfacePoint_t const& sp, vector3d_t const& wo) const;
 
     void generate_gi_points(renderState_t & state);
@@ -93,7 +93,7 @@ public:
 private:
     enum Debug_type { NoTree, Tree, Tree_sh, Tree_sh_fb, Tree_sh_leafs };
 
-    std::vector<GiPoint> giPoints;
+    // std::vector<GiPoint> giPoints;
     int samplesPerArea;
     bool debug;
     bool indirectOnly;
@@ -114,6 +114,14 @@ private:
 
 void load_gi_points(pbLighting_t::MyTree* tree);
 GiPoint * averageGiPoints(std::vector<GiPoint*> const& points);
+color_t doPointBasedGiTree_sh_fb(
+    pbLighting_t::MyTree const* tree, renderState_t & state,
+    surfacePoint_t const& sp,
+    float const maxSolidAngle,
+    bool const color_by_depth,
+    vector3d_t const& wo,
+    pbLighting_t::cube_raster_buffer_type * result_fb = NULL,
+    std::vector<yafaray::GiPoint> * gi_points = NULL);
 
 __END_YAFRAY
 

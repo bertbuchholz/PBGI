@@ -420,6 +420,15 @@ class GiSphericalHarmonics
         return 0.54627 * (square(dir[0]) - square(dir[1]));
     }
 
+    void normalize_color(float factor)
+    {
+        for (int j = 0; j < bands * bands; ++j)
+        {
+            sh_color_coefficients[j] *= factor;
+            sh_area_coefficients[j] *= 2.0f / M_PI;
+        }
+    }
+
 
     friend std::ostream & operator<<(std::ostream & s, GiSphericalHarmonics const& p)
     {
@@ -469,20 +478,6 @@ class GiSphericalHarmonics
         {
             result.sh_area_coefficients[j] = lhs.sh_area_coefficients[j] + rhs.sh_area_coefficients[j];
             result.sh_color_coefficients[j] = lhs.sh_color_coefficients[j] + rhs.sh_color_coefficients[j];
-        }
-
-        return result;
-    }
-
-    friend GiSphericalHarmonics operator/(GiSphericalHarmonics const& lhs, float const& rhs)
-    {
-        GiSphericalHarmonics result(lhs);
-
-        float inv = 1.0f / rhs;
-
-        for (int j = 0; j < result.bands * result.bands; ++j)
-        {
-            result.sh_color_coefficients[j] *= inv;
         }
 
         return result;

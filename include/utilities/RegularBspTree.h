@@ -46,7 +46,7 @@ public:
 		_childrenCount(std::pow(2, dim))
 	{ }
 
-    void getLeafs(std::vector< RegularBspTree<Point, dim, Data>* >& leafs)
+    void getLeafs(std::vector<RegularBspTree const*>& leafs) const
     {
         if (!_isLeaf)
         {
@@ -59,6 +59,16 @@ public:
         {
             leafs.push_back(this);
         }
+    }
+
+    bool is_empty() const
+    {
+        return (_points.size() == 0);
+    }
+
+    bool has_children() const
+    {
+        return (_children.size() > 0);
     }
 
 	void setDepth(int d)
@@ -205,7 +215,11 @@ public:
 
 	void split()
 	{
-		if (!_isLeaf) return;
+        if (!_isLeaf)
+        {
+            std::cout << "split(): Error, trying to split non-leaf." << std::endl;
+            return;
+        }
 
         _children.resize(_childrenCount, RegularBspTree<Point, dim, Data>(_cellMin, _cellMax, _maxDepth, _maxPoints));
 
@@ -383,7 +397,30 @@ public:
         return _clusteredData;
     }
 
-    std::vector<RegularBspTree const*> getNodes(int depth)
+    std::vector<RegularBspTree const*> get_all_nodes() const
+    {
+        std::vector<RegularBspTree const*> result;
+
+        std::queue<RegularBspTree const*> queue;
+        queue.push(this);
+
+        while (!queue.empty())
+        {
+            RegularBspTree const* node = queue.front();
+            queue.pop();
+
+            result.push_back(node);
+
+            for (unsigned int i = 0; i < node->_children.size(); ++i)
+            {
+                queue.push(&(node->_children[i]));
+            }
+        }
+
+        return result;
+    }
+
+    std::vector<RegularBspTree const*> getNodes(int depth) const
     {
         std::vector<RegularBspTree const*> result;
 
