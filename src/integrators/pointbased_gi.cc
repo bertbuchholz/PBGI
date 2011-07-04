@@ -315,7 +315,7 @@ struct pbgi_sample_t
     point3d_t position;
 };
 
-float generate_histogram(std::vector<pbgi_sample_t> samples)
+float generate_histogram(std::vector<pbgi_sample_t> const& samples)
 {
     std::vector<float> distances;
 
@@ -469,11 +469,16 @@ unsigned int hash_function(point3d_t const& sample, const int n, const float cel
 
     // float bb_size = 6.0f;
 
-    unsigned int i_x = std::abs(int(sample.x / cell_size));
-    unsigned int i_y = std::abs(int(sample.y / cell_size));
-    unsigned int i_z = std::abs(int(sample.z / cell_size));
+    unsigned int i_x = int(sample.x / cell_size) + 1000;
+    unsigned int i_y = int(sample.y / cell_size) + 1000;
+    unsigned int i_z = int(sample.z / cell_size) + 1000;
 
-    return ((i_x * 73856093) ^ (i_y * 19349663) ^ (i_z * 83492791)) % n;
+    int hash_value = ((i_x * 73856093) ^ (i_y * 19349663) ^ (i_z * 83492791)) % n;
+
+    assert(hash_value >= 0 && hash_value < n);
+
+    return hash_value;
+
     //return (i_x + i_y + i_z) % n;
 
 
@@ -483,7 +488,7 @@ unsigned int hash_function(point3d_t const& sample, const int n, const float cel
 
 std::vector<pbgi_sample_t> generate_samples_darts_hash(float const min_radius, int const number_of_samples, std::vector<triangle_t const*> const& triangles)
 {
-    std::cout << "generate_samples_darts_hash() start" << std::endl;
+    std::cout << "generate_samples_darts_hash() min_radius: " << min_radius << std::endl;
 
     random_t my_random;
 
@@ -521,7 +526,7 @@ std::vector<pbgi_sample_t> generate_samples_darts_hash(float const min_radius, i
 
             float ksi[3] = { my_random(), my_random(), my_random() };
 
-            int triangle_index = std::lower_bound(triangle_areas_cdf.begin(), triangle_areas_cdf.end(), ksi[0] * scene_area) - triangle_areas_cdf.begin();
+            triangle_index = std::lower_bound(triangle_areas_cdf.begin(), triangle_areas_cdf.end(), ksi[0] * scene_area) - triangle_areas_cdf.begin();
             // triangle_index = int(ksi[0] * triangles.size()) % triangles.size();
 
             vector3d_t sample_normal;
@@ -534,14 +539,14 @@ std::vector<pbgi_sample_t> generate_samples_darts_hash(float const min_radius, i
                 {
                     for (int z = -1; z <= 1; ++z)
                     {
-                        int hash_value = hash_function(sample_point + point3d_t(x * min_radius, y * min_radius, z * min_radius), bin_count, cell_size);
+                        int const hash_value = hash_function(sample_point + point3d_t(x * min_radius, y * min_radius, z * min_radius), bin_count, cell_size);
                         std::vector<int> const& neighbors = hash_map[hash_value];
 
                         for (unsigned int j = 0; j < neighbors.size(); ++j)
                         {
                             int sample_index = neighbors[j];
 
-                            assert(sample_index < sampling_points.size());
+                            assert(sample_index < int(sampling_points.size()));
 
                             if ((sampling_points[sample_index].position - sample_point).length() < min_radius * 2.0f)
                             {
@@ -552,9 +557,6 @@ std::vector<pbgi_sample_t> generate_samples_darts_hash(float const min_radius, i
                     }
                 }
             }
-
-
-
 
             if (!sample_too_close) break;
         }
@@ -573,9 +575,11 @@ std::vector<pbgi_sample_t> generate_samples_darts_hash(float const min_radius, i
 
     std::cout << "generate_samples_darts() finish" << std::endl;
 
+    std::ofstream hash_file("/tmp/hash_map");
+
     for (unsigned int i = 0; i < hash_map.size(); ++i)
     {
-        if (i % 100 == 0) std::cout << i << ": " << hash_map[i].size() << std::endl;
+        hash_file << i << " " << hash_map[i].size() << std::endl;
     }
 
     return sampling_points;
@@ -609,7 +613,7 @@ std::vector<pbgi_sample_t> generate_samples_darts(float const min_radius, int co
 
             float ksi[3] = { my_random(), my_random(), my_random() };
 
-            int triangle_index = std::lower_bound(triangle_areas_cdf.begin(), triangle_areas_cdf.end(), ksi[0] * scene_area) - triangle_areas_cdf.begin();
+            triangle_index = std::lower_bound(triangle_areas_cdf.begin(), triangle_areas_cdf.end(), ksi[0] * scene_area) - triangle_areas_cdf.begin();
             // triangle_index = int(ksi[0] * triangles.size()) % triangles.size();
 
             vector3d_t sample_normal;
@@ -689,120 +693,20 @@ void pbLighting_t::generate_gi_points(renderState_t & state)
 
     std::ofstream fileStream(fileName.c_str());
 
-    /*
-    float scene_area = 0.0f;
-
-    float const radius = std::sqrt(1.0f / (samplesPerArea * M_PI));
-
-    for (std::map<objID_t, objData_t>::const_iterator iter = scene->meshes.begin(); iter != scene->meshes.end(); ++iter)
-    {
-        triangleObject_t const* obj = iter->second.obj;
-
-        std::vector<triangle_t> const& triangles = obj->getTriangles();
-
-        for (unsigned int i = 0; i < triangles.size(); ++i)
-        {
-            triangle_t const& tri = triangles[i];
-
-            scene_area += tri.surfaceArea();
-        }
-    }
-
-    // float const area_per_sample = 1.0f / float(samplesPerArea);
-    int const total_number_of_samples = samplesPerArea;
-    float const area_per_sample = scene_area / float(total_number_of_samples);
-
-    float completed_area = 0.0f;
-    float fillable_area = 0.0f;
-
-    random_t my_random;
-
-    for (std::map<objID_t, objData_t>::const_iterator iter = scene->meshes.begin(); iter != scene->meshes.end(); ++iter)
-    {
-        triangleObject_t const* obj = iter->second.obj;
-
-        Y_INFO << "PBGI: Processing obj: " << obj << std::endl;
-
-        std::vector<triangle_t> const& triangles = obj->getTriangles();
-
-        for (unsigned int i = 0; i < triangles.size(); ++i)
-        {
-            triangle_t const& tri = triangles[i];
-
-            fillable_area += tri.surfaceArea();
-
-            std::vector<point3d_t> samplingPoints;
-
-            while (completed_area < fillable_area)
-            {
-                float const sample_u = my_random();
-                float const sample_v = my_random();
-
-                point3d_t p;
-                vector3d_t n;
-
-                tri.sample(sample_u, sample_v, p, n);
-                samplingPoints.push_back(p);
-
-                completed_area += area_per_sample;
-            }
-
-
-
-            for (unsigned int i = 0; i < samplingPoints.size(); ++i)
-            {
-                point3d_t const& hitPoint = samplingPoints[i];
-
-                surfacePoint_t sp;
-
-                intersectData_t iData;
-                tri.getSurface(sp, hitPoint, iData);
-
-                GiPoint * giPoint = new GiPoint();
-                giPoint->pos = vector3d_t(sp.P);
-                giPoint->normal = sp.N;
-                giPoint->area = area_per_sample;
-
-                const material_t *material = sp.material;
-                BSDF_t bsdfs;
-                material->initBSDF(state, sp, bsdfs);
-                giPoint->color = material->getDiffuseAtPoint(state, sp);
-
-                color_t incomingLight;
-                unsigned int loffs = 0;
-                for(std::vector<light_t *>::const_iterator l=lights.begin(); l!=lights.end(); ++l)
-                {
-                    incomingLight += estimateIncomingLight(state, *l, sp, loffs);
-                    loffs++;
-                }
-
-                giPoint->energy = incomingLight + material->emission(state, sp, vector3d_t());
-
-                giPoint->sh_representation.calc_coefficients_random(giPoint->normal, giPoint->color, giPoint->energy, giPoint->area);
-
-                _bspTree->addPoint(giPoint->pos, giPoint);
-
-                fileStream << *giPoint << std::endl;
-
-                ++node_count;
-            }
-
-        }
-    }
-
-    */
-
     float const scene_area = get_total_scene_area(scene->meshes);
 
     int const number_of_samples = samplesPerArea;
     float const area_per_sample = scene_area / float(number_of_samples);
 
+    std::cout << "generate_gi_points(): scene_area: " << scene_area << " area_per_sample: " << area_per_sample << std::endl;
+
     float radius = std::sqrt(area_per_sample / M_PI);
     std::cout << "best radius: " << radius << std::endl;
 
-    // std::vector<pbgi_sample_t> sampling_points = generate_samples_cdf(number_of_samples, get_scene_triangles(meshes));
+    // std::vector<pbgi_sample_t> sampling_points = generate_samples_cdf(number_of_samples, get_scene_triangles(scene->meshes));
     // std::vector<pbgi_sample_t> sampling_points = generate_samples_darts(0.05f, number_of_samples, get_scene_triangles(scene->meshes));
-    std::vector<pbgi_sample_t> sampling_points = generate_samples_darts_hash(radius * 0.5f, number_of_samples, get_scene_triangles(scene->meshes));
+    // std::vector<pbgi_sample_t> sampling_points = generate_samples_darts_hash(radius * 0.5f, number_of_samples, get_scene_triangles(scene->meshes));
+    std::vector<pbgi_sample_t> sampling_points = generate_samples_darts_hash(radius * 0.9f, number_of_samples, get_scene_triangles(scene->meshes));
 
     float const largest_distance = generate_histogram(sampling_points);
     float const needed_radius = largest_distance / std::sqrt(2.0f);
@@ -825,7 +729,7 @@ void pbLighting_t::generate_gi_points(renderState_t & state)
         giPoint->area = area_estimation;
         giPoint->debug_radius = needed_radius;
 
-        const material_t *material = sp.material;
+        material_t const* material = sp.material;
         BSDF_t bsdfs;
         material->initBSDF(state, sp, bsdfs);
         giPoint->color = material->getDiffuseAtPoint(state, sp);
@@ -848,109 +752,6 @@ void pbLighting_t::generate_gi_points(renderState_t & state)
 
         ++node_count;
     }
-
-
-    // float const radius = 10.0f / std::sqrt(samplesPerArea);
-
-    /*
-    for (std::map<objID_t, objData_t>::const_iterator iter = scene->meshes.begin(); iter != scene->meshes.end(); ++iter)
-    {
-        triangleObject_t const* obj = iter->second.obj;
-
-        Y_INFO << "PBGI: Processing obj: " << obj << std::endl;
-
-        std::vector<triangle_t> const& triangles = obj->getTriangles();
-
-        for (unsigned int i = 0; i < triangles.size(); ++i)
-        {
-            triangle_t const& tri = triangles[i];
-
-            float t;
-            intersectData_t iData;
-
-            ray_t ray;
-
-            std::vector<point3d_t> samplingPoints;
-
-            vector3d_t edge0 = tri.getVertex(1) - tri.getVertex(0);
-
-            // make a rectangular sampling pattern on the triangle
-            vector3d_t edge1 = tri.getNormal() ^ edge0;
-
-            float e0Length = edge0.length();
-            float e1Length = edge1.length();
-
-            // edge0.normalize();
-            // edge1.normalize();
-
-            float d = 2.0f * radius / M_SQRT2;
-
-            int uCount = std::max(1.0f, e0Length / d);
-            int vCount = std::max(1.0f, e1Length / d);
-
-            for (int u = 0; u < uCount; ++u)
-            {
-                for (int v = 0; v < vCount; ++v)
-                {
-                    point3d_t p =
-                            (u + 0.5f) / float(uCount) * edge0 +
-                            (v + 0.5f) / float(vCount) * edge1 +
-                            tri.getVertex(0);
-
-                    vector3d_t const& normal = vector3d_t(tri.getNormal());
-                    point3d_t const& center  = p;
-
-                    ray.from = center + normal;
-                    ray.dir  = center - ray.from;
-
-                    if (tri.intersect(ray, &t, iData))
-                    {
-                        samplingPoints.push_back(p);
-                    }
-                }
-            }
-
-            float singleDiscArea = M_PI * radius * radius;
-
-            for (unsigned int i = 0; i < samplingPoints.size(); ++i)
-            {
-                point3d_t const& hitPoint = samplingPoints[i];
-
-                surfacePoint_t sp;
-
-                tri.getSurface(sp, hitPoint, iData);
-
-                GiPoint * giPoint = new GiPoint();
-                giPoint->pos = vector3d_t(sp.P);
-                giPoint->normal = sp.N;
-                giPoint->area = singleDiscArea;
-
-                const material_t *material = sp.material;
-                BSDF_t bsdfs;
-                material->initBSDF(state, sp, bsdfs);
-                giPoint->color = material->getDiffuseAtPoint(state, sp);
-
-                color_t incomingLight;
-                unsigned int loffs = 0;
-                for(std::vector<light_t *>::const_iterator l=lights.begin(); l!=lights.end(); ++l)
-                {
-                    incomingLight += estimateIncomingLight(state, *l, sp, loffs);
-                    loffs++;
-                }
-
-                giPoint->energy = incomingLight + material->emission(state, sp, vector3d_t());
-
-                giPoint->sh_representation.calc_coefficients_random(giPoint->normal, giPoint->color, giPoint->energy, giPoint->area);
-
-                _bspTree->addPoint(giPoint->pos, giPoint);
-
-                fileStream << *giPoint << std::endl;
-
-                ++node_count;
-            }
-        }
-    }
-    */
 
     std::cout << "surfel count: " << node_count << std::endl;
 
