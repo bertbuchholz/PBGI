@@ -54,12 +54,31 @@ class GiSphericalHarmonics
     public:
     typedef float (GiSphericalHarmonics::*sh_coefficient_func)(Point const& dir) const; // sh_coefficient_func;
 
-    GiSphericalHarmonics(bool exact = false, int b = 3)
+    GiSphericalHarmonics() :
+        bands(3),
+        exact(false)
     {
-        // bands = b;
-        bands = 3;
+        init();
+    }
+
+    GiSphericalHarmonics(bool exact, int b)
+    {
         this->exact = exact;
 
+        if (exact)
+        {
+            bands = b;
+        }
+        else
+        {
+            bands = 3;
+        }
+
+        init();
+    }
+
+    void init()
+    {
         sh_color_coefficients = std::vector<Color>(bands * bands, Color(0.0f));
         sh_area_coefficients = std::vector<float>(bands * bands, 0.0f);
 
@@ -126,10 +145,12 @@ class GiSphericalHarmonics
 
                             // std::cout << Y_l_m << " " << Y_index << std::endl;
 
-                            float base_coeff = std::max(dir * normal, 0.0f) * Y_l_m;
+                            // float base_coeff = std::max(dir * normal, 0.0f) * Y_l_m;
+                            float base_coeff = Y_l_m;
 
                             sh_color_coefficients[sh_index] += color * energy * base_coeff;
-                            sh_area_coefficients[sh_index]  += base_coeff * area;
+                            sh_area_coefficients[sh_index]  += base_coeff * area * std::max(dir * normal, 0.0f);
+                            // sh_area_coefficients[sh_index]  += base_coeff * area;
                         }
                     }
                 }
@@ -137,12 +158,14 @@ class GiSphericalHarmonics
                 {
                     for (int sh_index = 0; sh_index < 9; ++sh_index)
                     {
-                        float Y_l_m = SH_precomputed(sh_index, dir);
+                        float const Y_l_m = SH_precomputed(sh_index, dir);
 
-                        float base_coeff = std::max(dir * normal, 0.0f) * Y_l_m;
+                        // float const base_coeff = std::max(dir * normal, 0.0f) * Y_l_m;
+                        float const base_coeff = Y_l_m;
 
                         sh_color_coefficients[sh_index] += color * energy * base_coeff;
-                        sh_area_coefficients[sh_index]  += base_coeff * area;
+                        // sh_area_coefficients[sh_index]  += base_coeff * area;
+                        sh_area_coefficients[sh_index]  += base_coeff * area * std::max(dir * normal, 0.0f);
                     }
                 }
             }
@@ -425,13 +448,16 @@ class GiSphericalHarmonics
         for (int j = 0; j < bands * bands; ++j)
         {
             sh_color_coefficients[j] *= factor;
-            sh_area_coefficients[j] *= 2.0f / M_PI;
         }
     }
 
 
     friend std::ostream & operator<<(std::ostream & s, GiSphericalHarmonics const& p)
     {
+        s <<
+             p.bands << " " <<
+             p.exact << " ";
+
         for (int i = 0; i < 9; ++i)
         {
             s <<
@@ -452,6 +478,10 @@ class GiSphericalHarmonics
 
     friend std::istream & operator>>(std::istream & s, GiSphericalHarmonics & p)
     {
+        s >>
+             p.bands >>
+             p.exact;
+
         for (int i = 0; i < 9; ++i)
         {
             s >>

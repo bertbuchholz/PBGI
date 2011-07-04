@@ -4,6 +4,11 @@
 #include <algorithm>
 #include <vector>
 
+
+__BEGIN_YAFRAY
+
+class GiPoint;
+
 template <class T>
 inline T into_range(T const& min, T const& max, T const& val)
 {
@@ -24,6 +29,7 @@ struct Color_depth_pixel
     Color color;
     float depth;
     float filling_degree;
+    GiPoint const* node;
 
     friend bool operator<(Color_depth_pixel const& lhs, Color_depth_pixel const& rhs)
     {
@@ -35,14 +41,15 @@ struct Color_depth_pixel
 template <int size, class Color>
 struct Frame_buffer
 {
-    void add_point(int const x, int const y, Color const& color, float const filling_degree, float const depth)
+    void add_point(int const x, int const y, Color const& color, float const filling_degree, float const depth, GiPoint const* node = NULL)
     {
-        //add_point_accumulate(x, y, color, filling_degree, depth);
-        add_point_store(x, y, color, filling_degree, depth);
+        // add_point_accumulate(x, y, color, filling_degree, depth);
+        //add_point_accumulate(x, y, color, 1.0f, depth, node);
+        add_point_store(x, y, color, filling_degree, depth, node);
     }
 
     // take always only the closest sample and replace the previous
-    void add_point_accumulate(int const x, int const y, Color const& color, float const filling_degree, float const depth)
+    void add_point_accumulate(int const x, int const y, Color const& color, float const filling_degree, float const depth, GiPoint const* node = NULL)
     {
         int pixel = (x + size / 2) + size * (y + size / 2);
 
@@ -54,6 +61,7 @@ struct Frame_buffer
             c.color = color;
             c.depth = depth;
             c.filling_degree = filling_degree;
+            c.node = node;
 
             data[pixel].push_back(c);
         }
@@ -64,6 +72,7 @@ struct Frame_buffer
                 data[pixel][0].color = color;
                 data[pixel][0].depth = depth;
                 data[pixel][0].filling_degree = filling_degree;
+                data[pixel][0].node = node;
             }
         }
 
@@ -72,7 +81,7 @@ struct Frame_buffer
 
 
     // store all samples per pixel for later sorting
-    void add_point_store(int const x, int const y, Color const& color, float const filling_degree, float const depth)
+    void add_point_store(int const x, int const y, Color const& color, float const filling_degree, float const depth, GiPoint const* node)
     {
         int pos = (x + size / 2) + size * (y + size / 2);
 
@@ -82,15 +91,14 @@ struct Frame_buffer
         c.color = color;
         c.depth = depth;
         c.filling_degree = filling_degree;
+        c.node = node;
 
         data[pos].push_back(c);
     }
 
-    float accumulate()
+    float accumulate(std::vector<GiPoint const*> * gi_points = NULL)
     {
 //        std::cout << "accumulate()" << std::endl;
-
-        int non_zero_pixels = 0;
 
         int samples_sum = 0;
         float total_energy = 0.0f;
@@ -107,7 +115,18 @@ struct Frame_buffer
 
             data_accumulated[pixel] = Color(0.0f);
 
-            while (i < data[pixel].size())
+            for (unsigned int i = 0; i < data[pixel].size(); ++i)
+            {
+                if (gi_points)
+                {
+                    Color_depth_pixel<Color> const& c = data[pixel][i];
+                    gi_points->push_back(c.node);
+                }
+            }
+
+            bool pixel_full = false;
+
+            while (!pixel_full && i < data[pixel].size())
             {
                 Color_depth_pixel<Color> const& c = data[pixel][i];
 
@@ -115,27 +134,37 @@ struct Frame_buffer
                 {
                     data_accumulated[pixel] += c.color * (1.0f - acc_filling_degree);
                     total_energy += (c.color * (1.0f - acc_filling_degree)).energy();
-                    break;
+                    pixel_full = true;
+
+//                    if (gi_points)
+//                    {
+//                        gi_points->push_back(c.node);
+//                    }
+
+
                 }
                 else
                 {
                     acc_filling_degree += c.filling_degree;
                     data_accumulated[pixel] += c.color * c.filling_degree;
+                    // data_accumulated[pixel] += c.color * 1.0f / float(data[pixel].size());
                     // data_accumulated[pixel] += c.color;
                     total_energy += (c.color * c.filling_degree).energy();
 
-                    ++non_zero_pixels;
+//                    if (gi_points)
+//                    {
+//                        gi_points->push_back(c.node);
+//                    }
 
 //                    std::cout << "pixel: " << pixel << " " << data_accumulated[pixel] << std::endl;
                 }
+
 
                 ++i;
             }
         }
 
         // std::cout << "accumulate(), samples: " << samples_sum << std::endl;
-
-        // std::cout << "accumulate(), non_zero_pixels: " << non_zero_pixels << std::endl;
 
         return total_energy;
     }
@@ -307,10 +336,63 @@ public:
         return 0;
     }
 
+
     // raytrace a disc through every pixel
+    void add_point_single_cell(Point const& direction, Color const& color, float const depth, GiPoint const* node = NULL)
+    {
+        Point normals[6] =
+        {
+            Point( 1.0f,  0.0f,  0.0f),
+            Point(-1.0f,  0.0f,  0.0f),
+            Point( 0.0f,  1.0f,  0.0f),
+            Point( 0.0f, -1.0f,  0.0f),
+            Point( 0.0f,  0.0f,  1.0f),
+            Point( 0.0f,  0.0f, -1.0f),
+        };
+
+        Point dir = direction;
+        dir.normalize();
+
+        int longest_axis = get_longest_axis(dir);
+
+        if (std::abs(dir[longest_axis]) < 1e-10f) return;
+
+        int plane_index = longest_axis * 2;
+
+        if (dir[longest_axis] < 0.0f) ++plane_index;
+
+        assert(dir * normals[plane_index] > 0.0f);
+
+        float alpha = 0.0f;
+        linePlaneIntersection(dir, normals[plane_index], alpha);
+        if (alpha < 1.0f)
+        {
+            std::cout << alpha << " " << dir << " " <<  normals[plane_index] << std::endl;
+        }
+        assert(alpha >= 1.0f);
+
+        Point hit_point = alpha * dir;
+
+        int const axis_0 = (longest_axis + 1) % 3;
+        int const axis_1 = (longest_axis + 2) % 3;
+
+        int const u = std::floor(hit_point[axis_0] * resolution_2);
+        int const v = std::floor(hit_point[axis_1] * resolution_2);
+
+        if (u < -resolution_2 || u > resolution_2 - 1) return;
+        if (v < -resolution_2 || v > resolution_2 - 1) return;
+
+        // std::cout << "hitpoint: " << hit_point << "u: " << u << " v: " << v << std::endl;
+
+        buffers[plane_index].add_point(u, v, color, 1.0f, depth, node);
+    }
+
+
+    // raytrace a disc through every pixel, assumes receiving point is in the origin and the disc's center relative to it
     void add_point_exact(Color const& color,
                          Point const& disc_normal, Point const& disc_center, float const disc_radius,
-                         float const depth)
+                         float const depth,
+                         GiPoint const* node = NULL)
     {
         Cube_cell c;
 
@@ -335,7 +417,7 @@ public:
 
                     bool hit = linePlaneIntersection(Point(0.0f), cell_center, disc_center, disc_normal, alpha);
 
-                    // if (alpha > 0.0f)
+                    if (alpha > 0.0f)
                     {
                         Point hit_point = alpha * cell_center;
 
@@ -343,13 +425,65 @@ public:
 
                         if (dist_sqr < disc_radius_sqr)
                         {
-                            buffers[plane_index].add_point(u, v, color, 1.0f, depth);
+                            buffers[plane_index].add_point(u, v, color, 1.0f, depth, node);
                         }
                     }
                 }
             }
         }
     }
+
+
+    // only check in the positive halfspace of the line, line starts at origin
+    bool sphere_line_intersection(Point const& center, float const radius, Point const& line_dir)
+    {
+        float const c_l = center * line_dir;
+
+        if (c_l <= 0.0f) return false;
+
+        return (c_l * c_l) - center.lengthSqr() + (radius * radius) >= 0.0f;
+    }
+
+    // direction of the sphere, its color, radius and distance as seen from the receiving point
+    int add_point_from_sphere_with_rays(Point const& direction, Color const& color, float const radius, float const distance, GiPoint const* node = NULL)
+    {
+        Cube_cell c;
+
+        int hit_cells = 0;
+
+        Point dir = direction;
+        dir.normalize();
+
+        Point sphere_center = dir * distance;
+
+        for (int plane_index = 0; plane_index < 6; ++plane_index)
+        {
+            c.plane = plane_index;
+
+            for (int u = -resolution_2; u < resolution_2; ++u)
+            {
+                c.pos[0] = u;
+
+                for (int v = -resolution_2; v < resolution_2; ++v)
+                {
+                    c.pos[1] = v;
+
+                    Point cell_center = get_cell_center(c);
+                    cell_center.normalize();
+
+                    if (sphere_line_intersection(sphere_center, radius, cell_center))
+                    {
+                        buffers[plane_index].add_point(u, v, color, 1.0f, distance, node);
+                        ++hit_cells;
+                    }
+                }
+            }
+        }
+
+        return hit_cells;
+    }
+
+
 
     // raytrace against the solid angle
     int add_point_rays(Point const& direction, Color const& color, float const solid_angle, float const depth)
@@ -394,7 +528,7 @@ public:
         return hit_cells;
     }
 
-    void add_point_square_rasterization(Point const& direction, Color const& color, float const solid_angle, float const depth)
+    void add_point_square_rasterization(Point const& direction, Color const& color, float const solid_angle, float const depth, GiPoint const* node = NULL)
     {
         if (std::abs(solid_angle) > 1.0f)
         {
@@ -546,7 +680,7 @@ public:
                     int const cell_u = into_range(-resolution_2, resolution_2 - 1, int(std::floor(u)));
                     int const cell_v = into_range(-resolution_2, resolution_2 - 1, int(std::floor(v)));
 
-                    buffers[plane_index].add_point(cell_u, cell_v, color, ratio, depth);
+                    buffers[plane_index].add_point(cell_u, cell_v, color, ratio, depth, node);
                     // buffers[plane_index].add_point(cell_u, cell_v, color * inv_cell_area, ratio, depth);
 
                     //                std::cout << "add to cell: " << cell_u << " " << cell_v << " area: " << area << " ratio: " << ratio << std::endl;
@@ -562,17 +696,18 @@ public:
         {
             float unit_area = solid_angle;
             float acc_area_ratio = acc_area / unit_area;
-            std::cout << "acc_area_ratio: " << acc_area_ratio << std::endl;
+            // std::cout << "acc_area_ratio: " << acc_area_ratio << std::endl;
+            std::cout << "acc_area: " << acc_area << std::endl;
         }
     }
 
-    float accumulate()
+    float accumulate(std::vector<GiPoint const*> * gi_points = NULL)
     {
         total_energy = 0.0f;
 
         for (int i = 0; i < 6; ++i)
         {
-            total_energy += buffers[i].accumulate();
+            total_energy += buffers[i].accumulate(gi_points);
         }
 
         return total_energy;
@@ -660,12 +795,12 @@ public:
                     c.pos[1] = y;
 
                     Point p = get_cell_center(c);
-                    Color const& color = get_color(c);
-
                     p.normalize();
 
-                    float cos_sp_normal_cell_dir = std::max(0.0f, p * normal);
-                    float cos_plane_normal_cell_dir = std::max(0.0f, normals[c.plane] * p);
+                    Color const& color = get_color(c);
+
+                    float cos_sp_normal_cell_dir = std::max(0.0f, p * normal); // lambertian
+                    float cos_plane_normal_cell_dir = std::max(0.0f, normals[c.plane] * p); // solid angle of pixel
 
                     diffuse += color * cos_sp_normal_cell_dir * cos_plane_normal_cell_dir;
                     // diffuse += color;
@@ -686,4 +821,7 @@ private:
     float total_energy;
 };
 
+__END_YAFRAY
+
 #endif // CUBERASTERBUFFER_H
+

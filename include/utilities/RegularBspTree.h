@@ -30,7 +30,7 @@ public:
 		_cellMin(min),
 		_cellMax(max),
         _parent(NULL),
-		_isLeaf(true),
+        _isLeaf(true),
 		_depth(0),
 		_maxDepth(maxDepth),
 		_maxPoints(maxPoints),
@@ -116,6 +116,11 @@ public:
 		return _points;
 	}
 
+    std::vector<Data> & getData()
+    {
+        return _data;
+    }
+
     std::vector<Data> const& getData() const
     {
         return _data;
@@ -124,6 +129,11 @@ public:
     float getRadius() const
     {
         return (_cellMax - _cellMin).length() * 0.5f;
+    }
+
+    Point getCenter() const
+    {
+        return (_cellMax + _cellMin) * 0.5f;
     }
 
     bool isNodeBehindPlane(Point const& pos, Point const& normal) const
@@ -360,7 +370,14 @@ public:
             if (node.getIsLeaf())
 //            if (node.getIsLeaf() && node._data.size() > 0)
             {
-                node._clusteredData = averageGiPoints(node._data);
+                if (node._data.size() > 0)
+                {
+                    node._clusteredData = averageGiPoints(node._data);
+                }
+                else
+                {
+                    node._clusteredData = NULL;
+                }
 
                 // assert(node._averagedData.radius > 0.0f);
             }
@@ -380,7 +397,8 @@ public:
 
                 for (unsigned int j = 0; j < node._children.size(); ++j)
                 {
-                    if (node._children[j].getIsLeaf() && node._children[j]._data.size() == 0) continue;
+                    if (node._children[j]._clusteredData == NULL) continue;
+                    // if (node._children[j].getIsLeaf() && node._children[j]._data.size() == 0) continue;
 
                     leafData.push_back(node._children[j]._clusteredData);
                 }

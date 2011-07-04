@@ -35,15 +35,11 @@ GiPoint * averageGiPoints(std::vector<GiPoint*> const& points)
         GiPoint const& p = *points[i];
 
         result->sh_representation = result->sh_representation + p.sh_representation;
-
-        result->pos += p.pos;
     }
 
     // result->sh_representation = result->sh_representation / float(points.size());
 
     result->sh_representation.normalize_color(1.0f / float(points.size()));
-
-    result->pos *= 1.0f / float(points.size());
 
     // sanity check
     /*
@@ -65,53 +61,23 @@ GiPoint * averageGiPoints(std::vector<GiPoint*> const& points)
     */
 
 
-    return result;
-
-#if 0
-    if (points.size() == 0) return result;
-
-    bool invalidChild = false;
-
     for (unsigned int i = 0; i < points.size(); ++i)
     {
-        GiPoint const& p = points[i];
+        GiPoint const* p = points[i];
 
-        if (p.area < 0.0f)
-        {
-            invalidChild = true;
-            break;
-        }
+        result->pos    += p->pos;
+        result->normal += p->normal;
+        result->color  += p->color;
+        result->energy += p->energy;
     }
 
-    for (unsigned int i = 0; i < points.size(); ++i)
-    {
-        GiPoint const& p = points[i];
+    result->pos    *= 1.0f / float(points.size());
+    result->color  *= 1.0f / float(points.size());
+    result->energy *= 1.0f / float(points.size());
 
-        result.pos    += p.pos;
-        result.normal += p.normal;
-        result.color  += p.color;
-        result.area   += p.area;
-        result.energy += p.energy;
-    }
-
-    // if the normals vary too much, "invalidate" the node as being an average
-    bool invalidNormals = result.normal.length() / float(points.size()) < 0.2f;
-
-    result.pos    *= 1.0f / float(points.size());
-    result.color  *= 1.0f / float(points.size());
-    result.energy *= 1.0f / float(points.size());
-
-    result.normal.normalize();
-
-    // radius needs to be averaged by adding together the area of all discs and then taking the radius of that area
-    // assert(area > 0.0f);
-    if (invalidNormals || invalidChild)
-    {
-        result.area = -1.0f;
-    }
+    result->normal.normalize();
 
     return result;
-#endif
 }
 
 
@@ -259,6 +225,462 @@ color_t pbLighting_t::estimateIncomingLight(renderState_t & state, light_t *ligh
 }
 
 
+/*
+  classical_sampling()
+
+  INPUT: number_of_samples, triangle_areas
+
+  for each t in triangles:
+      triangles_areas[t.index] = t.area
+
+  cdf_triangles
+  cdf_triangles[0] = 0
+
+  for each t in triangles, t > 0:
+      cdf_triangles[t.index] += cdf_triangles[t.index - 1]
+
+  area_sum = cdf_triangles.last
+
+  for each s in number_of_samples:
+      ksi = hammersley(3d)
+      triangle_index = lower_bound(cdf_triangles.begin, cdf_triangles.end, ksi[0] * area_sum)
+
+      sample_pos = sample_triangle(triangle_index, ksi[1], ksi[2])
+  */
+
+
+/*
+  "random point suicide"
+
+  triangle_areas
+  // number_of_samples
+  desired_radius
+  number_of_samples_2 (candidates)
+
+  samples = classical_sampling(number_of_samples_2, triangle_areas)
+
+  while samples.size > number_of_samples:
+     sample = random from samples
+
+
+
+  */
+
+float radicalInverse(int n, int base)
+{
+    float value = 0;
+    float invBase = 1.0/(float)(base), invBi = invBase;
+
+    while(n > 0)
+    {
+        int d_i = (n % base);
+        value += d_i * invBi;
+        n /= base;
+        invBi *= invBase;
+
+    }
+
+    return value;
+}
+
+
+vector3d_t halton_3(int n)
+{
+    vector3d_t result;
+
+    result[0] = radicalInverse(n, 2);
+    result[1] = radicalInverse(n, 3);
+    result[2] = radicalInverse(n, 5);
+
+    return result;
+}
+
+
+vector3d_t hammersley_3(int const n, int const n_max)
+{
+    vector3d_t result;
+
+    result[0] = n / float(n_max);
+    result[1] = radicalInverse(n, 2);
+    result[2] = radicalInverse(n, 3);
+
+    return result;
+}
+
+
+
+struct pbgi_sample_t
+{
+    triangle_t const* tri_pointer;
+    point3d_t position;
+};
+
+float generate_histogram(std::vector<pbgi_sample_t> samples)
+{
+    std::vector<float> distances;
+
+    for (unsigned int i = 0; i < samples.size(); ++i)
+    {
+        float smallest_distance_i = 1e10f;
+
+        for (unsigned int j = 0; j < samples.size(); ++j)
+        {
+            if (i == j) continue;
+
+            float const distance = (samples[i].position - samples[j].position).length();
+
+            if (distance < smallest_distance_i)
+            {
+                smallest_distance_i = distance;
+            }
+        }
+
+        distances.push_back(smallest_distance_i);
+    }
+
+    float largest_distance = -1e10f;
+    float smallest_distance = 1e10f;
+
+    for (unsigned int i = 0; i < distances.size(); ++i)
+    {
+        if (distances[i] > largest_distance)
+        {
+            largest_distance = distances[i];
+        }
+
+        if (distances[i] < smallest_distance)
+        {
+            smallest_distance = distances[i];
+        }
+    }
+
+    float const histo_lowest = smallest_distance;
+    float const histo_highest = largest_distance;
+    int bins = 100;
+
+    std::vector<int> histogram(bins);
+
+    std::cout << "generate_histogram(): " << histo_highest << std::endl;
+
+    for (unsigned int i = 0; i < distances.size(); ++i)
+    {
+        float dist = distances[i];
+
+        int const bin = (dist - histo_lowest) / (histo_highest - histo_lowest) * bins;
+
+        ++histogram[bin];
+    }
+
+    std::ofstream histo_file("/tmp/histogram");
+
+    for (unsigned int i = 0; i < histogram.size(); ++i)
+    {
+        histo_file << ((histo_highest - histo_lowest) / float(bins) * i + histo_lowest) << " " << histogram[i] / float(samples.size()) << std::endl;
+    }
+
+    return largest_distance;
+}
+
+std::vector<triangle_t const*> get_scene_triangles(std::map<objID_t, objData_t> const& meshes)
+{
+    std::vector<triangle_t const*> triangles;
+
+    for (std::map<objID_t, objData_t>::const_iterator iter = meshes.begin(); iter != meshes.end(); ++iter)
+    {
+        triangleObject_t const* obj = iter->second.obj;
+
+        std::vector<triangle_t> const& obj_triangles = obj->getTriangles();
+
+        for (unsigned int i = 0; i < obj_triangles.size(); ++i)
+        {
+            triangles.push_back(&obj_triangles[i]);
+        }
+    }
+
+    return triangles;
+}
+
+
+float get_total_scene_area(std::map<objID_t, objData_t> const& meshes)
+{
+    float scene_area = 0.0f;
+
+    for (std::map<objID_t, objData_t>::const_iterator iter = meshes.begin(); iter != meshes.end(); ++iter)
+    {
+        triangleObject_t const* obj = iter->second.obj;
+
+        std::vector<triangle_t> const& triangles = obj->getTriangles();
+
+        for (unsigned int i = 0; i < triangles.size(); ++i)
+        {
+            triangle_t const& tri = triangles[i];
+
+            scene_area += tri.surfaceArea();
+        }
+    }
+
+    return scene_area;
+}
+
+
+float get_total_scene_area(std::vector<triangle_t const*> const& triangles)
+{
+    float scene_area = 0.0f;
+
+    for (unsigned int i = 0; i < triangles.size(); ++i)
+    {
+        triangle_t const& tri = *triangles[i];
+
+        scene_area += tri.surfaceArea();
+    }
+
+    return scene_area;
+}
+
+
+std::vector<float> get_triangle_areas_cdf(std::vector<triangle_t const*> const& triangles)
+{
+    std::vector<float> triangle_areas(triangles.size());
+
+    for (unsigned int i = 0; i < triangles.size(); ++i)
+    {
+        triangle_areas[i] = triangles[i]->surfaceArea();
+    }
+
+    std::vector<float> triangle_areas_cdf(triangle_areas.size());
+    triangle_areas_cdf[0] = triangle_areas[0];
+
+    for (unsigned int i = 1; i < triangle_areas_cdf.size(); ++i)
+    {
+        triangle_areas_cdf[i] = triangle_areas_cdf[i - 1] + triangle_areas[i];
+    }
+
+    return triangle_areas_cdf;
+}
+
+
+unsigned int hash_function(point3d_t const& sample, const int n, const float cell_size)
+{
+    /*
+    hash(x,y,z) = ( x p1 xor y p2 xor z p3) mod n
+    where p1, p2, p3 are large prime numbers, in
+    our case 73856093, 19349663, 83492791
+    */
+
+    // float bb_size = 6.0f;
+
+    unsigned int i_x = std::abs(int(sample.x / cell_size));
+    unsigned int i_y = std::abs(int(sample.y / cell_size));
+    unsigned int i_z = std::abs(int(sample.z / cell_size));
+
+    return ((i_x * 73856093) ^ (i_y * 19349663) ^ (i_z * 83492791)) % n;
+    //return (i_x + i_y + i_z) % n;
+
+
+
+    // return rand() / RAND_MAX * (n - 1);
+}
+
+std::vector<pbgi_sample_t> generate_samples_darts_hash(float const min_radius, int const number_of_samples, std::vector<triangle_t const*> const& triangles)
+{
+    std::cout << "generate_samples_darts_hash() start" << std::endl;
+
+    random_t my_random;
+
+    std::vector<pbgi_sample_t> sampling_points;
+
+    std::vector<float> triangle_areas_cdf = get_triangle_areas_cdf(triangles);
+
+    float const scene_area = triangle_areas_cdf.back();
+
+
+    int const max_tries = 1000;
+
+    //int grid_size = 8;
+    //int bin_count = grid_size * grid_size * grid_size;
+    int bin_count = 4000;
+
+    float cell_size = min_radius;
+
+    std::vector<std::vector<int> > hash_map(bin_count);
+
+    for (int i = 0; i < number_of_samples; ++i)
+    {
+        if (i % 1000 == 0)
+        {
+            std::cout << "generate_samples_darts_hash(): sample: " << i << std::endl;
+        }
+
+        bool sample_too_close;
+        point3d_t sample_point;
+        int triangle_index;
+
+        for (int try_i = 0; try_i < max_tries; ++try_i)
+        {
+            sample_too_close = false;
+
+            float ksi[3] = { my_random(), my_random(), my_random() };
+
+            int triangle_index = std::lower_bound(triangle_areas_cdf.begin(), triangle_areas_cdf.end(), ksi[0] * scene_area) - triangle_areas_cdf.begin();
+            // triangle_index = int(ksi[0] * triangles.size()) % triangles.size();
+
+            vector3d_t sample_normal;
+
+            triangles[triangle_index]->sample(ksi[1], ksi[2], sample_point, sample_normal);
+
+            for (int x = -1; x <= 1; ++x)
+            {
+                for (int y = -1; y <= 1; ++y)
+                {
+                    for (int z = -1; z <= 1; ++z)
+                    {
+                        int hash_value = hash_function(sample_point + point3d_t(x * min_radius, y * min_radius, z * min_radius), bin_count, cell_size);
+                        std::vector<int> const& neighbors = hash_map[hash_value];
+
+                        for (unsigned int j = 0; j < neighbors.size(); ++j)
+                        {
+                            int sample_index = neighbors[j];
+
+                            assert(sample_index < sampling_points.size());
+
+                            if ((sampling_points[sample_index].position - sample_point).length() < min_radius * 2.0f)
+                            {
+                                sample_too_close = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+
+
+
+            if (!sample_too_close) break;
+        }
+
+        if (!sample_too_close)
+        {
+            hash_map[hash_function(sample_point, bin_count, cell_size)].push_back(sampling_points.size());
+
+            pbgi_sample_t sample;
+            sample.position = sample_point;
+            sample.tri_pointer = triangles[triangle_index];
+
+            sampling_points.push_back(sample);
+        }
+    }
+
+    std::cout << "generate_samples_darts() finish" << std::endl;
+
+    for (unsigned int i = 0; i < hash_map.size(); ++i)
+    {
+        if (i % 100 == 0) std::cout << i << ": " << hash_map[i].size() << std::endl;
+    }
+
+    return sampling_points;
+}
+
+
+std::vector<pbgi_sample_t> generate_samples_darts(float const min_radius, int const number_of_samples, std::vector<triangle_t const*> const& triangles)
+{
+    std::cout << "generate_samples_darts() start" << std::endl;
+
+    random_t my_random;
+
+    std::vector<pbgi_sample_t> sampling_points;
+
+    std::vector<float> triangle_areas_cdf = get_triangle_areas_cdf(triangles);
+
+    float const scene_area = triangle_areas_cdf.back();
+
+
+    int const max_tries = 10000;
+
+    for (int i = 0; i < number_of_samples; ++i)
+    {
+        bool sample_too_close;
+        point3d_t sample_point;
+        int triangle_index;
+
+        for (int try_i = 0; try_i < max_tries; ++try_i)
+        {
+            sample_too_close = false;
+
+            float ksi[3] = { my_random(), my_random(), my_random() };
+
+            int triangle_index = std::lower_bound(triangle_areas_cdf.begin(), triangle_areas_cdf.end(), ksi[0] * scene_area) - triangle_areas_cdf.begin();
+            // triangle_index = int(ksi[0] * triangles.size()) % triangles.size();
+
+            vector3d_t sample_normal;
+
+            triangles[triangle_index]->sample(ksi[1], ksi[2], sample_point, sample_normal);
+
+            for (unsigned int j = 0; j < sampling_points.size(); ++j)
+            {
+                if ((sampling_points[j].position - sample_point).length() < min_radius * 2.0f)
+                {
+                    sample_too_close = true;
+                    break;
+                }
+            }
+
+            if (!sample_too_close) break;
+        }
+
+        if (!sample_too_close)
+        {
+            pbgi_sample_t sample;
+            sample.position = sample_point;
+            sample.tri_pointer = triangles[triangle_index];
+
+            sampling_points.push_back(sample);
+        }
+    }
+
+    std::cout << "generate_samples_darts() finish" << std::endl;
+
+    return sampling_points;
+}
+
+
+std::vector<pbgi_sample_t> generate_samples_cdf(int const number_of_samples, std::vector<triangle_t const*> const& triangles)
+{
+    std::cout << "generate_samples_cdf(): triangles: " << triangles.size() << std::endl;
+
+    std::vector<float> triangle_areas_cdf = get_triangle_areas_cdf(triangles);
+
+    float const area_sum = triangle_areas_cdf.back();
+
+    random_t my_random;
+
+    std::vector<pbgi_sample_t> sampling_points;
+
+    for (int i = 0; i < number_of_samples; ++i)
+    {
+        // float ksi[3] = { my_random(), my_random(), my_random() };
+        vector3d_t ksi = hammersley_3(i, number_of_samples);
+
+        int triangle_index = std::lower_bound(triangle_areas_cdf.begin(), triangle_areas_cdf.end(), ksi[0] * area_sum) - triangle_areas_cdf.begin();
+        // int triangle_index = std::lower_bound(triangle_areas_cdf.begin(), triangle_areas_cdf.end(), ksi[0] * (triangle_areas_cdf.size() - 1)) - triangle_areas_cdf.begin();
+        // int triangle_index = int(my_random() * triangles.size()) % triangles.size();
+
+        point3d_t sample_point;
+        vector3d_t sample_normal;
+
+        triangles[triangle_index]->sample(ksi[1], ksi[2], sample_point, sample_normal);
+
+        pbgi_sample_t sample;
+        sample.position = sample_point;
+        sample.tri_pointer = triangles[triangle_index];
+
+        sampling_points.push_back(sample);
+    }
+
+    return sampling_points;
+}
+
+
 void pbLighting_t::generate_gi_points(renderState_t & state)
 {
     int node_count = 0;
@@ -267,6 +689,170 @@ void pbLighting_t::generate_gi_points(renderState_t & state)
 
     std::ofstream fileStream(fileName.c_str());
 
+    /*
+    float scene_area = 0.0f;
+
+    float const radius = std::sqrt(1.0f / (samplesPerArea * M_PI));
+
+    for (std::map<objID_t, objData_t>::const_iterator iter = scene->meshes.begin(); iter != scene->meshes.end(); ++iter)
+    {
+        triangleObject_t const* obj = iter->second.obj;
+
+        std::vector<triangle_t> const& triangles = obj->getTriangles();
+
+        for (unsigned int i = 0; i < triangles.size(); ++i)
+        {
+            triangle_t const& tri = triangles[i];
+
+            scene_area += tri.surfaceArea();
+        }
+    }
+
+    // float const area_per_sample = 1.0f / float(samplesPerArea);
+    int const total_number_of_samples = samplesPerArea;
+    float const area_per_sample = scene_area / float(total_number_of_samples);
+
+    float completed_area = 0.0f;
+    float fillable_area = 0.0f;
+
+    random_t my_random;
+
+    for (std::map<objID_t, objData_t>::const_iterator iter = scene->meshes.begin(); iter != scene->meshes.end(); ++iter)
+    {
+        triangleObject_t const* obj = iter->second.obj;
+
+        Y_INFO << "PBGI: Processing obj: " << obj << std::endl;
+
+        std::vector<triangle_t> const& triangles = obj->getTriangles();
+
+        for (unsigned int i = 0; i < triangles.size(); ++i)
+        {
+            triangle_t const& tri = triangles[i];
+
+            fillable_area += tri.surfaceArea();
+
+            std::vector<point3d_t> samplingPoints;
+
+            while (completed_area < fillable_area)
+            {
+                float const sample_u = my_random();
+                float const sample_v = my_random();
+
+                point3d_t p;
+                vector3d_t n;
+
+                tri.sample(sample_u, sample_v, p, n);
+                samplingPoints.push_back(p);
+
+                completed_area += area_per_sample;
+            }
+
+
+
+            for (unsigned int i = 0; i < samplingPoints.size(); ++i)
+            {
+                point3d_t const& hitPoint = samplingPoints[i];
+
+                surfacePoint_t sp;
+
+                intersectData_t iData;
+                tri.getSurface(sp, hitPoint, iData);
+
+                GiPoint * giPoint = new GiPoint();
+                giPoint->pos = vector3d_t(sp.P);
+                giPoint->normal = sp.N;
+                giPoint->area = area_per_sample;
+
+                const material_t *material = sp.material;
+                BSDF_t bsdfs;
+                material->initBSDF(state, sp, bsdfs);
+                giPoint->color = material->getDiffuseAtPoint(state, sp);
+
+                color_t incomingLight;
+                unsigned int loffs = 0;
+                for(std::vector<light_t *>::const_iterator l=lights.begin(); l!=lights.end(); ++l)
+                {
+                    incomingLight += estimateIncomingLight(state, *l, sp, loffs);
+                    loffs++;
+                }
+
+                giPoint->energy = incomingLight + material->emission(state, sp, vector3d_t());
+
+                giPoint->sh_representation.calc_coefficients_random(giPoint->normal, giPoint->color, giPoint->energy, giPoint->area);
+
+                _bspTree->addPoint(giPoint->pos, giPoint);
+
+                fileStream << *giPoint << std::endl;
+
+                ++node_count;
+            }
+
+        }
+    }
+
+    */
+
+    float const scene_area = get_total_scene_area(scene->meshes);
+
+    int const number_of_samples = samplesPerArea;
+    float const area_per_sample = scene_area / float(number_of_samples);
+
+    float radius = std::sqrt(area_per_sample / M_PI);
+    std::cout << "best radius: " << radius << std::endl;
+
+    // std::vector<pbgi_sample_t> sampling_points = generate_samples_cdf(number_of_samples, get_scene_triangles(meshes));
+    // std::vector<pbgi_sample_t> sampling_points = generate_samples_darts(0.05f, number_of_samples, get_scene_triangles(scene->meshes));
+    std::vector<pbgi_sample_t> sampling_points = generate_samples_darts_hash(radius * 0.5f, number_of_samples, get_scene_triangles(scene->meshes));
+
+    float const largest_distance = generate_histogram(sampling_points);
+    float const needed_radius = largest_distance / std::sqrt(2.0f);
+    float const area_estimation = M_PI * needed_radius * needed_radius;
+
+    for (unsigned int i = 0; i < sampling_points.size(); ++i)
+    {
+        point3d_t const& hitPoint = sampling_points[i].position;
+        triangle_t const& tri = *sampling_points[i].tri_pointer;
+
+        surfacePoint_t sp;
+
+        intersectData_t iData;
+        tri.getSurface(sp, hitPoint, iData);
+
+        GiPoint * giPoint = new GiPoint();
+        giPoint->pos = vector3d_t(sp.P);
+        giPoint->normal = sp.N;
+        // giPoint->area = area_per_sample;
+        giPoint->area = area_estimation;
+        giPoint->debug_radius = needed_radius;
+
+        const material_t *material = sp.material;
+        BSDF_t bsdfs;
+        material->initBSDF(state, sp, bsdfs);
+        giPoint->color = material->getDiffuseAtPoint(state, sp);
+
+        color_t incomingLight;
+        unsigned int loffs = 0;
+        for(std::vector<light_t *>::const_iterator l=lights.begin(); l!=lights.end(); ++l)
+        {
+            incomingLight += estimateIncomingLight(state, *l, sp, loffs);
+            loffs++;
+        }
+
+        giPoint->energy = incomingLight + material->emission(state, sp, vector3d_t());
+
+        giPoint->sh_representation.calc_coefficients_random(giPoint->normal, giPoint->color, giPoint->energy, giPoint->area);
+
+        _bspTree->addPoint(giPoint->pos, giPoint);
+
+        fileStream << *giPoint << std::endl;
+
+        ++node_count;
+    }
+
+
+    // float const radius = 10.0f / std::sqrt(samplesPerArea);
+
+    /*
     for (std::map<objID_t, objData_t>::const_iterator iter = scene->meshes.begin(); iter != scene->meshes.end(); ++iter)
     {
         triangleObject_t const* obj = iter->second.obj;
@@ -284,36 +870,7 @@ void pbLighting_t::generate_gi_points(renderState_t & state)
 
             ray_t ray;
 
-            float triArea = tri.surfaceArea();
-
-            int sampleCount = samplesPerArea * triArea;
-            if (sampleCount < 1) sampleCount = 1;
-
-            float radius = std::sqrt(triArea / (sampleCount * M_PI));
-
             std::vector<point3d_t> samplingPoints;
-
-            /*
-            int uCount = std::sqrt(sampleCount) + 1;
-            int vCount = uCount;
-
-            for (int u = 0; u < uCount; ++u)
-            {
-                for (int v = 0; v < vCount; ++v)
-                {
-                    point3d_t p;
-                    vector3d_t n;
-
-                    float s1 = (u + 1) / float(uCount + 1);
-                    float s2 = (v + 1) / float(vCount + 1);
-
-                    tri.sample(s1, s2, p, n);
-
-                    samplingPoints.push_back(p);
-                    samplingNormals.push_back(n);
-                }
-            }
-            */
 
             vector3d_t edge0 = tri.getVertex(1) - tri.getVertex(0);
 
@@ -326,10 +883,10 @@ void pbLighting_t::generate_gi_points(renderState_t & state)
             // edge0.normalize();
             // edge1.normalize();
 
-            float d = 2.0f * radius / std::sqrt(2.0f);
+            float d = 2.0f * radius / M_SQRT2;
 
-            int uCount = e0Length / d;
-            int vCount = e1Length / d;
+            int uCount = std::max(1.0f, e0Length / d);
+            int vCount = std::max(1.0f, e1Length / d);
 
             for (int u = 0; u < uCount; ++u)
             {
@@ -353,15 +910,7 @@ void pbLighting_t::generate_gi_points(renderState_t & state)
                 }
             }
 
-            float accDiscAreas = samplingPoints.size() * M_PI * radius * radius;
-
-            float ratio = triArea / accDiscAreas;
-
-            // radius *= std::sqrt(ratio * 2.0f);
             float singleDiscArea = M_PI * radius * radius;
-
-            std::cout << "samples: " << samplingPoints.size() << " radius; " << radius << std::endl;
-            std::cout << "ratio: " << ratio << " area: " << triArea << " accDiscArea: " << accDiscAreas << std::endl;
 
             for (unsigned int i = 0; i < samplingPoints.size(); ++i)
             {
@@ -393,8 +942,6 @@ void pbLighting_t::generate_gi_points(renderState_t & state)
 
                 giPoint->sh_representation.calc_coefficients_random(giPoint->normal, giPoint->color, giPoint->energy, giPoint->area);
 
-                // giPoints.push_back(giPoint);
-
                 _bspTree->addPoint(giPoint->pos, giPoint);
 
                 fileStream << *giPoint << std::endl;
@@ -403,32 +950,56 @@ void pbLighting_t::generate_gi_points(renderState_t & state)
             }
         }
     }
+    */
 
     std::cout << "surfel count: " << node_count << std::endl;
 
     fileStream.close();
+
 }
 
 
-void load_gi_points(pbLighting_t::MyTree* tree)
+yafaray::pbLighting_t::MyTree * load_gi_points()
 {
     int node_count = 0;
+    std::vector<GiPoint*> points;
 
     std::string fileName = "/tmp/pbgi_points_store";
 
     std::ifstream fileStream(fileName.c_str());
 
+    yafaray::point3d_t min(1e10f, 1e10f, 1e10f), max(-1e10f, -1e10f, -1e10f);
+
     while (fileStream.good())
     {
         GiPoint * p = new GiPoint();
         fileStream >> *p;
-        tree->addPoint(p->pos, p);
+        points.push_back(p);
+        // tree->addPoint(p->pos, p);
+
+        min.x = std::min(min.x, p->pos.x);
+        min.y = std::min(min.y, p->pos.y);
+        min.z = std::min(min.z, p->pos.z);
+
+        max.x = std::max(max.x, p->pos.x);
+        max.y = std::max(max.y, p->pos.y);
+        max.z = std::max(max.z, p->pos.z);
+
         ++node_count;
     }
 
     fileStream.close();
 
-    std::cout << "surfel count: " << node_count << std::endl;
+    pbLighting_t::MyTree* tree = new pbLighting_t::MyTree(vector3d_t(min), vector3d_t(max), 30, 1);
+
+    for (unsigned int i = 0; i < points.size(); ++i)
+    {
+        tree->addPoint(points[i]->pos, points[i]);
+    }
+
+    std::cout << "load_gi_points(): surfel count: " << node_count << std::endl;
+
+    return tree;
 }
 
 
@@ -454,14 +1025,15 @@ bool pbLighting_t::preprocess()
 
 
     bound_t const& sceneBound = scene->getSceneBound();
-    _bspTree = new MyTree(vector3d_t(sceneBound.a), vector3d_t(sceneBound.g), 1000, 1);
+
 
     if (do_load_gi_points)
     {
-        load_gi_points(_bspTree);
+        _bspTree = load_gi_points();
     }
     else
     {
+        _bspTree = new MyTree(vector3d_t(sceneBound.a), vector3d_t(sceneBound.g), 30, 1);
         generate_gi_points(state);
     }
 
@@ -779,16 +1351,15 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
 
 
 
-
 color_t doPointBasedGiTree_sh_fb(
     pbLighting_t::MyTree const* tree,
     renderState_t & state,
     surfacePoint_t const& sp,
-    float const maxSolidAngle,
+    float const solid_angle_threshold,
     bool const color_by_depth,
     vector3d_t const& wo,
     pbLighting_t::cube_raster_buffer_type * result_fb,
-    std::vector<yafaray::GiPoint> * gi_points)
+    std::vector<yafaray::GiPoint const*> * gi_points)
 {
     color_t col(0.0f);
     const material_t *material = sp.material;
@@ -800,6 +1371,7 @@ color_t doPointBasedGiTree_sh_fb(
     int shadingNodes = 0;
     int shading_discs_rays = 0;
     int shading_discs_square = 0;
+    int shading_discs = 0;
 
     pbLighting_t::cube_raster_buffer_type frame_buffer;
 
@@ -812,6 +1384,7 @@ color_t doPointBasedGiTree_sh_fb(
     colors.push_back(color_t(1.0f, 0.0f, 1.0f)); // violet
     colors.push_back(color_t(0.5f, 0.5f, 0.5f)); // gray
     colors.push_back(color_t(1.0f, 1.0f, 1.0f)); // white (7)
+    colors.push_back(color_t(1.0f, 0.0f, 0.0f)); // red, surfel (8)
 
 
     while (!queue.empty())
@@ -823,6 +1396,8 @@ color_t doPointBasedGiTree_sh_fb(
         if (node->getIsLeaf() && node->getData().size() > 0)
         {
             std::vector<GiPoint*> const& points = node->getData();
+
+            // assert(points.size() == 1); // true as long as we force 1 surfel per leaf in the tree
 
             for (unsigned int i = 0; i < points.size(); ++i)
             {
@@ -836,50 +1411,74 @@ color_t doPointBasedGiTree_sh_fb(
 
                 float const cos_sp_gip = std::max(giP.normal * giToSp, 0.0f);
 
-                if (cos_sp_gip < 0.01f) continue;
+                if (cos_sp_gip <= 0.001f) continue;
 
-                float const area = cos_sp_gip * giP.area;
+                float const visible_area = std::sqrt(cos_sp_gip) * giP.area;
+                // float const visible_area = cos_sp_gip * giP.area;
+                float const max_area = giP.area;
                 // float const area = std::max(0.0f, giP.sh_representation.get_sh_area(giToSp));
 
-                float const solidAngle = area / (distance * distance);
+                float const solid_angle_real = visible_area / (distance * distance);
+
+                //frame_buffer.add_point(-giToSp, contribution, solidAngle, distance, use_rays);
+                float const disc_radius = std::sqrt(max_area / M_PI);
+                float const visible_radius = std::sqrt(visible_area / M_PI);
 
                 yafaray::color_t contribution;
 
                 if (color_by_depth)
                 {
-                    contribution = colors.back() * cos_sp_gip;
+                    contribution = colors.back(); // * cos_sp_gip;
+
+                    if (distance < disc_radius * 4.0f)
+                    {
+                        contribution = color_t(1.0f, 1.0f, 0.0f);
+                    }
                 }
                 else
                 {
                     // contribution = giP.sh_representation.get_sh_color(giToSp);
                     contribution = giP.color * giP.energy;
+//                    contribution = giP.color * giP.energy * cos_sp_gip;
                 }
 
-                //frame_buffer.add_point(-giToSp, contribution, solidAngle, distance, use_rays);
-                float const radius = std::sqrt(giP.area / M_PI);
 
-                // if (cos_sp_gip > 0.001f && distance > radius && distance < radius * 4.0f)
-                if (distance < radius * 4.0f)
+                yafaray::GiPoint * debug_point = NULL;
+
+                if (gi_points)
                 {
-                    frame_buffer.add_point_exact(contribution, giP.normal, giP.pos - vector3d_t(sp.P), std::sqrt(giP.area / M_PI), distance);
+                    debug_point = new yafaray::GiPoint(giP);
+
+                    //debug_point->area = max_area;
+                    debug_point->area = visible_area;
+                    debug_point->color = contribution;
+                    debug_point->energy = 1.0f;
+                    debug_point->depth = node->getDepth();
+                    debug_point->debug_radius = visible_radius; // debug only!
+                }
+
+                // float cos_normal_gip = -giToSp * sp.N; // lambert receiver
+
+                // col += solidAngle * giP.color * giP.energy * cos_normal_gip;
+
+                //frame_buffer.add_point_from_sphere_with_rays(-giToSp, contribution, radius * 1.2f, distance, debug_point);
+                //frame_buffer.add_point_square_rasterization(-giToSp, contribution, solidAngle, distance, debug_point);
+                //frame_buffer.add_point_exact(contribution, giP.normal, giP.pos - vector3d_t(sp.P), radius, distance, debug_point);
+                // frame_buffer.add_point_exact(contribution, giP.normal, giP.pos, radius, distance, debug_point);
+                //++shading_discs;
+
+
+                //if (cos_sp_gip > 0.001f && distance > radius && distance < radius * 4.0f)
+                if (distance < disc_radius * 4.0f)
+                {
+                    frame_buffer.add_point_exact(contribution, giP.normal, giP.pos - vector3d_t(sp.P), disc_radius, distance, debug_point);
                     ++shading_discs_rays;
                 }
                 else
                 {
                     // frame_buffer.add_point_rays(-giToSp, contribution, solidAngle, distance);
-                    frame_buffer.add_point_square_rasterization(-giToSp, contribution, solidAngle, distance);
+                    frame_buffer.add_point_square_rasterization(-giToSp, contribution, solid_angle_real, distance, debug_point);
                     ++shading_discs_square;
-                }
-
-                if (gi_points)
-                {
-                    yafaray::GiPoint p = giP;
-                    p.area = area;
-                    p.color = contribution;
-                    p.energy = 1.0f;
-                    p.depth = node->getDepth();
-
-                    gi_points->push_back(p);
                 }
             }
         }
@@ -888,21 +1487,23 @@ color_t doPointBasedGiTree_sh_fb(
             if (node->isNodeBehindPlane(vector3d_t(sp.P), sp.N)) continue;
 
             GiPoint const& giP = *node->getClusteredData();
+            // vector3d_t const position = node->getCenter();
+            vector3d_t const position = giP.pos;
 
-            vector3d_t giToSp = (vector3d_t(sp.P) - giP.pos);
+            vector3d_t giToSp = (vector3d_t(sp.P) - position);
 
             float const distance = giToSp.length();
 
             giToSp.normalize();
 
-            // float cos_sp_gip = giP.normal * giToSp;
+//            float const visible_area = std::max(0.0f, giP.sh_representation.get_sh_area(giToSp));
+            float const max_visible_area = node->getRadius() * node->getRadius() * M_PI;
+            float const visible_area = std::max(0.0f, giP.sh_representation.get_sh_area(giToSp));
 
-            float const area = std::max(0.0f, giP.sh_representation.get_sh_area(giToSp));
-            // float const area = node->getRadius() * node->getRadius() * M_PI;
+            float const max_solid_angle = max_visible_area / (distance * distance);
 
-            float const solidAngle = area / (distance * distance);
 
-            if (solidAngle > maxSolidAngle || distance < node->getRadius() * 1.5f)
+            if (max_solid_angle > solid_angle_threshold || distance < node->getRadius() * 1.5f)
             {
                 std::vector<pbLighting_t::MyTree> const& children = node->getChildren();
                 for (unsigned int i = 0; i < children.size(); ++i)
@@ -920,26 +1521,42 @@ color_t doPointBasedGiTree_sh_fb(
 
                 if (color_by_depth)
                 {
-                    cluster_contribution = colors[std::min(node->getDepth(), 6)];
+                    // float const cos_sp_gip = std::max(0.0f, giP.normal * giToSp);
+                    cluster_contribution = colors[std::min(node->getDepth(), int(colors.size()) - 2)]; // * cos_sp_gip;
                 }
                 else
                 {
                     cluster_contribution = giP.sh_representation.get_sh_color(giToSp);
+                    // cluster_contribution = giP.color * giP.energy; // * cos_sp_gip;
                 }
 
-                bool const use_rays = true;
-                frame_buffer.add_point(-giToSp, cluster_contribution, solidAngle, distance, use_rays);
+                // bool const use_rays = true;
+                // frame_buffer.add_point(-giToSp, cluster_contribution, solidAngle, distance, use_rays);
+                // frame_buffer.add_point_from_sphere_with_rays(-giToSp, cluster_contribution, node->getRadius(), distance, node->getClusteredData());
+
+                yafaray::GiPoint * debug_point = NULL;
 
                 if (gi_points)
                 {
-                    yafaray::GiPoint p = giP;
-                    p.area = area;
-                    p.color = cluster_contribution;
-                    p.energy = 1.0f;
-                    p.depth = node->getDepth();
+                    debug_point = new yafaray::GiPoint(giP);
 
-                    gi_points->push_back(p);
+                    debug_point->pos = position;
+                    // debug_point->area = max_visible_area;
+                    debug_point->area = visible_area;
+                    debug_point->color = cluster_contribution;
+                    debug_point->energy = 1.0f;
+                    debug_point->depth = node->getDepth();
+                    debug_point->debug_radius = std::sqrt(visible_area / M_PI); // debug only!
                 }
+
+                // float const solid_angle_real = cos_sp_gip * area / (distance * distance);
+                float const real_solid_angle = std::max(0.0f, giP.sh_representation.get_sh_area(giToSp)) / (distance * distance);
+
+                // float cos_normal_gip = -giToSp * sp.N; // lambert receiver
+                // col += real_solid_angle * giP.color * giP.energy * cos_normal_gip;
+
+                frame_buffer.add_point_square_rasterization(-giToSp, cluster_contribution, real_solid_angle, distance, debug_point);
+                // frame_buffer.add_point_single_cell(-giToSp, cluster_contribution, distance, debug_point);
 
                 ++shadingNodes;
             } // end else (bad solid angle)
@@ -947,12 +1564,14 @@ color_t doPointBasedGiTree_sh_fb(
     }
 
 
-    frame_buffer.accumulate();
+
+    frame_buffer.accumulate(gi_points);
 
     color_t surfCol(1.0f);
     if (material)
     {
         surfCol = material->getDiffuseAtPoint(state, sp); //material->eval(state, sp, wo, vector3d_t(0.0f), BSDF_ALL);
+        // surfCol = material->eval(state, sp, wo, vector3d_t(0.0f), BSDF_ALL);
         col = frame_buffer.get_diffuse(sp.N) * surfCol;
     }
 
@@ -962,7 +1581,17 @@ color_t doPointBasedGiTree_sh_fb(
         *result_fb = frame_buffer;
     }
 
-    std::cout << "shading_discs_rays: " << shading_discs_rays << " shading_discs_square: " << shading_discs_square << " shadingNodes: " << shadingNodes << std::endl;
+    // col = frame_buffer.get_diffuse(sp.N);
+
+    if (gi_points)
+    {
+        std::cout << "gipoints: " << gi_points << std::endl;
+        std::cout << "shading_discs_rays: " << shading_discs_rays
+                  << " shading_discs_square: " << shading_discs_square
+                  << " shadingNodes: " << shadingNodes
+                  << " shading_discs: " << shading_discs
+                  << std::endl;
+    }
 
     return col;
 }
@@ -1081,7 +1710,7 @@ colorA_t pbLighting_t::integrate(renderState_t &state, diffRay_t &ray) const
             else if (debug_type == Tree_sh_fb)
             {
                 // col += doPointBasedGiTree_sh_fb(state, sp, wo);
-                col += doPointBasedGiTree_sh_fb(_bspTree, state, sp, maxSolidAngle, false, wo);
+                col += doPointBasedGiTree_sh_fb(_bspTree, state, sp, maxSolidAngle, false, wo, NULL, NULL);
             }
             else if (debug_type == Tree_sh_leafs)
             {
@@ -1175,7 +1804,6 @@ integrator_t* pbLighting_t::factory(paraMap_t &params, renderEnvironment_t &rend
     inte->samplesPerArea = samples;
     inte->debug = debug;
     inte->indirectOnly = indirectOnly;
-    inte->maxSolidAngle = maxSolidAngle;
     inte->debugTreeDepth = debugTreeDepth;
     inte->debugOutputPointsToFile = debugOutputPointsToFile;
     if (debug_type_map.find(debug_type) != debug_type_map.end())
@@ -1191,6 +1819,14 @@ integrator_t* pbLighting_t::factory(paraMap_t &params, renderEnvironment_t &rend
     inte->pixel_y = pixel_y;
 
     inte->do_load_gi_points = do_load_gi_points;
+
+    // inte->maxSolidAngle = maxSolidAngle;
+    //float angle = std::atan(1.0f / float(pbLighting_t::cube_raster_buffer_type::resolution_2));
+    //maxSolidAngle = 2.0f * M_PI * (1.0f - std::cos(angle));
+    inte->maxSolidAngle = maxSolidAngle;
+
+    Y_INFO << "maxSolidAngle: " << maxSolidAngle << std::endl;
+
 
 	return inte;
 }

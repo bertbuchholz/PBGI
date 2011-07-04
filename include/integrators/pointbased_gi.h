@@ -26,7 +26,7 @@ struct GiPoint
         energy(0.0f),
         depth(-1)
     {
-        sh_representation = GiSphericalHarmonics<vector3d_t, color_t>(true, 3);
+        sh_representation = GiSphericalHarmonics<vector3d_t, color_t>(false, 3);
     }
 
     vector3d_t pos;
@@ -35,6 +35,8 @@ struct GiPoint
     float      area;
     color_t    energy;
     int        depth;
+
+    mutable float debug_radius;
 
     GiSphericalHarmonics<vector3d_t, color_t> sh_representation;
 
@@ -112,7 +114,7 @@ private:
 };
 
 
-void load_gi_points(pbLighting_t::MyTree* tree);
+pbLighting_t::MyTree* load_gi_points();
 GiPoint * averageGiPoints(std::vector<GiPoint*> const& points);
 color_t doPointBasedGiTree_sh_fb(
     pbLighting_t::MyTree const* tree, renderState_t & state,
@@ -121,7 +123,7 @@ color_t doPointBasedGiTree_sh_fb(
     bool const color_by_depth,
     vector3d_t const& wo,
     pbLighting_t::cube_raster_buffer_type * result_fb = NULL,
-    std::vector<yafaray::GiPoint> * gi_points = NULL);
+    std::vector<yafaray::GiPoint const*> * gi_points = NULL);
 
 __END_YAFRAY
 
