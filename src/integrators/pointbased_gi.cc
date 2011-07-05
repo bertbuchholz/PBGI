@@ -18,6 +18,8 @@
 #include <utilities/CubeRasterBuffer.h>
 #include <integrators/pointbased_gi.h>
 
+#include <yafraycore/timer.h>
+
 __BEGIN_YAFRAY
 
 
@@ -249,22 +251,7 @@ color_t pbLighting_t::estimateIncomingLight(renderState_t & state, light_t *ligh
   */
 
 
-/*
-  "random point suicide"
 
-  triangle_areas
-  // number_of_samples
-  desired_radius
-  number_of_samples_2 (candidates)
-
-  samples = classical_sampling(number_of_samples_2, triangle_areas)
-
-  while samples.size > number_of_samples:
-     sample = random from samples
-
-
-
-  */
 
 float radicalInverse(int n, int base)
 {
@@ -315,10 +302,100 @@ struct pbgi_sample_t
     point3d_t position;
 };
 
-float generate_histogram(std::vector<pbgi_sample_t> const& samples)
-{
-    std::vector<float> distances;
 
+unsigned int hash_function(point3d_t const& sample, const int n, const float cell_size)
+{
+    /*
+    hash(x,y,z) = ( x p1 xor y p2 xor z p3) mod n
+    where p1, p2, p3 are large prime numbers, in
+    our case 73856093, 19349663, 83492791
+    */
+
+    // float bb_size = 6.0f;
+
+    unsigned int i_x = int((sample.x + 10000.0f) / cell_size);
+    unsigned int i_y = int((sample.y + 10000.0f) / cell_size);
+    unsigned int i_z = int((sample.z + 10000.0f) / cell_size);
+
+    // std::cout << "i_x: " << (i_x % n) << " sample.x: " << sample.x << std::endl;
+
+    unsigned int hash_value = ((i_x * 73856093) ^ (i_y * 19349663) ^ (i_z * 83492791)) % n;
+    // unsigned int hash_value = (i_x + i_y + i_z) % n;
+
+    return hash_value;
+
+    // return i_x % n;
+
+            /*
+
+    unsigned int i_x = std::abs(int(sample.x / cell_size));
+    unsigned int i_y = std::abs(int(sample.y / cell_size));
+    unsigned int i_z = std::abs(int(sample.z / cell_size));
+
+    int hash_value = ((i_x * 73856093) ^ (i_y * 19349663) ^ (i_z * 83492791)) % n;
+
+    assert(hash_value >= 0 && hash_value < n);
+
+    return hash_value;
+
+    //return (i_x + i_y + i_z) % n;
+
+*/
+
+    // return rand() / RAND_MAX * (n - 1);
+}
+
+float generate_histogram(std::vector<pbgi_sample_t> const& samples, float const min_radius)
+{
+    std::cout << "generate_histogram() start" << std::endl;
+
+    std::vector<float> distances(samples.size());
+
+    int bin_count = samples.size() * 0.05f;
+    float cell_size = min_radius * 20.0f;
+
+    std::vector<std::vector<int> > hash_map(bin_count);
+
+    for (unsigned int i = 0; i < samples.size(); ++i)
+    {
+        for (int x = -1; x <= 1; ++x)
+        {
+            for (int y = -1; y <= 1; ++y)
+            {
+                for (int z = -1; z <= 1; ++z)
+                {
+                    int const hash_value = hash_function(samples[i].position + point3d_t(x * cell_size, y * cell_size, z * cell_size), bin_count, cell_size);
+                    hash_map[hash_value].push_back(i);
+                }
+            }
+        }
+    }
+
+    for (unsigned int i = 0; i < samples.size(); ++i)
+    {
+        float smallest_distance_i = 1e10f;
+
+        int const hash_value = hash_function(samples[i].position, bin_count, cell_size);
+        std::vector<int> const& neighbors = hash_map[hash_value];
+
+        for (unsigned int j = 0; j < neighbors.size(); ++j)
+        {
+            int sample_index = neighbors[j];
+
+            if (sample_index == i) continue;
+
+            float const distance = (samples[i].position - samples[sample_index].position).length();
+
+            if (distance < smallest_distance_i)
+            {
+                smallest_distance_i = distance;
+            }
+        }
+
+        distances[i] = smallest_distance_i;
+    }
+
+/*
     for (unsigned int i = 0; i < samples.size(); ++i)
     {
         float smallest_distance_i = 1e10f;
@@ -335,8 +412,9 @@ float generate_histogram(std::vector<pbgi_sample_t> const& samples)
             }
         }
 
-        distances.push_back(smallest_distance_i);
+        distances[i] = smallest_distance_i;
     }
+*/
 
     float largest_distance = -1e10f;
     float smallest_distance = 1e10f;
@@ -358,7 +436,7 @@ float generate_histogram(std::vector<pbgi_sample_t> const& samples)
     float const histo_highest = largest_distance;
     int bins = 100;
 
-    std::vector<int> histogram(bins);
+    std::vector<int> histogram(bins, 0);
 
     std::cout << "generate_histogram(): " << histo_highest << std::endl;
 
@@ -377,6 +455,8 @@ float generate_histogram(std::vector<pbgi_sample_t> const& samples)
     {
         histo_file << ((histo_highest - histo_lowest) / float(bins) * i + histo_lowest) << " " << histogram[i] / float(samples.size()) << std::endl;
     }
+
+    std::cout << "generate_histogram() finished" << std::endl;
 
     return largest_distance;
 }
@@ -459,79 +539,103 @@ std::vector<float> get_triangle_areas_cdf(std::vector<triangle_t const*> const& 
 }
 
 
-unsigned int hash_function(point3d_t const& sample, const int n, const float cell_size)
-{
-    /*
-    hash(x,y,z) = ( x p1 xor y p2 xor z p3) mod n
-    where p1, p2, p3 are large prime numbers, in
-    our case 73856093, 19349663, 83492791
-    */
-
-    // float bb_size = 6.0f;
-
-    unsigned int i_x = int(sample.x / cell_size) + 1000;
-    unsigned int i_y = int(sample.y / cell_size) + 1000;
-    unsigned int i_z = int(sample.z / cell_size) + 1000;
-
-    int hash_value = ((i_x * 73856093) ^ (i_y * 19349663) ^ (i_z * 83492791)) % n;
-
-    assert(hash_value >= 0 && hash_value < n);
-
-    return hash_value;
-
-    //return (i_x + i_y + i_z) % n;
-
-
-
-    // return rand() / RAND_MAX * (n - 1);
-}
 
 std::vector<pbgi_sample_t> generate_samples_darts_hash(float const min_radius, int const number_of_samples, std::vector<triangle_t const*> const& triangles)
 {
     std::cout << "generate_samples_darts_hash() min_radius: " << min_radius << std::endl;
 
     random_t my_random;
-
     std::vector<pbgi_sample_t> sampling_points;
+
+    /*
+    for (float x = 0.0f; x < 5.0f; x += 0.1f)
+    {
+        hash_function(point3d_t(x, my_random(), my_random()), 400, 0.5f);
+    }
+
+    return sampling_points;
+    */
 
     std::vector<float> triangle_areas_cdf = get_triangle_areas_cdf(triangles);
 
     float const scene_area = triangle_areas_cdf.back();
 
 
-    int const max_tries = 1000;
-
-    //int grid_size = 8;
-    //int bin_count = grid_size * grid_size * grid_size;
-    int bin_count = 4000;
-
-    float cell_size = min_radius;
+    int const max_tries = 10000;
+    int bin_count = 320000;
+    float cell_size = min_radius * 2.0f;
 
     std::vector<std::vector<int> > hash_map(bin_count);
 
-    for (int i = 0; i < number_of_samples; ++i)
+    int rejected_count = 0;
+
+    int debug_rejects = 0;
+
+    while (rejected_count < max_tries)
     {
-        if (i % 1000 == 0)
+        float ksi[3] = { my_random(), my_random(), my_random() };
+
+        // int triangle_index = std::lower_bound(triangle_areas_cdf.begin(), triangle_areas_cdf.end(), ksi[0] * scene_area) - triangle_areas_cdf.begin();
+        int triangle_index = int(ksi[0] * triangles.size()) % triangles.size();
+
+        vector3d_t sample_normal;
+        point3d_t sample_point;
+
+        triangles[triangle_index]->sample(ksi[1], ksi[2], sample_point, sample_normal);
+
+        bool sample_rejected = false;
+
+        int const hash_value = hash_function(sample_point, bin_count, cell_size);
+        std::vector<int> const& neighbors = hash_map[hash_value];
+
+        for (unsigned int i = 0; i < neighbors.size(); ++i)
         {
-            std::cout << "generate_samples_darts_hash(): sample: " << i << std::endl;
+            int sample_index = neighbors[i];
+
+            assert(sample_index < int(sampling_points.size()));
+
+            if ((sampling_points[sample_index].position - sample_point).length() < min_radius * 2.0f)
+            {
+                sample_rejected = true;
+                ++rejected_count;
+                ++debug_rejects;
+                break;
+            }
         }
 
-        bool sample_too_close;
-        point3d_t sample_point;
-        int triangle_index;
 
-        for (int try_i = 0; try_i < max_tries; ++try_i)
+        /*
+        bool sample_rejected_2 = false;
+
+        for (unsigned int i = 0; i < sampling_points.size(); ++i)
         {
-            sample_too_close = false;
+            if ((sampling_points[i].position - sample_point).length() < min_radius * 2.0f)
+            {
+                sample_rejected_2 = true;
+                break;
+            }
+        }
 
-            float ksi[3] = { my_random(), my_random(), my_random() };
+        if (sample_rejected != sample_rejected_2)
+        {
+            if (!sample_rejected && sample_rejected_2)
+            {
+                std::cout << "close sample not found with hash" << std::endl;
+                assert(false);
+            }
 
-            triangle_index = std::lower_bound(triangle_areas_cdf.begin(), triangle_areas_cdf.end(), ksi[0] * scene_area) - triangle_areas_cdf.begin();
-            // triangle_index = int(ksi[0] * triangles.size()) % triangles.size();
+            if (sample_rejected && !sample_rejected_2)
+            {
+                std::cout << "close sample found with hash IMPOSSIBLE ;)" << std::endl;
+            }
 
-            vector3d_t sample_normal;
 
-            triangles[triangle_index]->sample(ksi[1], ksi[2], sample_point, sample_normal);
+        }
+        */
+
+        if (!sample_rejected)
+        {
+            int new_sample_index = sampling_points.size();
 
             for (int x = -1; x <= 1; ++x)
             {
@@ -539,41 +643,28 @@ std::vector<pbgi_sample_t> generate_samples_darts_hash(float const min_radius, i
                 {
                     for (int z = -1; z <= 1; ++z)
                     {
-                        int const hash_value = hash_function(sample_point + point3d_t(x * min_radius, y * min_radius, z * min_radius), bin_count, cell_size);
-                        std::vector<int> const& neighbors = hash_map[hash_value];
-
-                        for (unsigned int j = 0; j < neighbors.size(); ++j)
-                        {
-                            int sample_index = neighbors[j];
-
-                            assert(sample_index < int(sampling_points.size()));
-
-                            if ((sampling_points[sample_index].position - sample_point).length() < min_radius * 2.0f)
-                            {
-                                sample_too_close = true;
-                                break;
-                            }
-                        }
+                        int const hash_value = hash_function(sample_point + point3d_t(x * cell_size, y * cell_size, z * cell_size), bin_count, cell_size);
+                        hash_map[hash_value].push_back(new_sample_index);
                     }
                 }
             }
-
-            if (!sample_too_close) break;
-        }
-
-        if (!sample_too_close)
-        {
-            hash_map[hash_function(sample_point, bin_count, cell_size)].push_back(sampling_points.size());
 
             pbgi_sample_t sample;
             sample.position = sample_point;
             sample.tri_pointer = triangles[triangle_index];
 
             sampling_points.push_back(sample);
+
+            if (sampling_points.size() % 10000 == 0)
+            {
+                std::cout << "generate_samples_darts_hash(): accepted: " << sampling_points.size() << " " << rejected_count << std::endl;
+            }
+
+            rejected_count = 0;
         }
     }
 
-    std::cout << "generate_samples_darts() finish" << std::endl;
+    std::cout << "generate_samples_darts_hash() finished" << std::endl;
 
     std::ofstream hash_file("/tmp/hash_map");
 
@@ -685,6 +776,203 @@ std::vector<pbgi_sample_t> generate_samples_cdf(int const number_of_samples, std
 }
 
 
+/*
+  "random point suicide"
+
+  triangle_areas
+  // number_of_samples
+  desired_radius
+  number_of_samples_2 (candidates)
+
+  samples = classical_sampling(number_of_samples_2, triangle_areas)
+
+  while samples.size > number_of_samples:
+     sample = random from samples
+
+
+
+  */
+
+std::vector<pbgi_sample_t> generate_samples_suicide(int const number_of_samples, float const desired_radius, std::vector<triangle_t const*> const& triangles)
+{
+    std::cout << "generate_samples_suicide(): " << number_of_samples << " radius: " << desired_radius << std::endl;
+
+    int number_of_candidates = number_of_samples * 20;
+
+    std::vector<pbgi_sample_t> candidate_samples;
+    candidate_samples.reserve(number_of_candidates);
+
+    random_t my_random;
+
+
+
+    int bin_count = number_of_candidates * 0.05f;
+    std::vector<std::vector<int> > hash_map(bin_count);
+    float cell_size = desired_radius * 2.0f;
+
+    int const expected_bin_size = number_of_candidates / bin_count;
+
+    for (unsigned int i = 0; i < hash_map.size(); ++i)
+    {
+        hash_map[i].reserve(expected_bin_size);
+    }
+
+    for (int i = 0; i < number_of_candidates; ++i)
+    {
+        float ksi[3] = { my_random(), my_random(), my_random() };
+        // vector3d_t ksi = hammersley_3(i, number_of_candidates);
+
+        // int triangle_index = std::lower_bound(triangle_areas_cdf.begin(), triangle_areas_cdf.end(), ksi[0] * area_sum) - triangle_areas_cdf.begin();
+        // int triangle_index = std::lower_bound(triangle_areas_cdf.begin(), triangle_areas_cdf.end(), ksi[0] * (triangle_areas_cdf.size() - 1)) - triangle_areas_cdf.begin();
+        int triangle_index = int(ksi[0] * triangles.size()) % triangles.size();
+
+        point3d_t sample_point;
+        vector3d_t sample_normal;
+
+        triangles[triangle_index]->sample(ksi[1], ksi[2], sample_point, sample_normal);
+
+        pbgi_sample_t sample;
+        sample.position = sample_point;
+        sample.tri_pointer = triangles[triangle_index];
+
+        candidate_samples.push_back(sample);
+
+        for (int x = -1; x <= 1; ++x)
+        {
+            for (int y = -1; y <= 1; ++y)
+            {
+                for (int z = -1; z <= 1; ++z)
+                {
+                    int const hash_value = hash_function(sample.position + point3d_t(x * cell_size, y * cell_size, z * cell_size), bin_count, cell_size);
+                    hash_map[hash_value].push_back(i);
+                }
+            }
+        }
+    }
+
+
+
+
+    std::vector<bool> dead_samples(candidate_samples.size(), false);
+
+    /*
+    for (unsigned int i = 0; i < candidate_samples.size(); ++i)
+    {
+        point3d_t const& suicide_pos = candidate_samples[i].position;
+
+        if (i % 1000 == 0)
+        {
+            std::cout << "i: " << i << std::endl;
+        }
+
+        // if (dead_samples[i]) continue;
+
+
+
+        int const hash_value = hash_function(suicide_pos, bin_count, cell_size);
+        std::vector<int> const& neighbors = hash_map[hash_value];
+
+        for (unsigned int j = 0; j < neighbors.size(); ++j)
+        {
+            int neighbor_index = neighbors[j];
+
+            if (dead_samples[neighbor_index] || i == neighbor_index) continue;
+
+            if ((candidate_samples[neighbor_index].position - suicide_pos).length() < desired_radius * 2.0f)
+            {
+                dead_samples[i] = true;
+                break;
+            }
+
+        }
+    }
+    */
+
+
+      // killer loop
+    for (unsigned int i = 0; i < candidate_samples.size(); ++i)
+    {
+        point3d_t const& killer_pos = candidate_samples[i].position;
+
+        if (i % 1000 == 0)
+        {
+            std::cout << "i: " << i << std::endl;
+        }
+
+        if (dead_samples[i]) continue;
+
+
+
+        int const hash_value = hash_function(killer_pos, bin_count, cell_size);
+        std::vector<int> const& neighbors = hash_map[hash_value];
+
+        for (unsigned int j = 0; j < neighbors.size(); ++j)
+        {
+            int neighbor_index = neighbors[j];
+
+            if (i == neighbor_index) continue;
+
+            if ((candidate_samples[neighbor_index].position - killer_pos).length() < desired_radius * 2.0f)
+            {
+                dead_samples[neighbor_index] = true;
+            }
+
+        }
+
+
+
+//        for (unsigned int j = 0; j < candidate_samples.size(); ++j)
+//        {
+//            // if (dead_samples[j] || i == j) continue;
+//            if (i == j) continue;
+
+//            if ((candidate_samples[j].position - candidate_samples[i].position).length() < desired_radius * 2.0f)
+//            {
+//                dead_samples[j] = true;
+//            }
+//        }
+
+    }
+
+
+    std::vector<pbgi_sample_t> survivors;
+
+    for (unsigned int i = 0; i < candidate_samples.size(); ++i)
+    {
+        if (!dead_samples[i])
+        {
+            survivors.push_back(candidate_samples[i]);
+        }
+    }
+
+    std::cout << "generate_samples_suicide(): generated samples: " << survivors.size() << std::endl;
+
+    return survivors;
+
+
+
+    /*
+    while ()
+    {
+        std::vector<pbgi_sample_t> survivors;
+
+        pbgi_sample_t const& sample = candidate_samples.front();
+
+        for (unsigned int i = 1; i < candidate_samples.size(); ++i)
+        {
+            if ((candidate_samples[i].position - sample.position).length() >= desired_radius * 2.0f)
+            {
+                survivors.push_back(sample);
+            }
+        }
+
+        candidate_samples = survivors;
+        candidate_samples.push_back(sample);
+    }
+    */
+}
+
+
 void pbLighting_t::generate_gi_points(renderState_t & state)
 {
     int node_count = 0;
@@ -703,13 +991,23 @@ void pbLighting_t::generate_gi_points(renderState_t & state)
     float radius = std::sqrt(area_per_sample / M_PI);
     std::cout << "best radius: " << radius << std::endl;
 
+    timer_t my_timer;
+    my_timer.addEvent("t1");
+    my_timer.start("t1");
+
     // std::vector<pbgi_sample_t> sampling_points = generate_samples_cdf(number_of_samples, get_scene_triangles(scene->meshes));
     // std::vector<pbgi_sample_t> sampling_points = generate_samples_darts(0.05f, number_of_samples, get_scene_triangles(scene->meshes));
     // std::vector<pbgi_sample_t> sampling_points = generate_samples_darts_hash(radius * 0.5f, number_of_samples, get_scene_triangles(scene->meshes));
-    std::vector<pbgi_sample_t> sampling_points = generate_samples_darts_hash(radius * 0.9f, number_of_samples, get_scene_triangles(scene->meshes));
+    //std::vector<pbgi_sample_t> sampling_points = generate_samples_darts_hash(radius, number_of_samples, get_scene_triangles(scene->meshes));
+    std::vector<pbgi_sample_t> sampling_points = generate_samples_suicide(number_of_samples, radius, get_scene_triangles(scene->meshes));
 
-    float const largest_distance = generate_histogram(sampling_points);
-    float const needed_radius = largest_distance / std::sqrt(2.0f);
+    my_timer.stop("t1");
+
+    std::cout << "samples/desired_samples: " << (sampling_points.size() / float(number_of_samples)) << " time: " << my_timer.getTime("t1") << std::endl;
+
+    float const largest_distance = generate_histogram(sampling_points, radius);
+    // float const largest_distance = radius;
+    float const needed_radius = largest_distance * std::sqrt(2.0f);
     float const area_estimation = M_PI * needed_radius * needed_radius;
 
     for (unsigned int i = 0; i < sampling_points.size(); ++i)
@@ -725,9 +1023,10 @@ void pbLighting_t::generate_gi_points(renderState_t & state)
         GiPoint * giPoint = new GiPoint();
         giPoint->pos = vector3d_t(sp.P);
         giPoint->normal = sp.N;
-        // giPoint->area = area_per_sample;
+        //giPoint->area = area_per_sample;
         giPoint->area = area_estimation;
-        giPoint->debug_radius = needed_radius;
+        //giPoint->debug_radius = needed_radius;
+        giPoint->debug_radius = radius;
 
         material_t const* material = sp.material;
         BSDF_t bsdfs;

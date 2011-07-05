@@ -49,7 +49,8 @@ struct GiPoint
              p.area << " " <<
              p.energy.R << " " << p.energy.G << " " << p.energy.B << " " <<
              p.depth << " " <<
-             p.sh_representation
+             p.sh_representation << " " <<
+             p.debug_radius
              ;
 
         return s;
@@ -64,7 +65,8 @@ struct GiPoint
              p.area >>
              p.energy.R >> p.energy.G >> p.energy.B >>
              p.depth >>
-             p.sh_representation
+             p.sh_representation >>
+             p.debug_radius
              ;
 
         return s;
