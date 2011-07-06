@@ -313,36 +313,16 @@ unsigned int hash_function(point3d_t const& sample, const int n, const float cel
 
     // float bb_size = 6.0f;
 
-    unsigned int i_x = int((sample.x + 10000.0f) / cell_size);
-    unsigned int i_y = int((sample.y + 10000.0f) / cell_size);
-    unsigned int i_z = int((sample.z + 10000.0f) / cell_size);
+    unsigned int i_x = std::floor(sample.x / cell_size);
+    unsigned int i_y = std::floor(sample.y / cell_size);
+    unsigned int i_z = std::floor(sample.z / cell_size);
 
     // std::cout << "i_x: " << (i_x % n) << " sample.x: " << sample.x << std::endl;
 
-    unsigned int hash_value = ((i_x * 73856093) ^ (i_y * 19349663) ^ (i_z * 83492791)) % n;
+    unsigned int hash_value = ((i_x * 73856093u) ^ (i_y * 19349663u) ^ (i_z * 83492791u)) % unsigned(n);
     // unsigned int hash_value = (i_x + i_y + i_z) % n;
 
     return hash_value;
-
-    // return i_x % n;
-
-            /*
-
-    unsigned int i_x = std::abs(int(sample.x / cell_size));
-    unsigned int i_y = std::abs(int(sample.y / cell_size));
-    unsigned int i_z = std::abs(int(sample.z / cell_size));
-
-    int hash_value = ((i_x * 73856093) ^ (i_y * 19349663) ^ (i_z * 83492791)) % n;
-
-    assert(hash_value >= 0 && hash_value < n);
-
-    return hash_value;
-
-    //return (i_x + i_y + i_z) % n;
-
-*/
-
-    // return rand() / RAND_MAX * (n - 1);
 }
 
 float generate_histogram(std::vector<pbgi_sample_t> const& samples, float const min_radius)
@@ -547,14 +527,14 @@ std::vector<pbgi_sample_t> generate_samples_darts_hash(float const min_radius, i
     random_t my_random;
     std::vector<pbgi_sample_t> sampling_points;
 
-    /*
-    for (float x = 0.0f; x < 5.0f; x += 0.1f)
+
+    for (float x = -3.0f; x < 3.0f; x += 0.3f)
     {
-        hash_function(point3d_t(x, my_random(), my_random()), 400, 0.5f);
+        std::cout << x << " hash: " << hash_function(point3d_t(x, my_random(), my_random()), 320000, 1.0f) << std::endl;
     }
 
-    return sampling_points;
-    */
+//    return sampling_points;
+
 
     std::vector<float> triangle_areas_cdf = get_triangle_areas_cdf(triangles);
 
@@ -562,7 +542,7 @@ std::vector<pbgi_sample_t> generate_samples_darts_hash(float const min_radius, i
 
 
     int const max_tries = 10000;
-    int bin_count = 320000;
+    int bin_count = number_of_samples * 0.5f;
     float cell_size = min_radius * 2.0f;
 
     std::vector<std::vector<int> > hash_map(bin_count);
@@ -604,7 +584,8 @@ std::vector<pbgi_sample_t> generate_samples_darts_hash(float const min_radius, i
         }
 
 
-        /*
+
+/*
         bool sample_rejected_2 = false;
 
         for (unsigned int i = 0; i < sampling_points.size(); ++i)
@@ -620,7 +601,7 @@ std::vector<pbgi_sample_t> generate_samples_darts_hash(float const min_radius, i
         {
             if (!sample_rejected && sample_rejected_2)
             {
-                std::cout << "close sample not found with hash" << std::endl;
+                std::cout << "close sample not found with hash, accepted: " << sampling_points.size() << std::endl;
                 assert(false);
             }
 
@@ -631,7 +612,8 @@ std::vector<pbgi_sample_t> generate_samples_darts_hash(float const min_radius, i
 
 
         }
-        */
+*/
+
 
         if (!sample_rejected)
         {
@@ -672,6 +654,7 @@ std::vector<pbgi_sample_t> generate_samples_darts_hash(float const min_radius, i
     {
         hash_file << i << " " << hash_map[i].size() << std::endl;
     }
+
 
     return sampling_points;
 }
