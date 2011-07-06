@@ -575,8 +575,8 @@ std::vector<pbgi_sample_t> generate_samples_darts_hash(float const min_radius, i
     {
         float ksi[3] = { my_random(), my_random(), my_random() };
 
-        // int triangle_index = std::lower_bound(triangle_areas_cdf.begin(), triangle_areas_cdf.end(), ksi[0] * scene_area) - triangle_areas_cdf.begin();
-        int triangle_index = int(ksi[0] * triangles.size()) % triangles.size();
+        int triangle_index = std::lower_bound(triangle_areas_cdf.begin(), triangle_areas_cdf.end(), ksi[0] * scene_area) - triangle_areas_cdf.begin();
+        // int triangle_index = int(ksi[0] * triangles.size()) % triangles.size();
 
         vector3d_t sample_normal;
         point3d_t sample_point;
@@ -998,8 +998,8 @@ void pbLighting_t::generate_gi_points(renderState_t & state)
     // std::vector<pbgi_sample_t> sampling_points = generate_samples_cdf(number_of_samples, get_scene_triangles(scene->meshes));
     // std::vector<pbgi_sample_t> sampling_points = generate_samples_darts(0.05f, number_of_samples, get_scene_triangles(scene->meshes));
     // std::vector<pbgi_sample_t> sampling_points = generate_samples_darts_hash(radius * 0.5f, number_of_samples, get_scene_triangles(scene->meshes));
-    //std::vector<pbgi_sample_t> sampling_points = generate_samples_darts_hash(radius, number_of_samples, get_scene_triangles(scene->meshes));
-    std::vector<pbgi_sample_t> sampling_points = generate_samples_suicide(number_of_samples, radius, get_scene_triangles(scene->meshes));
+    std::vector<pbgi_sample_t> sampling_points = generate_samples_darts_hash(radius, number_of_samples, get_scene_triangles(scene->meshes));
+    //std::vector<pbgi_sample_t> sampling_points = generate_samples_suicide(number_of_samples, radius, get_scene_triangles(scene->meshes));
 
     my_timer.stop("t1");
 
@@ -1379,7 +1379,7 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
         }
         else
         {
-            if (node->isNodeBehindPlane(vector3d_t(sp.P), sp.N)) continue;
+            if (node->isNodeBehindPlane(vector3d_t(sp.P), sp.N) || !node->getClusteredData()) continue;
 
             GiPoint const& giP = *node->getClusteredData();
 
