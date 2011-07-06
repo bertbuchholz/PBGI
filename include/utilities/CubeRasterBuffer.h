@@ -26,6 +26,14 @@ struct Cube_cell
 template <class Color>
 struct Color_depth_pixel
 {
+    Color_depth_pixel() :
+        depth(1e10f),
+        filling_degree(0.0f),
+        node(NULL)
+    {
+
+    }
+
     Color color;
     float depth;
     float filling_degree;
@@ -38,50 +46,62 @@ struct Color_depth_pixel
 
 };
 
-template <int size, class Color>
-struct Frame_buffer
-{
-    void add_point(int const x, int const y, Color const& color, float const filling_degree, float const depth, GiPoint const* node = NULL)
-    {
-        // add_point_accumulate(x, y, color, filling_degree, depth);
-        //add_point_accumulate(x, y, color, 1.0f, depth, node);
-        add_point_store(x, y, color, filling_degree, depth, node);
-    }
 
-    // take always only the closest sample and replace the previous
-    void add_point_accumulate(int const x, int const y, Color const& color, float const filling_degree, float const depth, GiPoint const* node = NULL)
+template <int size, class Color>
+struct Abstract_frame_buffer
+{
+    virtual void add_point(int const x, int const y, Color const& color, float const filling_degree, float const depth, GiPoint const* node = NULL) = 0;
+
+    virtual float accumulate(std::vector<GiPoint const*> * gi_points = NULL) = 0;
+};
+
+template <int size, class Color>
+struct Simple_frame_buffer : Abstract_frame_buffer<size, Color>
+{
+    virtual void add_point(int const x, int const y, Color const& color, float const filling_degree, float const depth, GiPoint const* node = NULL)
     {
         int pixel = (x + size / 2) + size * (y + size / 2);
 
         assert(pixel < size * size);
 
-        if (data[pixel].size() == 0)
+        if (depth < data[pixel].depth)
         {
-            Color_depth_pixel<Color> c;
-            c.color = color;
-            c.depth = depth;
-            c.filling_degree = filling_degree;
-            c.node = node;
-
-            data[pixel].push_back(c);
+            data[pixel].color = color;
+            data[pixel].depth = depth;
+            data[pixel].filling_degree = filling_degree;
+            data[pixel].node = node;
         }
-        else
+    }
+
+    virtual float accumulate(std::vector<GiPoint const*> * gi_points = NULL)
+    {
+//        std::cout << "accumulate()" << std::endl;
+
+        float total_energy = 0.0f;
+
+        for (int pixel = 0; pixel < size * size; ++pixel)
         {
-            if (depth < data[pixel][0].depth)
+            Color_depth_pixel<Color> const& c = data[pixel];
+            data_accumulated[pixel] += c.color;
+            total_energy += c.color.energy();
+
+            if (gi_points && c.node)
             {
-                data[pixel][0].color = color;
-                data[pixel][0].depth = depth;
-                data[pixel][0].filling_degree = filling_degree;
-                data[pixel][0].node = node;
+                gi_points->push_back(c.node);
             }
         }
 
-        assert(data[pixel].size() == 1);
+        return total_energy;
     }
 
+    Color_depth_pixel<Color> data[size * size];
+    Color data_accumulated[size * size];
+};
 
-    // store all samples per pixel for later sorting
-    void add_point_store(int const x, int const y, Color const& color, float const filling_degree, float const depth, GiPoint const* node)
+template <int size, class Color>
+struct Accumulating_frame_buffer : Abstract_frame_buffer<size, Color>
+{
+    virtual void add_point(int const x, int const y, Color const& color, float const filling_degree, float const depth, GiPoint const* node = NULL)
     {
         int pos = (x + size / 2) + size * (y + size / 2);
 
@@ -96,7 +116,7 @@ struct Frame_buffer
         data[pos].push_back(c);
     }
 
-    float accumulate(std::vector<GiPoint const*> * gi_points = NULL)
+    virtual float accumulate(std::vector<GiPoint const*> * gi_points = NULL)
     {
 //        std::cout << "accumulate()" << std::endl;
 
@@ -169,15 +189,9 @@ struct Frame_buffer
         return total_energy;
     }
 
+    /*
     friend std::ostream & operator<<(std::ostream & s, Frame_buffer const& f)
     {
-        /*
-        for (int i = 0; i < size * size; ++i)
-        {
-            s << f.data[i] << " ";
-        }
-        */
-
         for (int i = 0; i < size * size; ++i)
         {
             s << f.data_accumulated[i].R << " " << f.data_accumulated[i].G << " " << f.data_accumulated[i].B << " ";
@@ -195,6 +209,7 @@ struct Frame_buffer
 
         return s;
     }
+*/
 
     std::vector< Color_depth_pixel<Color> > data[size * size];
 
@@ -415,7 +430,7 @@ public:
 
                     float alpha;
 
-                    bool hit = linePlaneIntersection(Point(0.0f), cell_center, disc_center, disc_normal, alpha);
+                    linePlaneIntersection(Point(0.0f), cell_center, disc_center, disc_normal, alpha);
 
                     if (alpha > 0.0f)
                     {
@@ -425,7 +440,7 @@ public:
 
                         if (dist_sqr < disc_radius_sqr)
                         {
-                            buffers[plane_index].add_point(u, v, color, 1.0f, depth, node);
+                            buffers[plane_index].add_point(u, v, color, 1.0f, alpha, node);
                         }
                     }
                 }
@@ -530,11 +545,13 @@ public:
 
     void add_point_square_rasterization(Point const& direction, Color const& color, float const solid_angle, float const depth, GiPoint const* node = NULL)
     {
+        /*
         if (std::abs(solid_angle) > 1.0f)
         {
 //            std::cout << "solid angle > 1" << std::endl;
             return;
         }
+        */
 
 
         if (std::abs(solid_angle) < 1e-10f)
@@ -720,6 +737,7 @@ public:
         return buffers[c.plane].data_accumulated[c.pos[0] + resolution_2 + resolution * (c.pos[1] + resolution_2)];
     }
 
+    /*
     friend std::ostream & operator<<(std::ostream & s, Cube_raster_buffer const& c)
     {
         for (int i = 0; i < 6; ++i)
@@ -739,6 +757,7 @@ public:
 
         return s;
     }
+    */
 
     float get_solid_angle(Cube_cell const& c) const
     {
@@ -817,7 +836,8 @@ public:
     }
 
 private:
-    Frame_buffer<resolution, Color> buffers[6];
+    Simple_frame_buffer<resolution, Color> buffers[6];
+    //Accumulating_frame_buffer<resolution, Color> buffers[6];
     float total_energy;
 };
 

@@ -24,6 +24,7 @@ struct GiPoint
         color(0.0f),
         area(0.0f),
         energy(0.0f),
+        is_surfel(true),
         depth(-1)
     {
         sh_representation = GiSphericalHarmonics<vector3d_t, color_t>(false, 3);
@@ -37,6 +38,7 @@ struct GiPoint
     int        depth;
 
     mutable float debug_radius;
+    bool is_surfel;
 
     GiSphericalHarmonics<vector3d_t, color_t> sh_representation;
 
@@ -79,7 +81,7 @@ class YAFRAYPLUGIN_EXPORT pbLighting_t: public mcIntegrator_t
 {
 public:
     typedef RegularBspTree<vector3d_t, 3, GiPoint*> MyTree;
-    typedef Cube_raster_buffer<16, vector3d_t, color_t> cube_raster_buffer_type;
+    typedef Cube_raster_buffer<64, vector3d_t, color_t> cube_raster_buffer_type;
 
     pbLighting_t(bool transpShad=false, int shadowDepth=4, int rayDepth=6);
     virtual bool preprocess();
@@ -125,6 +127,14 @@ color_t doPointBasedGiTree_sh_fb(
     bool const color_by_depth,
     vector3d_t const& wo,
     pbLighting_t::cube_raster_buffer_type * result_fb = NULL,
+    std::vector<yafaray::GiPoint const*> * gi_points = NULL);
+
+color_t process_surfel(
+    GiPoint const& gi_point,
+    surfacePoint_t const& sp,
+    pbLighting_t::cube_raster_buffer_type & frame_buffer,
+    int const node_depth = -1,
+    bool const color_by_depth = false,
     std::vector<yafaray::GiPoint const*> * gi_points = NULL);
 
 __END_YAFRAY
