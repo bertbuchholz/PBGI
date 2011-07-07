@@ -1437,10 +1437,10 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
 
 
 
-color_t process_surfel(
+void process_surfel(
     GiPoint const& gi_point,
     surfacePoint_t const& sp,
-    pbLighting_t::cube_raster_buffer_type & frame_buffer,
+    Cube_raster_buffer & frame_buffer,
     int const node_depth,
     bool const color_by_depth,
     std::vector<yafaray::GiPoint const*> * gi_points)
@@ -1547,7 +1547,9 @@ color_t doPointBasedGiTree_sh_fb(
     float const solid_angle_threshold,
     bool const color_by_depth,
     vector3d_t const& wo,
-    pbLighting_t::cube_raster_buffer_type * result_fb,
+    int const raster_buffer_resolution,
+    Cube_raster_buffer::Type const raster_buffer_type,
+    Cube_raster_buffer * result_fb,
     std::vector<yafaray::GiPoint const*> * gi_points)
 {
     color_t col(0.0f);
@@ -1562,7 +1564,8 @@ color_t doPointBasedGiTree_sh_fb(
     int shading_discs_square = 0;
     int shading_discs = 0;
 
-    pbLighting_t::cube_raster_buffer_type frame_buffer;
+    Cube_raster_buffer frame_buffer;
+    frame_buffer.setup(raster_buffer_type, raster_buffer_resolution);
 
     std::vector<color_t> colors;
     colors.push_back(color_t(1.0f, 0.0f, 0.0f)); // red
@@ -1716,7 +1719,9 @@ color_t pbLighting_t::doPointBasedGiTreeSH_leafs_only(renderState_t & state, sur
 {
     color_t col(0.0f);
     const material_t *material = sp.material;
-    pbLighting_t::cube_raster_buffer_type frame_buffer;
+
+    Cube_raster_buffer frame_buffer;
+    frame_buffer.setup(raster_buffer_type, raster_buffer_resolution);
 
     // traverse tree, if solid angle of node > max, traverse into the children
     std::queue<MyTree const*> queue;
@@ -1817,7 +1822,7 @@ colorA_t pbLighting_t::integrate(renderState_t &state, diffRay_t &ray) const
             else if (debug_type == Tree_sh_fb)
             {
                 // col += doPointBasedGiTree_sh_fb(state, sp, wo);
-                col += doPointBasedGiTree_sh_fb(_bspTree, state, sp, maxSolidAngle, false, wo, NULL, NULL);
+                col += doPointBasedGiTree_sh_fb(_bspTree, state, sp, maxSolidAngle, false, wo, raster_buffer_resolution, raster_buffer_type, NULL, NULL);
             }
             else if (debug_type == Tree_sh_leafs)
             {
@@ -1869,6 +1874,8 @@ integrator_t* pbLighting_t::factory(paraMap_t &params, renderEnvironment_t &rend
     int pixel_x = -1;
     int pixel_y = -1;
     bool do_load_gi_points = false;
+    int fb_resolution = 8;
+    std::string fb_type = "Simple";
 
 	params.getParam("raydepth", raydepth);
 	params.getParam("transpShad", transpShad);
@@ -1894,6 +1901,8 @@ integrator_t* pbLighting_t::factory(paraMap_t &params, renderEnvironment_t &rend
     params.getParam("pixel_x", pixel_x);
     params.getParam("pixel_y", pixel_y);
     params.getParam("do_load_gi_points", do_load_gi_points);
+    params.getParam("fb_type", fb_type);
+    params.getParam("fb_resolution", fb_resolution);
 	
     pbLighting_t *inte = new pbLighting_t(transpShad, shadowDepth, raydepth);
 	// caustic settings
@@ -1927,12 +1936,27 @@ integrator_t* pbLighting_t::factory(paraMap_t &params, renderEnvironment_t &rend
 
     inte->do_load_gi_points = do_load_gi_points;
 
+    inte->raster_buffer_resolution = fb_resolution;
+
+    if (fb_type == "Simple")
+    {
+        inte->raster_buffer_type = Cube_raster_buffer::Simple;
+    }
+    else if (fb_type == "Accumulating")
+    {
+        inte->raster_buffer_type = Cube_raster_buffer::Accumulating;
+    }
+
     // inte->maxSolidAngle = maxSolidAngle;
     //float angle = std::atan(1.0f / float(pbLighting_t::cube_raster_buffer_type::resolution_2));
     //maxSolidAngle = 2.0f * M_PI * (1.0f - std::cos(angle));
     inte->maxSolidAngle = maxSolidAngle;
 
-    Y_INFO << "maxSolidAngle: " << maxSolidAngle << std::endl;
+    Y_INFO <<
+              "maxSolidAngle: " << maxSolidAngle << " " <<
+              "fb_type: " << fb_type << " " <<
+              "fb_resolution: " << fb_resolution << " " <<
+              std::endl;
 
 
 	return inte;
