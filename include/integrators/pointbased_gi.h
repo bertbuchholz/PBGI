@@ -16,6 +16,30 @@
 
 __BEGIN_YAFRAY
 
+struct Debug_info
+{
+    Debug_info() :
+        used_nodes(0),
+        used_leafs_rays(0),
+        used_leafs_splat(0),
+        node_depth(-1),
+        color_by_depth(false),
+        gi_points(NULL),
+        result_fb(NULL),
+        checked_cells(0)
+    {}
+
+    int used_nodes;
+    int used_leafs_rays;
+    int used_leafs_splat;
+    int node_depth;
+    bool color_by_depth;
+    std::vector<yafaray::GiPoint const*> * gi_points;
+    Cube_raster_buffer * result_fb;
+    int checked_cells;
+    float time_add_point;
+};
+
 struct GiPoint
 {
     GiPoint() :
@@ -80,6 +104,8 @@ struct GiPoint
 class YAFRAYPLUGIN_EXPORT pbLighting_t: public mcIntegrator_t
 {
 public:
+    static std::vector<color_t> debug_colors;
+
     typedef RegularBspTree<vector3d_t, 3, GiPoint*> MyTree;
 
     pbLighting_t(bool transpShad=false, int shadowDepth=4, int rayDepth=6);
@@ -126,20 +152,19 @@ color_t doPointBasedGiTree_sh_fb(
     pbLighting_t::MyTree const* tree, renderState_t & state,
     surfacePoint_t const& sp,
     float const maxSolidAngle,
-    bool const color_by_depth,
+    // bool const color_by_depth,
     vector3d_t const& wo,
     int const raster_buffer_resolution,
     Cube_raster_buffer::Type const raster_buffer_type,
-    Cube_raster_buffer * result_fb = NULL,
-    std::vector<yafaray::GiPoint const*> * gi_points = NULL);
+    // Cube_raster_buffer * result_fb = NULL,
+    // std::vector<yafaray::GiPoint const*> * gi_points = NULL,
+    Debug_info * debug_info = NULL);
 
 void process_surfel(
     GiPoint const& gi_point,
     surfacePoint_t const& sp,
     Cube_raster_buffer & frame_buffer,
-    int const node_depth = -1,
-    bool const color_by_depth = false,
-    std::vector<yafaray::GiPoint const*> * gi_points = NULL);
+    Debug_info * debug_info = NULL);
 
 __END_YAFRAY
 

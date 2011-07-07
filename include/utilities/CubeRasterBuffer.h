@@ -47,12 +47,23 @@ struct Color_depth_pixel
 
 };
 
+/*
+
+  types:
+
+ jittered, jitter each cube side by a random 2d vector
+ stochastic splatting, splat with russian roulette depending on the alpha value
+
+*/
+
 class Abstract_frame_buffer
 {
 public:
     Abstract_frame_buffer() {}
 
-    Abstract_frame_buffer(int size) : _size(size)
+    Abstract_frame_buffer(int resolution) :
+        _resolution(resolution),
+        _resolution_2(_resolution / 2)
     { }
 
     virtual ~Abstract_frame_buffer() {}
@@ -70,7 +81,8 @@ public:
     virtual Abstract_frame_buffer* clone() = 0;
 
 protected:
-    int _size;
+    int _resolution;
+    int _resolution_2;
 };
 
 class Simple_frame_buffer : public Abstract_frame_buffer
@@ -92,9 +104,9 @@ public:
 
     virtual void add_point(int const x, int const y, color_t const& color, float const filling_degree, float const depth, GiPoint const* node = NULL)
     {
-        int pixel = (x + _size / 2) + _size * (y + _size / 2);
+        int pixel = (x + _resolution_2) + _resolution * (y + _resolution_2);
 
-        assert(pixel < _size * _size);
+        assert(pixel < _resolution * _resolution);
 
         if (depth < _data[pixel].depth)
         {
@@ -107,9 +119,11 @@ public:
 
     virtual void set_size(int size)
     {
-        _size = size;
+        _resolution = size;
+        _resolution_2 = _resolution / 2;
+
         _data.clear();
-        _data.resize(size * size);
+        _data.resize(_resolution * _resolution);
     }
 
     virtual void clear()
@@ -124,7 +138,7 @@ public:
 
         float total_energy = 0.0f;
 
-        for (int pixel = 0; pixel < _size * _size; ++pixel)
+        for (int pixel = 0; pixel < _resolution * _resolution; ++pixel)
         {
             Color_depth_pixel const& c = _data[pixel];
             total_energy += c.color.energy();
@@ -140,7 +154,7 @@ public:
 
     virtual color_t const& get_color(int const x, int const y) const
     {
-        int const pixel = (x + _size / 2) + _size * (y + _size / 2);
+        int const pixel = (x + _resolution / 2) + _resolution * (y + _resolution / 2);
         return _data[pixel].color;
     }
 
@@ -165,7 +179,8 @@ public:
 
     virtual void set_size(int size)
     {
-        _size = size;
+        _resolution = size;
+        _resolution_2 = _resolution / 2;
 
         _data.clear();
         _data.resize(size * size);
@@ -182,9 +197,9 @@ public:
 
     virtual void add_point(int const x, int const y, color_t const& color, float const filling_degree, float const depth, GiPoint const* node = NULL)
     {
-        int pos = (x + _size / 2) + _size * (y + _size / 2);
+        int pos = (x + _resolution / 2) + _resolution * (y + _resolution / 2);
 
-        assert(pos < _size * _size);
+        assert(pos < _resolution * _resolution);
 
         Color_depth_pixel c;
         c.color = color;
@@ -202,7 +217,7 @@ public:
         int samples_sum = 0;
         float total_energy = 0.0f;
 
-        for (int pixel = 0; pixel < _size * _size; ++pixel)
+        for (int pixel = 0; pixel < _resolution * _resolution; ++pixel)
         {
             std::sort(_data[pixel].begin(), _data[pixel].end());
 
@@ -270,7 +285,7 @@ public:
 
     virtual color_t const& get_color(int const x, int const y) const
     {
-        int const pixel = (x + _size / 2) + _size * (y + _size / 2);
+        int const pixel = (x + _resolution / 2) + _resolution * (y + _resolution / 2);
         return _data_accumulated[pixel];
     }
 
@@ -311,6 +326,11 @@ public:
     typedef vector3d_t Point;
     typedef color_t Color;
 
+    Cube_raster_buffer()
+    {
+
+    }
+
     Cube_raster_buffer & operator= (Cube_raster_buffer const& cbr)
     {
         if (this != &cbr)
@@ -323,6 +343,7 @@ public:
             total_energy = cbr.total_energy;
             _resolution = cbr._resolution;
             _resolution_2 = cbr._resolution_2;
+            _cell_centers = cbr._cell_centers;
         }
 
         return *this;
@@ -355,6 +376,26 @@ public:
             {
                 std::cout << "Unknown FB type ..." << std::endl;
                 assert(false);
+            }
+        }
+
+        Cube_cell c;
+        _cell_centers.resize(_resolution * _resolution * 6);
+
+        for (int plane_index = 0; plane_index < 6; ++plane_index)
+        {
+            c.plane = plane_index;
+
+            for (int u = -_resolution_2; u < _resolution_2; ++u)
+            {
+                c.pos[0] = u;
+
+                for (int v = -_resolution_2; v < _resolution_2; ++v)
+                {
+                    c.pos[1] = v;
+
+                    _cell_centers[get_serial_index(c)] = calc_cell_center(c);
+                }
             }
         }
     }
@@ -416,29 +457,22 @@ public:
         return result;
     }
 
-    Point get_cell_center(Cube_cell const& c) const
+
+    int get_serial_index(Cube_cell const& c) const
     {
-        Point result;
+        int serial =
+                (c.pos[1] + _resolution_2) +
+                (c.pos[0] + _resolution_2) * _resolution +
+                 c.plane * _resolution * _resolution;
 
-        bool negative = (c.plane % 2 != 0);
-        int plane = c.plane / 2;
+        return serial;
+    }
 
-        if (negative)
-        {
-            result[plane] = -1.0f;
-        }
-        else
-        {
-            result[plane] = 1.0f;
-        }
+    Point const& get_cell_center(Cube_cell const& c) const
+    {
+        int serial = get_serial_index(c);
 
-        int axis_0 = (plane + 1) % 3;
-        int axis_1 = (plane + 2) % 3;
-
-        result[axis_0] = (c.pos[0] + 0.5f) / float(_resolution_2);
-        result[axis_1] = (c.pos[1] + 0.5f) / float(_resolution_2);
-
-        return result;
+        return _cell_centers[serial];
     }
 
     // p0, p1: edge to test
@@ -485,21 +519,7 @@ public:
         return std::floor(u + 1.0f);
     }
 
-    inline int add_point(Point const& direction, Color const& color, float const solid_angle, float const depth, bool use_rays = false)
-    {
-        if (use_rays)
-        {
-            return add_point_rays(direction, color, solid_angle, depth);
-        }
-        else
-        {
-            add_point_square_rasterization(direction, color, solid_angle, depth);
-        }
-        return 0;
-    }
 
-
-    // raytrace a disc through every pixel
     void add_point_single_cell(Point const& direction, Color const& color, float const depth, GiPoint const* node = NULL)
     {
         Point normals[6] =
@@ -551,12 +571,14 @@ public:
 
 
     // raytrace a disc through every pixel, assumes receiving point is in the origin and the disc's center relative to it
-    void add_point_exact(Color const& color,
+    int add_point_exact(Color const& color,
                          Point const& disc_normal, Point const& disc_center, float const disc_radius,
                          float const depth,
                          GiPoint const* node = NULL)
     {
         Cube_cell c;
+
+        int debug_ray_count = 0;
 
         float disc_radius_sqr = disc_radius * disc_radius;
 
@@ -571,6 +593,8 @@ public:
                 for (int v = -_resolution_2; v < _resolution_2; ++v)
                 {
                     c.pos[1] = v;
+
+                    ++debug_ray_count;
 
                     Point cell_center = get_cell_center(c);
                     cell_center.normalize();
@@ -593,6 +617,8 @@ public:
                 }
             }
         }
+
+        return debug_ray_count;
     }
 
 
@@ -984,11 +1010,37 @@ public:
     }
 
 private:
+    Point calc_cell_center(Cube_cell const& c) const
+    {
+        Point result;
+
+        bool negative = (c.plane % 2 != 0);
+        int plane = c.plane / 2;
+
+        if (negative)
+        {
+            result[plane] = -1.0f;
+        }
+        else
+        {
+            result[plane] = 1.0f;
+        }
+
+        int axis_0 = (plane + 1) % 3;
+        int axis_1 = (plane + 2) % 3;
+
+        result[axis_0] = (c.pos[0] + 0.5f) / float(_resolution_2);
+        result[axis_1] = (c.pos[1] + 0.5f) / float(_resolution_2);
+
+        return result;
+    }
+
     Abstract_frame_buffer* buffers[6];
-    //Accumulating_frame_buffer<resolution, Color> buffers[6];
     float total_energy;
     int _resolution;
     int _resolution_2;
+
+    std::vector<Point> _cell_centers;
 };
 
 __END_YAFRAY
