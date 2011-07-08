@@ -13,32 +13,9 @@
 
 #include <utilities/RegularBspTree.h>
 #include <utilities/CubeRasterBuffer.h>
+#include <utilities/Debug_info.h>
 
 __BEGIN_YAFRAY
-
-struct Debug_info
-{
-    Debug_info() :
-        used_nodes(0),
-        used_leafs_rays(0),
-        used_leafs_splat(0),
-        node_depth(-1),
-        color_by_depth(false),
-        gi_points(NULL),
-        result_fb(NULL),
-        checked_cells(0)
-    {}
-
-    int used_nodes;
-    int used_leafs_rays;
-    int used_leafs_splat;
-    int node_depth;
-    bool color_by_depth;
-    std::vector<yafaray::GiPoint const*> * gi_points;
-    Cube_raster_buffer * result_fb;
-    int checked_cells;
-    float time_add_point;
-};
 
 struct GiPoint
 {

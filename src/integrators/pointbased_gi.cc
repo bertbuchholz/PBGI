@@ -39,29 +39,7 @@ GiPoint * averageGiPoints(std::vector<GiPoint*> const& points)
         result->sh_representation = result->sh_representation + p.sh_representation;
     }
 
-    // result->sh_representation = result->sh_representation / float(points.size());
-
     result->sh_representation.normalize_color(1.0f / float(points.size()));
-
-    // sanity check
-    /*
-    yafaray::vector3d_t mainDir(0.5f, 0.5f, 0.5f);
-    mainDir.normalize();
-
-    float accAreaChildren = 0;
-    float accAreaParent = result.sh_representation.get_sh_area(mainDir);
-
-    for (int i = 0; i < points.size(); ++i)
-    {
-        accAreaChildren += points[i].sh_representation.get_sh_area(mainDir);
-    }
-
-    // if (std::abs(accAreaParent / accAreaChildren) < 0.5f || std::abs(accAreaParent / accAreaChildren) > 2.0f)
-    {
-        std::cout << "parent: " << accAreaParent << " children: " << accAreaChildren << std::endl;
-    }
-    */
-
 
     for (unsigned int i = 0; i < points.size(); ++i)
     {
@@ -1508,7 +1486,7 @@ void process_surfel(
 
     yafaray::GiPoint * debug_point = NULL;
 
-    if (debug_info && debug_info->gi_points)
+    if (debug_info)
     {
         debug_point = new yafaray::GiPoint(gi_point);
 
@@ -1647,7 +1625,7 @@ color_t doPointBasedGiTree_sh_fb(
 
                 yafaray::GiPoint * debug_point = NULL;
 
-                if (debug_info && debug_info->gi_points)
+                if (debug_info)
                 {
                     debug_point = new yafaray::GiPoint(giP);
 
@@ -1677,19 +1655,7 @@ color_t doPointBasedGiTree_sh_fb(
         }
     }
 
-
-
-
-
-
-    if (debug_info)
-    {
-        frame_buffer.accumulate(debug_info->gi_points);
-    }
-    else
-    {
-        frame_buffer.accumulate();
-    }
+    frame_buffer.accumulate(debug_info);
 
     color_t surfCol(1.0f);
     if (material)

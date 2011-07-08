@@ -5,11 +5,10 @@
 #include <vector>
 
 #include <core_api/color.h>
+#include <utilities/Debug_info.h>
 
 
 __BEGIN_YAFRAY
-
-class GiPoint;
 
 template <class T>
 inline T into_range(T const& min, T const& max, T const& val)
@@ -23,6 +22,11 @@ struct Cube_cell
 {
     int plane;
     int pos[2];
+
+    friend bool operator==(Cube_cell const& lhs, Cube_cell const& rhs)
+    {
+        return lhs.plane == rhs.plane && lhs.pos[0] == rhs.pos[0] && lhs.pos[1] == rhs.pos[1];
+    }
 };
 
 struct Color_depth_pixel
@@ -61,16 +65,17 @@ class Abstract_frame_buffer
 public:
     Abstract_frame_buffer() {}
 
-    Abstract_frame_buffer(int resolution) :
+    Abstract_frame_buffer(int resolution, int plane) :
         _resolution(resolution),
-        _resolution_2(_resolution / 2)
+        _resolution_2(_resolution / 2),
+        _debug_plane(plane)
     { }
 
     virtual ~Abstract_frame_buffer() {}
 
     virtual void add_point(int const x, int const y, color_t const& color, float const filling_degree, float const depth, GiPoint const* node = NULL) = 0;
 
-    virtual float accumulate(std::vector<GiPoint const*> * gi_points = NULL) = 0;
+    virtual void accumulate(Debug_info * debug_info = NULL) = 0;
 
     virtual color_t const& get_color(int const x, int const y) const = 0;
 
@@ -83,6 +88,7 @@ public:
 protected:
     int _resolution;
     int _resolution_2;
+    int _debug_plane;
 };
 
 class Simple_frame_buffer : public Abstract_frame_buffer
@@ -90,7 +96,7 @@ class Simple_frame_buffer : public Abstract_frame_buffer
 public:
     Simple_frame_buffer() {}
 
-    Simple_frame_buffer(int size) : Abstract_frame_buffer(size)
+    Simple_frame_buffer(int size, int plane) : Abstract_frame_buffer(size, plane)
     {
         set_size(size);
     }
@@ -132,29 +138,30 @@ public:
     }
 
 
-    virtual float accumulate(std::vector<GiPoint const*> * gi_points = NULL)
+    virtual void accumulate(Debug_info * debug_info = NULL)
     {
-//        std::cout << "accumulate()" << std::endl;
-
-        float total_energy = 0.0f;
-
         for (int pixel = 0; pixel < _resolution * _resolution; ++pixel)
         {
             Color_depth_pixel const& c = _data[pixel];
-            total_energy += c.color.energy();
 
-            if (gi_points && c.node)
+            if (debug_info && c.node)
             {
-                gi_points->push_back(c.node);
+                debug_info->gi_points.push_back(c.node);
+
+                int cube_x = (pixel % _resolution) - _resolution_2;
+                int cube_y = (pixel / _resolution) - _resolution_2;
+
+                if (debug_info->cube_plane == _debug_plane && debug_info->cube_x == cube_x && debug_info->cube_y == cube_y)
+                {
+                    debug_info->single_pixel_contributors.push_back(std::make_pair(1.0f, c.node));
+                }
             }
         }
-
-        return total_energy;
     }
 
     virtual color_t const& get_color(int const x, int const y) const
     {
-        int const pixel = (x + _resolution / 2) + _resolution * (y + _resolution / 2);
+        int const pixel = (x + _resolution_2) + _resolution * (y + _resolution_2);
         return _data[pixel].color;
     }
 
@@ -165,7 +172,7 @@ protected:
 class Accumulating_frame_buffer : public Abstract_frame_buffer
 {
 public:
-    Accumulating_frame_buffer(int size) : Abstract_frame_buffer(size)
+    Accumulating_frame_buffer(int size, int plane) : Abstract_frame_buffer(size, plane)
     {
         set_size(size);
     }
@@ -210,52 +217,51 @@ public:
         _data[pos].push_back(c);
     }
 
-    virtual float accumulate(std::vector<GiPoint const*> * gi_points = NULL)
+    virtual void accumulate(Debug_info * debug_info = NULL)
     {
 //        std::cout << "accumulate()" << std::endl;
 
         int samples_sum = 0;
-        float total_energy = 0.0f;
 
         for (int pixel = 0; pixel < _resolution * _resolution; ++pixel)
         {
+            bool debug_pixel = false;
+
+            if (debug_info)
+            {
+                int cube_x = (pixel % _resolution) - _resolution_2;
+                int cube_y = (pixel / _resolution) - _resolution_2;
+
+                debug_pixel = debug_info->cube_plane == _debug_plane && debug_info->cube_x == cube_x && debug_info->cube_y == cube_y;
+            }
+
             std::sort(_data[pixel].begin(), _data[pixel].end());
 
             samples_sum += _data[pixel].size();
 
             float acc_filling_degree = 0.0f;
 
-            unsigned int i = 0;
 
-            _data_accumulated[pixel] = color_t(0.0f);
-
-            for (unsigned int i = 0; i < _data[pixel].size(); ++i)
+            if (debug_info)
             {
-                if (gi_points)
+                for (unsigned int i = 0; i < _data[pixel].size(); ++i)
                 {
                     Color_depth_pixel const& c = _data[pixel][i];
-                    gi_points->push_back(c.node);
+                    debug_info->gi_points.push_back(c.node);
                 }
             }
 
-            bool pixel_full = false;
+            _data_accumulated[pixel] = color_t(0.0f);
+            unsigned int node_index = 0;
 
-            while (!pixel_full && i < _data[pixel].size())
+            while (acc_filling_degree < 1.0f && node_index < _data[pixel].size())
             {
-                Color_depth_pixel const& c = _data[pixel][i];
+                Color_depth_pixel const& c = _data[pixel][node_index];
 
                 if (acc_filling_degree + c.filling_degree > 1.0f)
                 {
                     _data_accumulated[pixel] += c.color * (1.0f - acc_filling_degree);
-                    total_energy += (c.color * (1.0f - acc_filling_degree)).energy();
-                    pixel_full = true;
-
-//                    if (gi_points)
-//                    {
-//                        gi_points->push_back(c.node);
-//                    }
-
-
+                    acc_filling_degree = 1.01f;
                 }
                 else
                 {
@@ -263,7 +269,6 @@ public:
                     _data_accumulated[pixel] += c.color * c.filling_degree;
                     // data_accumulated[pixel] += c.color * 1.0f / float(data[pixel].size());
                     // data_accumulated[pixel] += c.color;
-                    total_energy += (c.color * c.filling_degree).energy();
 
 //                    if (gi_points)
 //                    {
@@ -273,19 +278,31 @@ public:
 //                    std::cout << "pixel: " << pixel << " " << data_accumulated[pixel] << std::endl;
                 }
 
+                if (debug_pixel)
+                {
+                    debug_info->single_pixel_contributors.push_back(std::make_pair(c.filling_degree, c.node));
+                }
 
-                ++i;
+                ++node_index;
             }
+
+            if (debug_pixel)
+            {
+                for (unsigned int i = node_index; i < _data[pixel].size(); ++i)
+                {
+                    Color_depth_pixel const& c = _data[pixel][i];
+                    debug_info->single_pixel_contributors.push_back(std::make_pair(0.0f, c.node));
+                }
+            }
+
         }
 
         // std::cout << "accumulate(), samples: " << samples_sum << std::endl;
-
-        return total_energy;
     }
 
     virtual color_t const& get_color(int const x, int const y) const
     {
-        int const pixel = (x + _resolution / 2) + _resolution * (y + _resolution / 2);
+        int const pixel = (x + _resolution_2) + _resolution * (y + _resolution_2);
         return _data_accumulated[pixel];
     }
 
@@ -366,11 +383,11 @@ public:
         {
             if (type == Simple)
             {
-                buffers[i] = new Simple_frame_buffer(_resolution);
+                buffers[i] = new Simple_frame_buffer(_resolution, i);
             }
             else if (type == Accumulating)
             {
-                buffers[i] = new Accumulating_frame_buffer(_resolution);
+                buffers[i] = new Accumulating_frame_buffer(_resolution, i);
             }
             else
             {
@@ -478,7 +495,7 @@ public:
     // p0, p1: edge to test
     // v0: point on the plane, n: plane normal
     // alpha: return value, intersection point: p0 + alpha * (p1 - p0)
-    bool linePlaneIntersection(Point const& p0, Point const& p1, Point const& v0, Point const& n, float & alpha)
+    bool linePlaneIntersection(Point const& p0, Point const& p1, Point const& v0, Point const& n, float & alpha) const
     {
         float d1 = dot(n, v0 - p0);
         float d2 = dot(n, p1 - p0);
@@ -495,7 +512,7 @@ public:
     // n: plane normal
     // alpha: return value,
     // intersection point:  alpha * dir
-    bool linePlaneIntersection(Point const& dir, Point const& n, float & alpha)
+    bool linePlaneIntersection(Point const& dir, Point const& n, float & alpha) const
     // bool linePlaneIntersection(Point const& dir, Point const& v0, Point const& n, float & alpha)
     {
         // float d1 = dot(n, v0);
@@ -509,16 +526,15 @@ public:
         return (alpha >= 0.0f && alpha <= 1.0f);
     }
 
-    float round(float const d)
+    float round(float const d) const
     {
         return std::floor(d + 0.5f);
     }
 
-    float next_raster_in_positive_direction(float u)
+    float next_raster_in_positive_direction(float u) const
     {
         return std::floor(u + 1.0f);
     }
-
 
     void add_point_single_cell(Point const& direction, Color const& color, float const depth, GiPoint const* node = NULL)
     {
@@ -891,23 +907,16 @@ public:
         }
     }
 
-    float accumulate(std::vector<GiPoint const*> * gi_points = NULL)
+    void accumulate(Debug_info * debug_info = NULL)
     {
-        total_energy = 0.0f;
-
         for (int i = 0; i < 6; ++i)
         {
-            total_energy += buffers[i]->accumulate(gi_points);
+            buffers[i]->accumulate(debug_info);
         }
-
-        return total_energy;
-
-        // std::cout << "accumulate(): total_energy: " << total_energy << std::endl;
     }
 
     Color const& get_color(Cube_cell const& c) const
     {
-        // return buffers[c.plane]._data_accumulated[c.pos[0] + resolution_2 + resolution * (c.pos[1] + resolution_2)];
         return buffers[c.plane]->get_color(c.pos[0], c.pos[1]);
     }
 
