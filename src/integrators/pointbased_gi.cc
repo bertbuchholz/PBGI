@@ -1432,6 +1432,9 @@ void process_surfel(
     GiPoint const& gi_point,
     surfacePoint_t const& sp,
     Cube_raster_buffer & frame_buffer,
+    Cube_raster_buffer::SplatType const surfel_far_splat_type,
+    Cube_raster_buffer::SplatType const surfel_near_splat_type,
+    float const surfel_near_threshold,
     Debug_info * debug_info)
 {
     yafaray::vector3d_t giToSp = (vector3d_t(sp.P) - gi_point.pos);
@@ -1440,6 +1443,9 @@ void process_surfel(
 
     giToSp.normalize();
 
+
+    float cos_rp_n_gip = sp.N * (-giToSp);
+    if (cos_rp_n_gip < 0.05f) return;
 
     // float const cos_sp_gip = std::max(gi_point.normal * giToSp, 0.0f);
     float cos_sp_gip = gi_point.normal * giToSp;
@@ -1506,7 +1512,7 @@ void process_surfel(
         ++debug_info->used_leafs_rays;
     }
 
-    frame_buffer.add_point_exact(contribution, gi_point.normal, gi_point.pos - vector3d_t(sp.P), disc_radius, distance, debug_point);
+    frame_buffer.add_point_disc_tracing(contribution, gi_point.normal, gi_point.pos - vector3d_t(sp.P), disc_radius, distance, debug_point);
 
     //if (cos_sp_gip > 0.001f && distance > radius && distance < radius * 4.0f)
     /*
@@ -1533,6 +1539,10 @@ color_t doPointBasedGiTree_sh_fb(
     vector3d_t const& wo,
     int const raster_buffer_resolution,
     Cube_raster_buffer::Type const raster_buffer_type,
+    Cube_raster_buffer::SplatType const node_splat_type,
+    Cube_raster_buffer::SplatType const surfel_far_splat_type,
+    Cube_raster_buffer::SplatType const surfel_near_splat_type,
+    float const surfel_near_threshold,
     Debug_info * debug_info
     )
 {
@@ -1568,7 +1578,7 @@ color_t doPointBasedGiTree_sh_fb(
             {
                 yafaray::GiPoint const& giP = *points[i];
 
-                process_surfel(giP, sp, frame_buffer, debug_info);
+                process_surfel(giP, sp, frame_buffer, surfel_far_splat_type, surfel_near_splat_type, surfel_near_threshold, debug_info);
             }
         }
         else if (node->has_children())
@@ -1644,7 +1654,7 @@ color_t doPointBasedGiTree_sh_fb(
                 // float cos_normal_gip = -giToSp * sp.N; // lambert receiver
                 // col += real_solid_angle * giP.color * giP.energy * cos_normal_gip;
 
-                frame_buffer.add_point_square_rasterization(-giToSp, cluster_contribution, real_solid_angle, distance, debug_point);
+                frame_buffer.add_point_aa_square(-giToSp, cluster_contribution, real_solid_angle, distance, debug_point);
                 // frame_buffer.add_point_single_cell(-giToSp, cluster_contribution, distance, debug_point);
 
                 if (debug_info)
@@ -1708,7 +1718,7 @@ color_t pbLighting_t::doPointBasedGiTreeSH_leafs_only(renderState_t & state, sur
             {
                 yafaray::GiPoint const& giP = *points[i];
 
-                process_surfel(giP, sp, frame_buffer, NULL);
+                process_surfel(giP, sp, frame_buffer, surfel_far_splat_type, surfel_near_splat_type, surfel_near_threshold, NULL);
             }
 
         }
@@ -1784,7 +1794,8 @@ colorA_t pbLighting_t::integrate(renderState_t &state, diffRay_t &ray) const
             else if (debug_type == Tree_sh_fb)
             {
                 // col += doPointBasedGiTree_sh_fb(state, sp, wo);
-                col += doPointBasedGiTree_sh_fb(_bspTree, state, sp, maxSolidAngle, wo, raster_buffer_resolution, raster_buffer_type);
+                col += doPointBasedGiTree_sh_fb(_bspTree, state, sp, maxSolidAngle, wo, raster_buffer_resolution, raster_buffer_type,
+                                                node_splat_type, surfel_far_splat_type, surfel_near_splat_type, surfel_near_threshold);
             }
             else if (debug_type == Tree_sh_leafs)
             {

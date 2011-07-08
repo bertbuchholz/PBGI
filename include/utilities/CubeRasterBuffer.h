@@ -53,10 +53,17 @@ struct Color_depth_pixel
 
 /*
 
-  types:
+framebuffer types:
+cube, hemisphere
 
- jittered, jitter each cube side by a random 2d vector
- stochastic splatting, splat with russian roulette depending on the alpha value
+- jittered, jitter each cube side by a random 2d vector
+- stochastic splatting, splat with russian roulette depending on the alpha value
+
+
+ splatting types:
+ - the single pixel the point is projected onto (most simple)
+ - trace ray through pixels intersecting with the disc (surfel only)
+ - using the solid angle, approximating the area with axis-aligned rectangles
 
 */
 
@@ -91,6 +98,7 @@ protected:
     int _debug_plane;
 };
 
+// store only a single color value and depth per pixel
 class Simple_frame_buffer : public Abstract_frame_buffer
 {
 public:
@@ -153,7 +161,7 @@ public:
 
                 if (debug_info->cube_plane == _debug_plane && debug_info->cube_x == cube_x && debug_info->cube_y == cube_y)
                 {
-                    debug_info->single_pixel_contributors.push_back(std::make_pair(1.0f, c.node));
+                    debug_info->single_pixel_contributors.push_back(Node_weight_pair(c.node, 1.0f));
                 }
             }
         }
@@ -169,6 +177,7 @@ protected:
     std::vector<Color_depth_pixel> _data;
 };
 
+// store a list of color values and corresponding depths and weights (for example filling) per pixel
 class Accumulating_frame_buffer : public Abstract_frame_buffer
 {
 public:
@@ -280,7 +289,7 @@ public:
 
                 if (debug_pixel)
                 {
-                    debug_info->single_pixel_contributors.push_back(std::make_pair(c.filling_degree, c.node));
+                    debug_info->single_pixel_contributors.push_back(Node_weight_pair(c.node, c.filling_degree));
                 }
 
                 ++node_index;
@@ -291,7 +300,7 @@ public:
                 for (unsigned int i = node_index; i < _data[pixel].size(); ++i)
                 {
                     Color_depth_pixel const& c = _data[pixel][i];
-                    debug_info->single_pixel_contributors.push_back(std::make_pair(0.0f, c.node));
+                    debug_info->single_pixel_contributors.push_back(Node_weight_pair(c.node, 0.0f));
                 }
             }
 
@@ -339,6 +348,7 @@ class Cube_raster_buffer
 {
 public:
     enum Type { Simple, Accumulating };
+    enum SplatType { Single_pixel, Disc_tracing, AA_square };
 
     typedef vector3d_t Point;
     typedef color_t Color;
@@ -526,6 +536,17 @@ public:
         return (alpha >= 0.0f && alpha <= 1.0f);
     }
 
+    // only check in the positive halfspace of the line, line starts at origin
+    bool sphere_line_intersection(Point const& center, float const radius, Point const& line_dir)
+    {
+        float const c_l = center * line_dir;
+
+        if (c_l <= 0.0f) return false;
+
+        return (c_l * c_l) - center.lengthSqr() + (radius * radius) >= 0.0f;
+    }
+
+
     float round(float const d) const
     {
         return std::floor(d + 0.5f);
@@ -536,7 +557,7 @@ public:
         return std::floor(u + 1.0f);
     }
 
-    void add_point_single_cell(Point const& direction, Color const& color, float const depth, GiPoint const* node = NULL)
+    void add_point_single_pixel(Point const& direction, Color const& color, float const depth, GiPoint const* node = NULL)
     {
         Point normals[6] =
         {
@@ -587,7 +608,7 @@ public:
 
 
     // raytrace a disc through every pixel, assumes receiving point is in the origin and the disc's center relative to it
-    int add_point_exact(Color const& color,
+    int add_point_disc_tracing(Color const& color,
                          Point const& disc_normal, Point const& disc_center, float const disc_radius,
                          float const depth,
                          GiPoint const* node = NULL)
@@ -638,59 +659,8 @@ public:
     }
 
 
-    // only check in the positive halfspace of the line, line starts at origin
-    bool sphere_line_intersection(Point const& center, float const radius, Point const& line_dir)
-    {
-        float const c_l = center * line_dir;
-
-        if (c_l <= 0.0f) return false;
-
-        return (c_l * c_l) - center.lengthSqr() + (radius * radius) >= 0.0f;
-    }
-
-    // direction of the sphere, its color, radius and distance as seen from the receiving point
-    int add_point_from_sphere_with_rays(Point const& direction, Color const& color, float const radius, float const distance, GiPoint const* node = NULL)
-    {
-        Cube_cell c;
-
-        int hit_cells = 0;
-
-        Point dir = direction;
-        dir.normalize();
-
-        Point sphere_center = dir * distance;
-
-        for (int plane_index = 0; plane_index < 6; ++plane_index)
-        {
-            c.plane = plane_index;
-
-            for (int u = -_resolution_2; u < _resolution_2; ++u)
-            {
-                c.pos[0] = u;
-
-                for (int v = -_resolution_2; v < _resolution_2; ++v)
-                {
-                    c.pos[1] = v;
-
-                    Point cell_center = get_cell_center(c);
-                    cell_center.normalize();
-
-                    if (sphere_line_intersection(sphere_center, radius, cell_center))
-                    {
-                        buffers[plane_index]->add_point(u, v, color, 1.0f, distance, node);
-                        ++hit_cells;
-                    }
-                }
-            }
-        }
-
-        return hit_cells;
-    }
-
-
-
     // raytrace against the solid angle
-    int add_point_rays(Point const& direction, Color const& color, float const solid_angle, float const depth)
+    int add_point_rays_solid_angle(Point const& direction, Color const& color, float const solid_angle, float const depth)
     {
         Cube_cell c;
 
@@ -732,7 +702,7 @@ public:
         return hit_cells;
     }
 
-    void add_point_square_rasterization(Point const& direction, Color const& color, float const solid_angle, float const depth, GiPoint const* node = NULL)
+    void add_point_aa_square(Point const& direction, Color const& color, float const solid_angle, float const depth, GiPoint const* node = NULL)
     {
         /*
         if (std::abs(solid_angle) > 1.0f)
@@ -896,14 +866,6 @@ public:
 
                 u = next_u;
             }
-        }
-
-        if (false && std::abs(solid_angle) > 1e-10f)
-        {
-            float unit_area = solid_angle;
-            float acc_area_ratio = acc_area / unit_area;
-            // std::cout << "acc_area_ratio: " << acc_area_ratio << std::endl;
-            std::cout << "acc_area: " << acc_area << std::endl;
         }
     }
 

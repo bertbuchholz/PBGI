@@ -119,6 +119,11 @@ private:
     int raster_buffer_resolution;
     Cube_raster_buffer::Type raster_buffer_type;
 
+    float surfel_near_threshold;
+    Cube_raster_buffer::SplatType node_splat_type;
+    Cube_raster_buffer::SplatType surfel_far_splat_type;
+    Cube_raster_buffer::SplatType surfel_near_splat_type;
+
     MyTree* _bspTree;
 };
 
@@ -129,18 +134,22 @@ color_t doPointBasedGiTree_sh_fb(
     pbLighting_t::MyTree const* tree, renderState_t & state,
     surfacePoint_t const& sp,
     float const maxSolidAngle,
-    // bool const color_by_depth,
     vector3d_t const& wo,
     int const raster_buffer_resolution,
     Cube_raster_buffer::Type const raster_buffer_type,
-    // Cube_raster_buffer * result_fb = NULL,
-    // std::vector<yafaray::GiPoint const*> * gi_points = NULL,
+    Cube_raster_buffer::SplatType const node_splat_type,
+    Cube_raster_buffer::SplatType const surfel_far_splat_type,
+    Cube_raster_buffer::SplatType const surfel_near_splat_type,
+    float const surfel_near_threshold,
     Debug_info * debug_info = NULL);
 
 void process_surfel(
     GiPoint const& gi_point,
     surfacePoint_t const& sp,
     Cube_raster_buffer & frame_buffer,
+    Cube_raster_buffer::SplatType const surfel_far_splat_type,
+    Cube_raster_buffer::SplatType const surfel_near_splat_type,
+    float const surfel_near_threshold,
     Debug_info * debug_info = NULL);
 
 __END_YAFRAY
