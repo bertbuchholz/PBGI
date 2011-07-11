@@ -133,7 +133,8 @@ public:
 
         if (debug_info && c.node)
         {
-            debug_info->gi_points.push_back(c.node);
+            // debug_info->gi_points.push_back(c.node);
+            debug_info->gi_points.insert(c.node);
 
             int cube_x = (pixel % _resolution) - _resolution_2;
             int cube_y = (pixel / _resolution) - _resolution_2;
@@ -202,6 +203,8 @@ public:
 
         int const pixel = (x + _resolution_2) + _resolution * (y + _resolution_2);
 
+        if (_data[pixel].size() == 0) return accumulated_color;
+
         bool debug_pixel = false;
 
         if (debug_info)
@@ -222,7 +225,8 @@ public:
             for (unsigned int i = 0; i < _data[pixel].size(); ++i)
             {
                 Color_depth_pixel const& c = _data[pixel][i];
-                debug_info->gi_points.push_back(c.node);
+                // debug_info->gi_points.push_back(c.node);
+                debug_info->gi_points.insert(c.node);
             }
         }
 
@@ -235,11 +239,13 @@ public:
 
             float weight = c.filling_degree;
 
+            /*
             if (acc_filling_degree + weight > 1.0f)
             {
                 pixel_full = true;
                 weight = (1.0f - acc_filling_degree);
             }
+            */
 
             acc_filling_degree += weight;
             accumulated_color += c.color * weight;
@@ -251,6 +257,9 @@ public:
 
             ++node_index;
         }
+
+        acc_filling_degree = std::max(1.0f, acc_filling_degree);
+        accumulated_color *= 1.0f / float(acc_filling_degree);
 
         if (debug_pixel)
         {

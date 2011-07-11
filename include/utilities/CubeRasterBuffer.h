@@ -68,7 +68,7 @@ class Cube_raster_buffer
 {
 public:
     enum Type { Simple, Accumulating };
-    enum Splat_type { Single_pixel, Disc_tracing, AA_square };
+    enum Splat_type { Single_pixel, Disc_tracing, AA_square, SA_tracing };
 
     static std::map<std::string, Splat_type> enum_splat_type_map;
     static std::map<std::string, Type> enum_type_map;
@@ -121,6 +121,7 @@ public:
         splat_type_to_function_map[Single_pixel] = &Cube_raster_buffer::add_point_single_pixel;
         splat_type_to_function_map[Disc_tracing] = &Cube_raster_buffer::add_point_disc_tracing;
         splat_type_to_function_map[AA_square]    = &Cube_raster_buffer::add_point_aa_square;
+        splat_type_to_function_map[SA_tracing]   = &Cube_raster_buffer::add_point_solid_angle_rays;
 
         add_point_map[Gi_point_info::Node]        = splat_type_to_function_map[node_splat_type];
         add_point_map[Gi_point_info::Far_surfel]  = splat_type_to_function_map[surfel_far_splat_type];
@@ -272,6 +273,30 @@ public:
         return _cell_centers[serial];
     }
 
+    std::vector<Point> get_cell_corners(Cube_cell const& c) const
+    {
+        std::vector<Point> result;
+
+        Point cell_center = get_cell_center(c);
+
+        float dirs[] = { -1, -1, 1, -1, 1, 1, -1, 1 };
+
+        for (int i = 0; i < 4; ++i)
+        {
+            Cube_cell neighbor(c);
+
+            neighbor.pos[0] += dirs[i * 2 + 0];
+            neighbor.pos[1] += dirs[i * 2 + 1];
+
+            Point neighbor_center = calc_cell_center(neighbor);
+
+            result.push_back((cell_center + neighbor_center) / 2.0f);
+        }
+
+        return result;
+    }
+
+
     // p0, p1: edge to test
     // v0: point on the plane, n: plane normal
     // alpha: return value, intersection point: p0 + alpha * (p1 - p0)
@@ -307,13 +332,14 @@ public:
     }
 
     // only check in the positive halfspace of the line, line starts at origin
-    bool sphere_line_intersection(Point const& center, float const radius, Point const& line_dir)
+    // source: http://en.wikipedia.org/wiki/Line%E2%80%93sphere_intersection
+    bool sphere_line_intersection(Point const& sphere_center, float const radius, Point const& line_dir)
     {
-        float const c_l = center * line_dir;
+        float const c_l = sphere_center * line_dir;
 
         if (c_l <= 0.0f) return false;
 
-        return (c_l * c_l) - center.lengthSqr() + (radius * radius) >= 0.0f;
+        return (c_l * c_l) - sphere_center.lengthSqr() + (radius * radius) >= 0.0f;
     }
 
 
@@ -539,6 +565,91 @@ public:
             }
         }
     }
+
+
+    void add_point_solid_angle_rays(Gi_point_info const& point_info, GiPoint const* node = NULL)
+    {
+        Color const& color = point_info.color;
+        Point const& disc_normal = (point_info.receiver_position - point_info.position).normalize();
+        Point disc_center = point_info.position - point_info.receiver_position; // -> make receiving point the origin as seen from the disc's center
+        float const disc_radius = std::sqrt(point_info.solid_angle * point_info.depth * point_info.depth / M_PI);
+        // float const depth = point_info.depth;
+
+        Cube_cell c;
+
+        float disc_radius_sqr = disc_radius * disc_radius;
+
+        for (int plane_index = 0; plane_index < 6; ++plane_index)
+        {
+            c.plane = plane_index;
+
+            for (int u = -_resolution_2; u < _resolution_2; ++u)
+            {
+                c.pos[0] = u;
+
+                for (int v = -_resolution_2; v < _resolution_2; ++v)
+                {
+                    c.pos[1] = v;
+
+                    Point cell_center = get_cell_center(c);
+                    cell_center.normalize();
+
+                    float alpha;
+
+                    linePlaneIntersection(Point(0.0f), cell_center, disc_center, disc_normal, alpha);
+
+                    if (alpha > 0.0f)
+                    {
+                        Point hit_point = alpha * cell_center;
+
+                        float dist_sqr = (hit_point - disc_center).lengthSqr();
+
+                        if (dist_sqr < disc_radius_sqr)
+                        {
+                            buffers[plane_index]->add_point(u, v, color, 1.0f, alpha, node);
+                        }
+                    }
+                }
+            }
+        }
+
+
+        /*
+        float const solid_angle = point_info.solid_angle;
+        Color const& color = point_info.color;
+        Point sphere_center = point_info.position - point_info.receiver_position; // -> make receiving point the origin as seen from the sphere's center
+        float const sphere_radius = std::sqrt(solid_angle * point_info.depth * point_info.depth / M_PI);
+        float const depth = point_info.depth;
+
+        Cube_cell c;
+
+        for (int plane_index = 0; plane_index < 6; ++plane_index)
+        {
+            c.plane = plane_index;
+
+            for (int u = -_resolution_2; u < _resolution_2; ++u)
+            {
+                c.pos[0] = u;
+
+                for (int v = -_resolution_2; v < _resolution_2; ++v)
+                {
+                    c.pos[1] = v;
+
+                    Point cell_center = get_cell_center(c);
+                    cell_center.normalize();
+
+                    if (sphere_line_intersection(sphere_center, sphere_radius, cell_center))
+                    {
+                        buffers[plane_index]->add_point(u, v, color, 1.0f, depth, node);
+                    }
+                }
+            }
+        }
+        */
+    }
+
+
+
 
     void add_point(Gi_point_info const& point_info, GiPoint const* gi_point = NULL)
     {

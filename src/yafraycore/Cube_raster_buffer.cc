@@ -10,6 +10,7 @@ std::map<std::string, Cube_raster_buffer::Splat_type> create_splat_type_map()
     m["Single_pixel"] = Cube_raster_buffer::Single_pixel;
     m["Disc_tracing"] = Cube_raster_buffer::Disc_tracing;
     m["AA_square"] = Cube_raster_buffer::AA_square;
+    m["SA_tracing"] = Cube_raster_buffer::SA_tracing;
     return m;
 }
 

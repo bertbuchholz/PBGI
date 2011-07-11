@@ -1530,21 +1530,6 @@ void process_surfel(
     }
 
     frame_buffer.add_point(point_info, debug_point);
-
-    //if (cos_sp_gip > 0.001f && distance > radius && distance < radius * 4.0f)
-    /*
-    if (distance < disc_radius * 4.0f)
-    {
-        frame_buffer.add_point_exact(contribution, gi_point.normal, gi_point.pos - vector3d_t(sp.P), disc_radius, distance, debug_point);
-        // ++shading_discs_rays;
-    }
-    else
-    {
-        // frame_buffer.add_point_rays(-giToSp, contribution, solidAngle, distance);
-        frame_buffer.add_point_square_rasterization(-giToSp, contribution, solid_angle_real, distance, debug_point);
-        // ++shading_discs_square;
-    }
-    */
 }
 
 
@@ -1612,12 +1597,8 @@ color_t doPointBasedGiTree_sh_fb(
 
             giToSp.normalize();
 
-            //            float const visible_area = std::max(0.0f, giP.sh_representation.get_sh_area(giToSp));
             float const max_visible_area = node->getRadius() * node->getRadius() * M_PI;
-            float const visible_area = std::max(0.0f, gi_point.sh_representation.get_sh_area(giToSp));
-
             float const max_solid_angle = max_visible_area / (distance * distance);
-
 
             if (max_solid_angle > solid_angle_threshold) // || distance < node->getRadius() * 1.5f)
             {
@@ -1629,8 +1610,6 @@ color_t doPointBasedGiTree_sh_fb(
             }
             else
             {
-                // if (solidAngle < 0.0001f) continue;
-
                 // float const cos_normal_gip = -giToSp * sp.N;
 
                 yafaray::color_t cluster_contribution;
@@ -1650,6 +1629,8 @@ color_t doPointBasedGiTree_sh_fb(
                 // frame_buffer.add_point(-giToSp, cluster_contribution, solidAngle, distance, use_rays);
                 // frame_buffer.add_point_from_sphere_with_rays(-giToSp, cluster_contribution, node->getRadius(), distance, node->getClusteredData());
 
+                float const visible_area = std::max(0.0f, gi_point.sh_representation.get_sh_area(giToSp));
+
                 yafaray::GiPoint * debug_point = NULL;
 
                 if (debug_info)
@@ -1663,6 +1644,8 @@ color_t doPointBasedGiTree_sh_fb(
                     debug_point->energy = 1.0f;
                     debug_point->depth = node->getDepth();
                     debug_point->debug_radius = std::sqrt(visible_area / M_PI); // debug only!
+
+                    ++debug_info->used_nodes;
                 }
 
                 // float const real_solid_angle = cos_sp_gip * area / (distance * distance);
@@ -1682,25 +1665,21 @@ color_t doPointBasedGiTree_sh_fb(
 
                 frame_buffer.add_point(point_info, debug_point);
 
-                if (debug_info)
-                {
-                    ++debug_info->used_nodes;
-                }
             } // end else (bad solid angle)
         }
     }
 
-    color_t surfCol(1.0f);
+    col = frame_buffer.get_diffuse(sp.N);
+
     if (material)
     {
-        surfCol = material->getDiffuseAtPoint(state, sp); //material->eval(state, sp, wo, vector3d_t(0.0f), BSDF_ALL);
+        color_t surfCol = material->getDiffuseAtPoint(state, sp); //material->eval(state, sp, wo, vector3d_t(0.0f), BSDF_ALL);
         // surfCol = material->eval(state, sp, wo, vector3d_t(0.0f), BSDF_ALL);
         col = frame_buffer.get_diffuse(sp.N) * surfCol;
     }
 
     if (debug_info && debug_info->result_fb)
     {
-        col = frame_buffer.get_diffuse(sp.N);
         *debug_info->result_fb = frame_buffer;
     }
 

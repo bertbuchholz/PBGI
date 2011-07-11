@@ -1,6 +1,8 @@
 #ifndef DEBUG_INFO_H
 #define DEBUG_INFO_H
 
+#include <tr1/unordered_set>
+
 __BEGIN_YAFRAY
 
 class Cube_raster_buffer;
@@ -36,7 +38,8 @@ struct Debug_info
     int used_far_surfels;
     int node_depth;
     bool color_by_depth;
-    std::vector<GiPoint const*> gi_points;
+    //std::vector<GiPoint const*> gi_points;
+    std::tr1::unordered_set<GiPoint const*> gi_points;
     std::vector<Node_weight_pair> single_pixel_contributors;
     Cube_raster_buffer * result_fb;
     int checked_cells;
