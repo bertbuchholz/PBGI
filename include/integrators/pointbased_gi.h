@@ -120,9 +120,9 @@ private:
     Cube_raster_buffer::Type raster_buffer_type;
 
     float surfel_near_threshold;
-    Cube_raster_buffer::SplatType node_splat_type;
-    Cube_raster_buffer::SplatType surfel_far_splat_type;
-    Cube_raster_buffer::SplatType surfel_near_splat_type;
+    Cube_raster_buffer::Splat_type node_splat_type;
+    Cube_raster_buffer::Splat_type surfel_far_splat_type;
+    Cube_raster_buffer::Splat_type surfel_near_splat_type;
 
     MyTree* _bspTree;
 };
@@ -137,9 +137,9 @@ color_t doPointBasedGiTree_sh_fb(
     vector3d_t const& wo,
     int const raster_buffer_resolution,
     Cube_raster_buffer::Type const raster_buffer_type,
-    Cube_raster_buffer::SplatType const node_splat_type,
-    Cube_raster_buffer::SplatType const surfel_far_splat_type,
-    Cube_raster_buffer::SplatType const surfel_near_splat_type,
+    Cube_raster_buffer::Splat_type const node_splat_type,
+    Cube_raster_buffer::Splat_type const surfel_far_splat_type,
+    Cube_raster_buffer::Splat_type const surfel_near_splat_type,
     float const surfel_near_threshold,
     Debug_info * debug_info = NULL);
 
@@ -147,8 +147,6 @@ void process_surfel(
     GiPoint const& gi_point,
     surfacePoint_t const& sp,
     Cube_raster_buffer & frame_buffer,
-    Cube_raster_buffer::SplatType const surfel_far_splat_type,
-    Cube_raster_buffer::SplatType const surfel_near_splat_type,
     float const surfel_near_threshold,
     Debug_info * debug_info = NULL);
 

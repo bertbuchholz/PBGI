@@ -5,7 +5,9 @@
 #include <vector>
 
 #include <core_api/color.h>
+#include <core_api/vector3d.h>
 #include <utilities/Debug_info.h>
+#include <utilities/Frame_buffer.h>
 
 
 __BEGIN_YAFRAY
@@ -18,6 +20,21 @@ inline T into_range(T const& min, T const& max, T const& val)
     return val;
 }
 
+struct Gi_point_info
+{
+    enum Type { Node = 0, Far_surfel, Near_surfel };
+
+    Type type;
+    color_t color;
+    vector3d_t position;
+    vector3d_t receiver_position;
+    float depth;
+    vector3d_t direction; // from the receiving point to the GI point
+    float solid_angle;
+    float disc_radius;
+    vector3d_t disc_normal;
+};
+
 struct Cube_cell
 {
     int plane;
@@ -29,27 +46,6 @@ struct Cube_cell
     }
 };
 
-struct Color_depth_pixel
-{
-    Color_depth_pixel() :
-        depth(1e10f),
-        filling_degree(0.0f),
-        node(NULL)
-    {
-
-    }
-
-    color_t color;
-    float depth;
-    float filling_degree;
-    GiPoint const* node;
-
-    friend bool operator<(Color_depth_pixel const& lhs, Color_depth_pixel const& rhs)
-    {
-        return (lhs.depth < rhs.depth);
-    }
-
-};
 
 /*
 
@@ -67,295 +63,22 @@ cube, hemisphere
 
 */
 
-class Abstract_frame_buffer
-{
-public:
-    Abstract_frame_buffer() {}
-
-    Abstract_frame_buffer(int resolution, int plane) :
-        _resolution(resolution),
-        _resolution_2(_resolution / 2),
-        _debug_plane(plane)
-    { }
-
-    virtual ~Abstract_frame_buffer() {}
-
-    virtual void add_point(int const x, int const y, color_t const& color, float const filling_degree, float const depth, GiPoint const* node = NULL) = 0;
-
-    virtual void accumulate(Debug_info * debug_info = NULL) = 0;
-
-    virtual color_t const& get_color(int const x, int const y) const = 0;
-
-    virtual void set_size(int size) = 0;
-
-    virtual void clear() = 0;
-
-    virtual Abstract_frame_buffer* clone() = 0;
-
-protected:
-    int _resolution;
-    int _resolution_2;
-    int _debug_plane;
-};
-
-// store only a single color value and depth per pixel
-class Simple_frame_buffer : public Abstract_frame_buffer
-{
-public:
-    Simple_frame_buffer() {}
-
-    Simple_frame_buffer(int size, int plane) : Abstract_frame_buffer(size, plane)
-    {
-        set_size(size);
-    }
-
-    virtual Abstract_frame_buffer* clone()
-    {
-        Simple_frame_buffer* sfb = new Simple_frame_buffer(*this);
-
-        return sfb;
-    }
-
-    virtual void add_point(int const x, int const y, color_t const& color, float const filling_degree, float const depth, GiPoint const* node = NULL)
-    {
-        int pixel = (x + _resolution_2) + _resolution * (y + _resolution_2);
-
-        assert(pixel < _resolution * _resolution);
-
-        if (depth < _data[pixel].depth)
-        {
-            _data[pixel].color = color;
-            _data[pixel].depth = depth;
-            _data[pixel].filling_degree = filling_degree;
-            _data[pixel].node = node;
-        }
-    }
-
-    virtual void set_size(int size)
-    {
-        _resolution = size;
-        _resolution_2 = _resolution / 2;
-
-        _data.clear();
-        _data.resize(_resolution * _resolution);
-    }
-
-    virtual void clear()
-    {
-        _data.clear();
-    }
-
-
-    virtual void accumulate(Debug_info * debug_info = NULL)
-    {
-        for (int pixel = 0; pixel < _resolution * _resolution; ++pixel)
-        {
-            Color_depth_pixel const& c = _data[pixel];
-
-            if (debug_info && c.node)
-            {
-                debug_info->gi_points.push_back(c.node);
-
-                int cube_x = (pixel % _resolution) - _resolution_2;
-                int cube_y = (pixel / _resolution) - _resolution_2;
-
-                if (debug_info->cube_plane == _debug_plane && debug_info->cube_x == cube_x && debug_info->cube_y == cube_y)
-                {
-                    debug_info->single_pixel_contributors.push_back(Node_weight_pair(c.node, 1.0f));
-                }
-            }
-        }
-    }
-
-    virtual color_t const& get_color(int const x, int const y) const
-    {
-        int const pixel = (x + _resolution_2) + _resolution * (y + _resolution_2);
-        return _data[pixel].color;
-    }
-
-protected:
-    std::vector<Color_depth_pixel> _data;
-};
-
-// store a list of color values and corresponding depths and weights (for example filling) per pixel
-class Accumulating_frame_buffer : public Abstract_frame_buffer
-{
-public:
-    Accumulating_frame_buffer(int size, int plane) : Abstract_frame_buffer(size, plane)
-    {
-        set_size(size);
-    }
-
-    virtual Abstract_frame_buffer* clone()
-    {
-        Accumulating_frame_buffer* afb = new Accumulating_frame_buffer(*this);
-
-        return afb;
-    }
-
-    virtual void set_size(int size)
-    {
-        _resolution = size;
-        _resolution_2 = _resolution / 2;
-
-        _data.clear();
-        _data.resize(size * size);
-
-        _data_accumulated.clear();
-        _data_accumulated.resize(size * size);
-    }
-
-    virtual void clear()
-    {
-        _data.clear();
-        _data_accumulated.clear();
-    }
-
-    virtual void add_point(int const x, int const y, color_t const& color, float const filling_degree, float const depth, GiPoint const* node = NULL)
-    {
-        int pos = (x + _resolution / 2) + _resolution * (y + _resolution / 2);
-
-        assert(pos < _resolution * _resolution);
-
-        Color_depth_pixel c;
-        c.color = color;
-        c.depth = depth;
-        c.filling_degree = filling_degree;
-        c.node = node;
-
-        _data[pos].push_back(c);
-    }
-
-    virtual void accumulate(Debug_info * debug_info = NULL)
-    {
-//        std::cout << "accumulate()" << std::endl;
-
-        int samples_sum = 0;
-
-        for (int pixel = 0; pixel < _resolution * _resolution; ++pixel)
-        {
-            bool debug_pixel = false;
-
-            if (debug_info)
-            {
-                int cube_x = (pixel % _resolution) - _resolution_2;
-                int cube_y = (pixel / _resolution) - _resolution_2;
-
-                debug_pixel = debug_info->cube_plane == _debug_plane && debug_info->cube_x == cube_x && debug_info->cube_y == cube_y;
-            }
-
-            std::sort(_data[pixel].begin(), _data[pixel].end());
-
-            samples_sum += _data[pixel].size();
-
-            float acc_filling_degree = 0.0f;
-
-
-            if (debug_info)
-            {
-                for (unsigned int i = 0; i < _data[pixel].size(); ++i)
-                {
-                    Color_depth_pixel const& c = _data[pixel][i];
-                    debug_info->gi_points.push_back(c.node);
-                }
-            }
-
-            _data_accumulated[pixel] = color_t(0.0f);
-            unsigned int node_index = 0;
-
-            while (acc_filling_degree < 1.0f && node_index < _data[pixel].size())
-            {
-                Color_depth_pixel const& c = _data[pixel][node_index];
-
-                if (acc_filling_degree + c.filling_degree > 1.0f)
-                {
-                    _data_accumulated[pixel] += c.color * (1.0f - acc_filling_degree);
-                    acc_filling_degree = 1.01f;
-                }
-                else
-                {
-                    acc_filling_degree += c.filling_degree;
-                    _data_accumulated[pixel] += c.color * c.filling_degree;
-                    // data_accumulated[pixel] += c.color * 1.0f / float(data[pixel].size());
-                    // data_accumulated[pixel] += c.color;
-
-//                    if (gi_points)
-//                    {
-//                        gi_points->push_back(c.node);
-//                    }
-
-//                    std::cout << "pixel: " << pixel << " " << data_accumulated[pixel] << std::endl;
-                }
-
-                if (debug_pixel)
-                {
-                    debug_info->single_pixel_contributors.push_back(Node_weight_pair(c.node, c.filling_degree));
-                }
-
-                ++node_index;
-            }
-
-            if (debug_pixel)
-            {
-                for (unsigned int i = node_index; i < _data[pixel].size(); ++i)
-                {
-                    Color_depth_pixel const& c = _data[pixel][i];
-                    debug_info->single_pixel_contributors.push_back(Node_weight_pair(c.node, 0.0f));
-                }
-            }
-
-        }
-
-        // std::cout << "accumulate(), samples: " << samples_sum << std::endl;
-    }
-
-    virtual color_t const& get_color(int const x, int const y) const
-    {
-        int const pixel = (x + _resolution_2) + _resolution * (y + _resolution_2);
-        return _data_accumulated[pixel];
-    }
-
-
-    /*
-    friend std::ostream & operator<<(std::ostream & s, Frame_buffer const& f)
-    {
-        for (int i = 0; i < size * size; ++i)
-        {
-            s << f.data_accumulated[i].R << " " << f.data_accumulated[i].G << " " << f.data_accumulated[i].B << " ";
-        }
-
-        return s;
-    }
-
-    friend std::istream & operator>>(std::istream & s, Frame_buffer & f)
-    {
-        for (int i = 0; i < size * size; ++i)
-        {
-            s >> f.data_accumulated[i].R >> f.data_accumulated[i].G >> f.data_accumulated[i].B;
-        }
-
-        return s;
-    }
-*/
-
-protected:
-    std::vector< std::vector<Color_depth_pixel> > _data;
-    std::vector<color_t> _data_accumulated;
-};
-
 
 class Cube_raster_buffer
 {
 public:
     enum Type { Simple, Accumulating };
-    enum SplatType { Single_pixel, Disc_tracing, AA_square };
+    enum Splat_type { Single_pixel, Disc_tracing, AA_square };
+
+    static std::map<std::string, Splat_type> enum_splat_type_map;
+    static std::map<std::string, Type> enum_type_map;
 
     typedef vector3d_t Point;
     typedef color_t Color;
 
     Cube_raster_buffer()
     {
-
+        add_point_map.resize(3);
     }
 
     Cube_raster_buffer & operator= (Cube_raster_buffer const& cbr)
@@ -371,6 +94,7 @@ public:
             _resolution = cbr._resolution;
             _resolution_2 = cbr._resolution_2;
             _cell_centers = cbr._cell_centers;
+            add_point_map = cbr.add_point_map;
         }
 
         return *this;
@@ -384,10 +108,23 @@ public:
         }
     }
 
-    void setup(Type type, int resolution)
+
+    void setup(Type type, int resolution,
+               Splat_type const node_splat_type,
+               Splat_type const surfel_far_splat_type,
+               Splat_type const surfel_near_splat_type)
     {
         _resolution = resolution;
         _resolution_2 = _resolution / 2;
+
+        std::map<Splat_type, Add_point_function_ptr> splat_type_to_function_map;
+        splat_type_to_function_map[Single_pixel] = &Cube_raster_buffer::add_point_single_pixel;
+        splat_type_to_function_map[Disc_tracing] = &Cube_raster_buffer::add_point_disc_tracing;
+        splat_type_to_function_map[AA_square]    = &Cube_raster_buffer::add_point_aa_square;
+
+        add_point_map[Gi_point_info::Node]        = splat_type_to_function_map[node_splat_type];
+        add_point_map[Gi_point_info::Far_surfel]  = splat_type_to_function_map[surfel_far_splat_type];
+        add_point_map[Gi_point_info::Near_surfel] = splat_type_to_function_map[surfel_near_splat_type];
 
         for (int i = 0; i < 6; ++i)
         {
@@ -484,6 +221,39 @@ public:
         return result;
     }
 
+    bool get_cell(Point const& dir, Cube_cell & cell) const
+    {
+        int longest_axis = get_longest_axis(dir);
+
+        int plane_index = longest_axis * 2;
+        int axis_0 = (longest_axis + 1) % 3;
+        int axis_1 = (longest_axis + 2) % 3;
+        float longest_extent = dir[longest_axis];
+
+        if (dir[longest_axis] < 0)
+        {
+            ++plane_index;
+            longest_extent = -longest_extent;
+        }
+
+        cell.plane = plane_index;
+
+        assert(longest_extent != 0.0f);
+
+        float inv_longest_extent = 1.0f / longest_extent;
+
+        float axis_0_pos = dir[axis_0] * inv_longest_extent;
+        float axis_1_pos = dir[axis_1] * inv_longest_extent;
+
+        cell.pos[0] = std::floor(axis_0_pos * _resolution_2);
+        cell.pos[1] = std::floor(axis_1_pos * _resolution_2);
+
+        if (cell.pos[0] < -_resolution_2 || cell.pos[0] >= _resolution_2) return false;
+        if (cell.pos[1] < -_resolution_2 || cell.pos[1] >= _resolution_2) return false;
+
+        return true;
+    }
+
 
     int get_serial_index(Cube_cell const& c) const
     {
@@ -557,65 +327,29 @@ public:
         return std::floor(u + 1.0f);
     }
 
-    void add_point_single_pixel(Point const& direction, Color const& color, float const depth, GiPoint const* node = NULL)
+    void add_point_single_pixel(Gi_point_info const& point_info, GiPoint const* node = NULL)
     {
-        Point normals[6] =
-        {
-            Point( 1.0f,  0.0f,  0.0f),
-            Point(-1.0f,  0.0f,  0.0f),
-            Point( 0.0f,  1.0f,  0.0f),
-            Point( 0.0f, -1.0f,  0.0f),
-            Point( 0.0f,  0.0f,  1.0f),
-            Point( 0.0f,  0.0f, -1.0f),
-        };
-
-        Point dir = direction;
+        Point dir = point_info.direction;
+        Color const& color = point_info.color;
+        float depth = point_info.depth;
         dir.normalize();
 
-        int longest_axis = get_longest_axis(dir);
+        Cube_cell c;
+        if (!get_cell(dir, c)) return;
 
-        if (std::abs(dir[longest_axis]) < 1e-10f) return;
-
-        int plane_index = longest_axis * 2;
-
-        if (dir[longest_axis] < 0.0f) ++plane_index;
-
-        assert(dir * normals[plane_index] > 0.0f);
-
-        float alpha = 0.0f;
-        linePlaneIntersection(dir, normals[plane_index], alpha);
-        if (alpha < 1.0f)
-        {
-            std::cout << alpha << " " << dir << " " <<  normals[plane_index] << std::endl;
-        }
-        assert(alpha >= 1.0f);
-
-        Point hit_point = alpha * dir;
-
-        int const axis_0 = (longest_axis + 1) % 3;
-        int const axis_1 = (longest_axis + 2) % 3;
-
-        int const u = std::floor(hit_point[axis_0] * _resolution_2);
-        int const v = std::floor(hit_point[axis_1] * _resolution_2);
-
-        if (u < -_resolution_2 || u > _resolution_2 - 1) return;
-        if (v < -_resolution_2 || v > _resolution_2 - 1) return;
-
-        // std::cout << "hitpoint: " << hit_point << "u: " << u << " v: " << v << std::endl;
-
-        buffers[plane_index]->add_point(u, v, color, 1.0f, depth, node);
+        buffers[c.plane]->add_point(c.pos[0], c.pos[1], color, 1.0f, depth, node);
     }
 
-
     // raytrace a disc through every pixel, assumes receiving point is in the origin and the disc's center relative to it
-    int add_point_disc_tracing(Color const& color,
-                         Point const& disc_normal, Point const& disc_center, float const disc_radius,
-                         float const depth,
-                         GiPoint const* node = NULL)
+    void add_point_disc_tracing(Gi_point_info const& point_info, GiPoint const* node = NULL)
     {
-        Cube_cell c;
+        Color const& color = point_info.color;
+        Point const& disc_normal = point_info.disc_normal;
+        Point disc_center = point_info.position - point_info.receiver_position; // -> make receiving point the origin as seen from the disc's center
+        float const disc_radius = point_info.disc_radius;
+        // float const depth = point_info.depth;
 
-        int debug_ray_count = 0;
+        Cube_cell c;
 
         float disc_radius_sqr = disc_radius * disc_radius;
 
@@ -630,8 +364,6 @@ public:
                 for (int v = -_resolution_2; v < _resolution_2; ++v)
                 {
                     c.pos[1] = v;
-
-                    ++debug_ray_count;
 
                     Point cell_center = get_cell_center(c);
                     cell_center.normalize();
@@ -654,64 +386,16 @@ public:
                 }
             }
         }
-
-        return debug_ray_count;
     }
 
 
-    // raytrace against the solid angle
-    int add_point_rays_solid_angle(Point const& direction, Color const& color, float const solid_angle, float const depth)
+
+    void add_point_aa_square(Gi_point_info const& point_info, GiPoint const* node = NULL)
     {
-        Cube_cell c;
-
-        int hit_cells = 0;
-
-        Point dir = direction;
-        dir.normalize();
-
-        float const disc_angle = std::acos(1.0f - solid_angle / (2.0f * M_PI));
-        // float cos_disc_angle = 1.0f - solid_angle / (2.0f * M_PI);
-
-        for (int plane_index = 0; plane_index < 6; ++plane_index)
-        {
-            c.plane = plane_index;
-
-            for (int u = -_resolution_2; u < _resolution_2; ++u)
-            {
-                c.pos[0] = u;
-
-                for (int v = -_resolution_2; v < _resolution_2; ++v)
-                {
-                    c.pos[1] = v;
-
-                    Point cell_center = get_cell_center(c);
-                    cell_center.normalize();
-
-                    float const angle_dir_cell_center = std::acos(dir * cell_center);
-                    // float cos_dir_cell_center = dir * cell_center;
-
-                    if (angle_dir_cell_center < disc_angle)
-                    {
-                        buffers[plane_index]->add_point(u, v, color, 1.0f, depth);
-                        ++hit_cells;
-                    }
-                }
-            }
-        }
-
-        return hit_cells;
-    }
-
-    void add_point_aa_square(Point const& direction, Color const& color, float const solid_angle, float const depth, GiPoint const* node = NULL)
-    {
-        /*
-        if (std::abs(solid_angle) > 1.0f)
-        {
-//            std::cout << "solid angle > 1" << std::endl;
-            return;
-        }
-        */
-
+        float const depth = point_info.depth;
+        color_t const& color = point_info.color;
+        float const solid_angle = point_info.solid_angle;
+        vector3d_t const& direction = point_info.direction;
 
         if (std::abs(solid_angle) < 1e-10f)
         {
@@ -750,19 +434,6 @@ public:
         Point dir = direction;
         dir.normalize();
 
-/*
-        Cube_cell c = get_cell(dir);
-
-        float cell_solid_angle = get_solid_angle(c);
-
-         // if fill_degree > 1.0f, this contribution should spill into neighbouring cells
-        float fill_degree = 0.0f;
-//        float fill_degree = solid_angle / cell_solid_angle;
-
-        buffers[c.plane].add_point(c.pos[0], c.pos[1], color, fill_degree, depth);
-        return;
-*/
-
         // --- new square projection ---
 
         Point normals[6] =
@@ -778,19 +449,16 @@ public:
         // float inv_cell_area = 1.0f / float(resolution_2 * resolution_2);
 
         // find intersection point on plane
-
-        float acc_area = 0.0f;
-
         for (int i = 0; i < 3; ++i)
         {
             // int longest_axis = get_longest_axis(dir);
-            int longest_axis = i;
+            int normal_axis = i;
 
-            if (std::abs(dir[longest_axis]) < 1e-10f) continue;
+            if (std::abs(dir[normal_axis]) < 1e-10f) continue;
 
-            int plane_index = longest_axis * 2;
+            int plane_index = normal_axis * 2;
 
-            if (dir[longest_axis] < 0.0f) ++plane_index;
+            if (dir[normal_axis] < 0.0f) ++plane_index;
 
             assert(dir * normals[plane_index] > 0.0f);
 
@@ -807,10 +475,10 @@ public:
             // float const square_area = solid_angle * alpha * alpha / (dir * normals[plane_index]);
             // float const square_area = solid_angle * alpha * alpha * (dir * normals[plane_index]);
             float const square_area = solid_angle; // * (dir * normals[plane_index]);
-            float const square_width_2 = std::sqrt(square_area / 2.0f);
+            float const square_width_2 = std::sqrt(square_area) / 2.0f;
 
-            int const axis_0 = (longest_axis + 1) % 3;
-            int const axis_1 = (longest_axis + 2) % 3;
+            int const axis_0 = (normal_axis + 1) % 3;
+            int const axis_1 = (normal_axis + 2) % 3;
 
             float u_minus = (hit_point[axis_0] - square_width_2) * _resolution_2;
             float u_plus  = (hit_point[axis_0] + square_width_2) * _resolution_2;
@@ -828,6 +496,9 @@ public:
 
             float grid_area = 1.0f;
             // float grid_area = (1.0f / float(resolution)) * (1.0f / float(resolution)) * (resolution_2 * resolution_2);
+
+
+            float debug_acc_area = 0.0f;
 
             while (u < u_plus)
             {
@@ -849,7 +520,7 @@ public:
 
                     float const area = (next_u - u) * (next_v - v);
 
-                    acc_area += area;
+                    debug_acc_area += area;
 
                     float const ratio = area / grid_area;
 
@@ -869,17 +540,14 @@ public:
         }
     }
 
-    void accumulate(Debug_info * debug_info = NULL)
+    void add_point(Gi_point_info const& point_info, GiPoint const* gi_point = NULL)
     {
-        for (int i = 0; i < 6; ++i)
-        {
-            buffers[i]->accumulate(debug_info);
-        }
+        (this->*add_point_map[point_info.type])(point_info, gi_point);
     }
 
-    Color const& get_color(Cube_cell const& c) const
+    Color get_color(Cube_cell const& c, Debug_info * debug_info = NULL) const
     {
-        return buffers[c.plane]->get_color(c.pos[0], c.pos[1]);
+        return buffers[c.plane]->get_color(c.pos[0], c.pos[1], debug_info);
     }
 
     /*
@@ -961,10 +629,15 @@ public:
                     Point p = get_cell_center(c);
                     p.normalize();
 
-                    Color const& color = get_color(c);
-
                     float cos_sp_normal_cell_dir = std::max(0.0f, p * normal); // lambertian
+
+                    if (cos_sp_normal_cell_dir < 0.001f) continue;
+
                     float cos_plane_normal_cell_dir = std::max(0.0f, normals[c.plane] * p); // solid angle of pixel
+
+                    if (cos_plane_normal_cell_dir < 0.001f) continue;
+
+                    Color const& color = get_color(c);
 
                     diffuse += color * cos_sp_normal_cell_dir * cos_plane_normal_cell_dir;
                     // diffuse += color;
@@ -978,6 +651,28 @@ public:
     float get_total_energy()
     {
         return total_energy;
+    }
+
+    void get_debug_info(Debug_info & debug_info)
+    {
+        Cube_cell c;
+
+        for (int i = 0; i < 6; ++i)
+        {
+            c.plane = i;
+
+            for (int x = -_resolution_2; x < _resolution_2; ++x)
+            {
+                c.pos[0] = x;
+
+                for (int y = -_resolution_2; y < _resolution_2; ++y)
+                {
+                    c.pos[1] = y;
+
+                    get_color(c, &debug_info);
+                }
+            }
+        }
     }
 
 private:
@@ -1006,12 +701,16 @@ private:
         return result;
     }
 
+    typedef void (Cube_raster_buffer::*Add_point_function_ptr)(Gi_point_info const& point_info, GiPoint const* gi_point);
+
     Abstract_frame_buffer* buffers[6];
     float total_energy;
     int _resolution;
     int _resolution_2;
 
     std::vector<Point> _cell_centers;
+
+    std::vector<Add_point_function_ptr> add_point_map;
 };
 
 __END_YAFRAY

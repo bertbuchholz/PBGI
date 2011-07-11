@@ -18,8 +18,8 @@ struct Debug_info
 {
     Debug_info() :
         used_nodes(0),
-        used_leafs_rays(0),
-        used_leafs_splat(0),
+        used_near_surfels(0),
+        used_far_surfels(0),
         node_depth(-1),
         color_by_depth(false),
         cube_plane(-1),
@@ -32,8 +32,8 @@ struct Debug_info
 
     // returned debug info, needs to be reset before use
     int used_nodes;
-    int used_leafs_rays;
-    int used_leafs_splat;
+    int used_near_surfels;
+    int used_far_surfels;
     int node_depth;
     bool color_by_depth;
     std::vector<GiPoint const*> gi_points;

@@ -520,14 +520,13 @@ std::vector<pbgi_sample_t> generate_samples_darts_hash(float const min_radius, i
     random_t my_random;
     std::vector<pbgi_sample_t> sampling_points;
 
-
+    /*
+    // debug, hash value test
     for (float x = -3.0f; x < 3.0f; x += 0.3f)
     {
         std::cout << x << " hash: " << hash_function(point3d_t(x, my_random(), my_random()), 320000, 1.0f) << std::endl;
     }
-
-//    return sampling_points;
-
+    */
 
     std::vector<float> triangle_areas_cdf = get_triangle_areas_cdf(triangles);
 
@@ -1432,8 +1431,6 @@ void process_surfel(
     GiPoint const& gi_point,
     surfacePoint_t const& sp,
     Cube_raster_buffer & frame_buffer,
-    Cube_raster_buffer::SplatType const surfel_far_splat_type,
-    Cube_raster_buffer::SplatType const surfel_near_splat_type,
     float const surfel_near_threshold,
     Debug_info * debug_info)
 {
@@ -1489,11 +1486,38 @@ void process_surfel(
         }
     }
 
+    // float cos_normal_gip = -giToSp * sp.N; // lambert receiver
+
+    Gi_point_info point_info;
+    point_info.type = Gi_point_info::Far_surfel;
+
+    if (distance < disc_radius * surfel_near_threshold)
+    {
+        point_info.type = Gi_point_info::Near_surfel;
+    }
+
+    point_info.color = contribution;
+    point_info.disc_normal = gi_point.normal;
+    point_info.direction = -giToSp;
+    point_info.disc_radius = disc_radius;
+    point_info.depth = distance;
+    point_info.position = gi_point.pos;
+    point_info.receiver_position = vector3d_t(sp.P);
+    point_info.solid_angle = solid_angle_real;
 
     yafaray::GiPoint * debug_point = NULL;
 
     if (debug_info)
     {
+        if (point_info.type == Gi_point_info::Near_surfel)
+        {
+            ++debug_info->used_near_surfels;
+        }
+        else
+        {
+            ++debug_info->used_far_surfels;
+        }
+
         debug_point = new yafaray::GiPoint(gi_point);
 
         //debug_point->area = max_area;
@@ -1505,14 +1529,7 @@ void process_surfel(
         debug_point->debug_radius = visible_radius; // debug only!
     }
 
-    // float cos_normal_gip = -giToSp * sp.N; // lambert receiver
-
-    if (debug_info)
-    {
-        ++debug_info->used_leafs_rays;
-    }
-
-    frame_buffer.add_point_disc_tracing(contribution, gi_point.normal, gi_point.pos - vector3d_t(sp.P), disc_radius, distance, debug_point);
+    frame_buffer.add_point(point_info, debug_point);
 
     //if (cos_sp_gip > 0.001f && distance > radius && distance < radius * 4.0f)
     /*
@@ -1539,9 +1556,9 @@ color_t doPointBasedGiTree_sh_fb(
     vector3d_t const& wo,
     int const raster_buffer_resolution,
     Cube_raster_buffer::Type const raster_buffer_type,
-    Cube_raster_buffer::SplatType const node_splat_type,
-    Cube_raster_buffer::SplatType const surfel_far_splat_type,
-    Cube_raster_buffer::SplatType const surfel_near_splat_type,
+    Cube_raster_buffer::Splat_type const node_splat_type,
+    Cube_raster_buffer::Splat_type const surfel_far_splat_type,
+    Cube_raster_buffer::Splat_type const surfel_near_splat_type,
     float const surfel_near_threshold,
     Debug_info * debug_info
     )
@@ -1554,7 +1571,7 @@ color_t doPointBasedGiTree_sh_fb(
     queue.push(tree);
 
     Cube_raster_buffer frame_buffer;
-    frame_buffer.setup(raster_buffer_type, raster_buffer_resolution);
+    frame_buffer.setup(raster_buffer_type, raster_buffer_resolution, node_splat_type, surfel_far_splat_type, surfel_near_splat_type);
 
     while (!queue.empty())
     {
@@ -1578,16 +1595,16 @@ color_t doPointBasedGiTree_sh_fb(
             {
                 yafaray::GiPoint const& giP = *points[i];
 
-                process_surfel(giP, sp, frame_buffer, surfel_far_splat_type, surfel_near_splat_type, surfel_near_threshold, debug_info);
+                process_surfel(giP, sp, frame_buffer, surfel_near_threshold, debug_info);
             }
         }
         else if (node->has_children())
         {
             if (node->isNodeBehindPlane(vector3d_t(sp.P), sp.N)) continue;
 
-            GiPoint const& giP = *node->getClusteredData();
+            GiPoint const& gi_point = *node->getClusteredData();
             // vector3d_t const position = node->getCenter();
-            vector3d_t const position = giP.pos;
+            vector3d_t const position = gi_point.pos;
 
             vector3d_t giToSp = (vector3d_t(sp.P) - position);
 
@@ -1597,12 +1614,12 @@ color_t doPointBasedGiTree_sh_fb(
 
             //            float const visible_area = std::max(0.0f, giP.sh_representation.get_sh_area(giToSp));
             float const max_visible_area = node->getRadius() * node->getRadius() * M_PI;
-            float const visible_area = std::max(0.0f, giP.sh_representation.get_sh_area(giToSp));
+            float const visible_area = std::max(0.0f, gi_point.sh_representation.get_sh_area(giToSp));
 
             float const max_solid_angle = max_visible_area / (distance * distance);
 
 
-            if (max_solid_angle > solid_angle_threshold || distance < node->getRadius() * 1.5f)
+            if (max_solid_angle > solid_angle_threshold) // || distance < node->getRadius() * 1.5f)
             {
                 std::vector<pbLighting_t::MyTree> const& children = node->getChildren();
                 for (unsigned int i = 0; i < children.size(); ++i)
@@ -1625,7 +1642,7 @@ color_t doPointBasedGiTree_sh_fb(
                 }
                 else
                 {
-                    cluster_contribution = giP.sh_representation.get_sh_color(giToSp);
+                    cluster_contribution = gi_point.sh_representation.get_sh_color(giToSp);
                     // cluster_contribution = giP.color * giP.energy; // * cos_sp_gip;
                 }
 
@@ -1637,25 +1654,33 @@ color_t doPointBasedGiTree_sh_fb(
 
                 if (debug_info)
                 {
-                    debug_point = new yafaray::GiPoint(giP);
+                    debug_point = new yafaray::GiPoint(gi_point);
 
                     debug_point->pos = position;
-                    debug_point->area = max_visible_area;
-                    // debug_point->area = visible_area;
+                    // debug_point->area = max_visible_area;
+                    debug_point->area = visible_area;
                     debug_point->color = cluster_contribution;
                     debug_point->energy = 1.0f;
                     debug_point->depth = node->getDepth();
                     debug_point->debug_radius = std::sqrt(visible_area / M_PI); // debug only!
                 }
 
-                // float const solid_angle_real = cos_sp_gip * area / (distance * distance);
-                float const real_solid_angle = std::max(0.0f, giP.sh_representation.get_sh_area(giToSp)) / (distance * distance);
+                // float const real_solid_angle = cos_sp_gip * area / (distance * distance);
+                float const real_solid_angle = visible_area / (distance * distance);
 
                 // float cos_normal_gip = -giToSp * sp.N; // lambert receiver
                 // col += real_solid_angle * giP.color * giP.energy * cos_normal_gip;
 
-                frame_buffer.add_point_aa_square(-giToSp, cluster_contribution, real_solid_angle, distance, debug_point);
-                // frame_buffer.add_point_single_cell(-giToSp, cluster_contribution, distance, debug_point);
+                Gi_point_info point_info;
+                point_info.type = Gi_point_info::Node;
+                point_info.color = cluster_contribution;
+                point_info.direction = -giToSp;
+                point_info.depth = distance;
+                point_info.position = position;
+                point_info.receiver_position = vector3d_t(sp.P);
+                point_info.solid_angle = real_solid_angle;
+
+                frame_buffer.add_point(point_info, debug_point);
 
                 if (debug_info)
                 {
@@ -1664,8 +1689,6 @@ color_t doPointBasedGiTree_sh_fb(
             } // end else (bad solid angle)
         }
     }
-
-    frame_buffer.accumulate(debug_info);
 
     color_t surfCol(1.0f);
     if (material)
@@ -1693,7 +1716,7 @@ color_t pbLighting_t::doPointBasedGiTreeSH_leafs_only(renderState_t & state, sur
     const material_t *material = sp.material;
 
     Cube_raster_buffer frame_buffer;
-    frame_buffer.setup(raster_buffer_type, raster_buffer_resolution);
+    frame_buffer.setup(raster_buffer_type, raster_buffer_resolution, node_splat_type, surfel_far_splat_type, surfel_near_splat_type);
 
     // traverse tree, if solid angle of node > max, traverse into the children
     std::queue<MyTree const*> queue;
@@ -1718,7 +1741,7 @@ color_t pbLighting_t::doPointBasedGiTreeSH_leafs_only(renderState_t & state, sur
             {
                 yafaray::GiPoint const& giP = *points[i];
 
-                process_surfel(giP, sp, frame_buffer, surfel_far_splat_type, surfel_near_splat_type, surfel_near_threshold, NULL);
+                process_surfel(giP, sp, frame_buffer, NULL);
             }
 
         }
@@ -1736,8 +1759,6 @@ color_t pbLighting_t::doPointBasedGiTreeSH_leafs_only(renderState_t & state, sur
 
 //    std::cout << "shadingDiscs: " << shadingDiscs << " shadingNodes: " << shadingNodes << std::endl;
 
-
-    frame_buffer.accumulate();
 
     color_t surfCol(1.0f);
 
@@ -1833,7 +1854,7 @@ integrator_t* pbLighting_t::factory(paraMap_t &params, renderEnvironment_t &rend
     int samples = 10;
     bool debug = false;
     bool indirectOnly = false;
-    float maxSolidAngle = 0.5f;
+    float maxSolidAngle = 1.0f;
     int debugTreeDepth = 2;
     bool debugOutputPointsToFile = false;
     std::string debug_type = "NoTree";
@@ -1848,7 +1869,11 @@ integrator_t* pbLighting_t::factory(paraMap_t &params, renderEnvironment_t &rend
     int pixel_y = -1;
     bool do_load_gi_points = false;
     int fb_resolution = 8;
-    std::string fb_type = "Simple";
+    std::string fb_type = Cube_raster_buffer::enum_type_map.begin()->first;
+    std::string node_splat_type = Cube_raster_buffer::enum_splat_type_map.begin()->first;
+    std::string surfel_far_splat_type = Cube_raster_buffer::enum_splat_type_map.begin()->first;
+    std::string surfel_near_splat_type = Cube_raster_buffer::enum_splat_type_map.begin()->first;
+    float surfel_near_threshold = 2.0f;
 
 	params.getParam("raydepth", raydepth);
 	params.getParam("transpShad", transpShad);
@@ -1876,6 +1901,10 @@ integrator_t* pbLighting_t::factory(paraMap_t &params, renderEnvironment_t &rend
     params.getParam("do_load_gi_points", do_load_gi_points);
     params.getParam("fb_type", fb_type);
     params.getParam("fb_resolution", fb_resolution);
+    params.getParam("node_splat_type", node_splat_type);
+    params.getParam("surfel_far_splat_type", surfel_far_splat_type);
+    params.getParam("surfel_near_splat_type", surfel_near_splat_type);
+    params.getParam("surfel_near_threshold", surfel_near_threshold);
 	
     pbLighting_t *inte = new pbLighting_t(transpShad, shadowDepth, raydepth);
 	// caustic settings
@@ -1910,24 +1939,25 @@ integrator_t* pbLighting_t::factory(paraMap_t &params, renderEnvironment_t &rend
     inte->do_load_gi_points = do_load_gi_points;
 
     inte->raster_buffer_resolution = fb_resolution;
+    inte->raster_buffer_type = Cube_raster_buffer::enum_type_map[fb_type];
+    inte->node_splat_type = Cube_raster_buffer::enum_splat_type_map[node_splat_type];
+    inte->surfel_far_splat_type = Cube_raster_buffer::enum_splat_type_map[surfel_far_splat_type];
+    inte->surfel_near_splat_type = Cube_raster_buffer::enum_splat_type_map[surfel_near_splat_type];
+    inte->surfel_near_threshold = surfel_near_threshold;
 
-    if (fb_type == "Simple")
-    {
-        inte->raster_buffer_type = Cube_raster_buffer::Simple;
-    }
-    else if (fb_type == "Accumulating")
-    {
-        inte->raster_buffer_type = Cube_raster_buffer::Accumulating;
-    }
-
-    //float angle = std::atan(1.0f / float(fb_resolution / 2));
-    //maxSolidAngle = 2.0f * M_PI * (1.0f - std::cos(angle));
+    // float angle = std::atan(1.0f / float(fb_resolution * 2));
+    // inte->maxSolidAngle = 2.0f * M_PI * (1.0f - std::cos(angle)) * maxSolidAngle;
+    // float area = (1.0 / fb_resolution) * 2.0f * (1.0 / fb_resolution) * 2.0f; // one pixel square, very inexact for small fb resolutions, only true for the pixels close to the center of each plane
     inte->maxSolidAngle = maxSolidAngle;
 
     Y_INFO <<
-              "maxSolidAngle: " << maxSolidAngle << " " <<
+              "maxSolidAngle: " << inte->maxSolidAngle << " " <<
               "fb_type: " << fb_type << " " <<
               "fb_resolution: " << fb_resolution << " " <<
+              "node_splat_type: " << node_splat_type << " " <<
+              "surfel_far_splat_type: " << surfel_far_splat_type << " " <<
+              "surfel_near_splat_type: " << surfel_near_splat_type << " " <<
+              "surfel_near_threshold: " << surfel_near_threshold << " " <<
               std::endl;
 
 
