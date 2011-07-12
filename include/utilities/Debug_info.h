@@ -10,10 +10,11 @@ class GiPoint;
 
 struct Node_weight_pair
 {
-    Node_weight_pair(GiPoint const* n, float w) : node(n), weight(w) {}
+    Node_weight_pair(GiPoint const* n, float w, int group_i = -1) : node(n), weight(w), group_index(group_i) {}
 
     GiPoint const* node;
     float weight;
+    int group_index;
 };
 
 struct Debug_info
@@ -24,12 +25,12 @@ struct Debug_info
         used_far_surfels(0),
         node_depth(-1),
         color_by_depth(false),
-        cube_plane(-1),
-        cube_x(-1),
-        cube_y(-1),
         result_fb(NULL),
         checked_cells(0),
-        time_add_point(0.0f)
+        time_add_point(0.0f),
+        cube_plane(-1),
+        cube_x(-1),
+        cube_y(-1)
     {}
 
     // returned debug info, needs to be reset before use

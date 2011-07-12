@@ -31,8 +31,8 @@ struct Gi_point_info
     float depth;
     vector3d_t direction; // from the receiving point to the GI point
     float solid_angle;
-    float disc_radius;
     vector3d_t disc_normal;
+    float radius;
 };
 
 struct Cube_cell
@@ -67,8 +67,8 @@ cube, hemisphere
 class Cube_raster_buffer
 {
 public:
-    enum Type { Simple, Accumulating };
-    enum Splat_type { Single_pixel, Disc_tracing, AA_square, SA_tracing };
+    enum Type { Simple = 0, Accumulating, Reweighting, Distance_weighted };
+    enum Splat_type { Single_pixel = 0, Disc_tracing, AA_square, SA_tracing };
 
     static std::map<std::string, Splat_type> enum_splat_type_map;
     static std::map<std::string, Type> enum_type_map;
@@ -136,6 +136,14 @@ public:
             else if (type == Accumulating)
             {
                 buffers[i] = new Accumulating_frame_buffer(_resolution, i);
+            }
+            else if (type == Reweighting)
+            {
+                buffers[i] = new Reweighting_frame_buffer(_resolution, i);
+            }
+            else if (type == Distance_weighted)
+            {
+                buffers[i] = new Distance_weighted_frame_buffer(_resolution, i);
             }
             else
             {
@@ -357,13 +365,14 @@ public:
     {
         Point dir = point_info.direction;
         Color const& color = point_info.color;
-        float depth = point_info.depth;
+        float const depth = point_info.depth;
+        float const radius = point_info.radius;
         dir.normalize();
 
         Cube_cell c;
         if (!get_cell(dir, c)) return;
 
-        buffers[c.plane]->add_point(c.pos[0], c.pos[1], color, 1.0f, depth, node);
+        buffers[c.plane]->add_point(c.pos[0], c.pos[1], color, 1.0f, depth, radius, node);
     }
 
     // raytrace a disc through every pixel, assumes receiving point is in the origin and the disc's center relative to it
@@ -372,7 +381,7 @@ public:
         Color const& color = point_info.color;
         Point const& disc_normal = point_info.disc_normal;
         Point disc_center = point_info.position - point_info.receiver_position; // -> make receiving point the origin as seen from the disc's center
-        float const disc_radius = point_info.disc_radius;
+        float const disc_radius = point_info.radius;
         // float const depth = point_info.depth;
 
         Cube_cell c;
@@ -394,7 +403,7 @@ public:
                     Point cell_center = get_cell_center(c);
                     cell_center.normalize();
 
-                    float alpha;
+                    float alpha = -1.0f;
 
                     linePlaneIntersection(Point(0.0f), cell_center, disc_center, disc_normal, alpha);
 
@@ -406,7 +415,7 @@ public:
 
                         if (dist_sqr < disc_radius_sqr)
                         {
-                            buffers[plane_index]->add_point(u, v, color, 1.0f, alpha, node);
+                            buffers[plane_index]->add_point(u, v, color, 1.0f, alpha, disc_radius, node);
                         }
                     }
                 }
@@ -422,6 +431,7 @@ public:
         color_t const& color = point_info.color;
         float const solid_angle = point_info.solid_angle;
         vector3d_t const& direction = point_info.direction;
+        float const radius = point_info.radius;
 
         if (std::abs(solid_angle) < 1e-10f)
         {
@@ -553,7 +563,7 @@ public:
                     int const cell_u = into_range(-_resolution_2, _resolution_2 - 1, int(std::floor(u)));
                     int const cell_v = into_range(-_resolution_2, _resolution_2 - 1, int(std::floor(v)));
 
-                    buffers[plane_index]->add_point(cell_u, cell_v, color, ratio, depth, node);
+                    buffers[plane_index]->add_point(cell_u, cell_v, color, ratio, depth, radius, node);
                     // buffers[plane_index].add_point(cell_u, cell_v, color * inv_cell_area, ratio, depth);
 
                     //                std::cout << "add to cell: " << cell_u << " " << cell_v << " area: " << area << " ratio: " << ratio << std::endl;
@@ -573,6 +583,7 @@ public:
         Point const& disc_normal = (point_info.receiver_position - point_info.position).normalize();
         Point disc_center = point_info.position - point_info.receiver_position; // -> make receiving point the origin as seen from the disc's center
         float const disc_radius = std::sqrt(point_info.solid_angle * point_info.depth * point_info.depth / M_PI);
+        float const radius = point_info.radius;
         // float const depth = point_info.depth;
 
         Cube_cell c;
@@ -606,7 +617,7 @@ public:
 
                         if (dist_sqr < disc_radius_sqr)
                         {
-                            buffers[plane_index]->add_point(u, v, color, 1.0f, alpha, node);
+                            buffers[plane_index]->add_point(u, v, color, 1.0f, alpha, radius, node);
                         }
                     }
                 }

@@ -25,8 +25,8 @@ struct GiPoint
         color(0.0f),
         area(0.0f),
         energy(0.0f),
-        is_surfel(true),
-        depth(-1)
+        depth(-1),
+        is_surfel(true)
     {
         sh_representation = GiSphericalHarmonics<vector3d_t, color_t>(false, 3);
     }
@@ -38,8 +38,8 @@ struct GiPoint
     color_t    energy;
     int        depth;
 
-    mutable float debug_radius;
     bool is_surfel;
+    mutable float debug_radius;
 
     GiSphericalHarmonics<vector3d_t, color_t> sh_representation;
 

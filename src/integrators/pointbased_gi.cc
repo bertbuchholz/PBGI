@@ -355,7 +355,7 @@ float generate_histogram(std::vector<pbgi_sample_t> const& samples, float const 
         {
             int sample_index = neighbors[j];
 
-            if (sample_index == i) continue;
+            if (sample_index == int(i)) continue;
 
             float const distance = (samples[i].position - samples[sample_index].position).length();
 
@@ -885,7 +885,7 @@ std::vector<pbgi_sample_t> generate_samples_suicide(int const number_of_samples,
         {
             int neighbor_index = neighbors[j];
 
-            if (i == neighbor_index) continue;
+            if (int(i) == neighbor_index) continue;
 
             if ((candidate_samples[neighbor_index].position - killer_pos).length() < desired_radius * 2.0f)
             {
@@ -1455,15 +1455,11 @@ void process_surfel(
 
     // float const cos_sp_gip = std::abs(giP.normal * giToSp);
 
-    // float const visible_area = std::sqrt(cos_sp_gip) * giP.area;
     float const visible_area = cos_sp_gip * gi_point.area;
-    // float const visible_area = cos_sp_gip * giP.area;
     float const max_area = gi_point.area;
-    // float const area = std::max(0.0f, giP.sh_representation.get_sh_area(giToSp));
 
     float const solid_angle_real = visible_area / std::max(0.01f, distance * distance);
 
-    //frame_buffer.add_point(-giToSp, contribution, solidAngle, distance, use_rays);
     float const disc_radius = std::sqrt(max_area / M_PI);
     float const visible_radius = std::sqrt(visible_area / M_PI);
 
@@ -1499,7 +1495,7 @@ void process_surfel(
     point_info.color = contribution;
     point_info.disc_normal = gi_point.normal;
     point_info.direction = -giToSp;
-    point_info.disc_radius = disc_radius;
+    point_info.radius = disc_radius;
     point_info.depth = distance;
     point_info.position = gi_point.pos;
     point_info.receiver_position = vector3d_t(sp.P);
@@ -1597,7 +1593,8 @@ color_t doPointBasedGiTree_sh_fb(
 
             giToSp.normalize();
 
-            float const max_visible_area = node->getRadius() * node->getRadius() * M_PI;
+            float const node_radius = node->getRadius();
+            float const max_visible_area = node_radius * node_radius * M_PI;
             float const max_solid_angle = max_visible_area / (distance * distance);
 
             if (max_solid_angle > solid_angle_threshold) // || distance < node->getRadius() * 1.5f)
@@ -1662,6 +1659,7 @@ color_t doPointBasedGiTree_sh_fb(
                 point_info.position = position;
                 point_info.receiver_position = vector3d_t(sp.P);
                 point_info.solid_angle = real_solid_angle;
+                point_info.radius = node_radius;
 
                 frame_buffer.add_point(point_info, debug_point);
 
@@ -1700,9 +1698,6 @@ color_t pbLighting_t::doPointBasedGiTreeSH_leafs_only(renderState_t & state, sur
     // traverse tree, if solid angle of node > max, traverse into the children
     std::queue<MyTree const*> queue;
     queue.push(_bspTree);
-
-    int shadingNodes = 0;
-    int shadingDiscs = 0;
 
     while (!queue.empty())
     {
@@ -1924,19 +1919,16 @@ integrator_t* pbLighting_t::factory(paraMap_t &params, renderEnvironment_t &rend
     inte->surfel_near_splat_type = Cube_raster_buffer::enum_splat_type_map[surfel_near_splat_type];
     inte->surfel_near_threshold = surfel_near_threshold;
 
-    // float angle = std::atan(1.0f / float(fb_resolution * 2));
-    // inte->maxSolidAngle = 2.0f * M_PI * (1.0f - std::cos(angle)) * maxSolidAngle;
-    // float area = (1.0 / fb_resolution) * 2.0f * (1.0 / fb_resolution) * 2.0f; // one pixel square, very inexact for small fb resolutions, only true for the pixels close to the center of each plane
     inte->maxSolidAngle = maxSolidAngle;
 
     Y_INFO <<
               "maxSolidAngle: " << inte->maxSolidAngle << " " <<
-              "fb_type: " << fb_type << " " <<
-              "fb_resolution: " << fb_resolution << " " <<
-              "node_splat_type: " << node_splat_type << " " <<
-              "surfel_far_splat_type: " << surfel_far_splat_type << " " <<
-              "surfel_near_splat_type: " << surfel_near_splat_type << " " <<
-              "surfel_near_threshold: " << surfel_near_threshold << " " <<
+              "raster_buffer_type: " << inte->raster_buffer_type << " " <<
+              "fb_resolution: " << inte->raster_buffer_resolution << " " <<
+              "node_splat_type: " << inte->node_splat_type << " " <<
+              "surfel_far_splat_type: " << inte->surfel_far_splat_type << " " <<
+              "surfel_near_splat_type: " << inte->surfel_near_splat_type << " " <<
+              "surfel_near_threshold: " << inte->surfel_near_threshold << " " <<
               std::endl;
 
 

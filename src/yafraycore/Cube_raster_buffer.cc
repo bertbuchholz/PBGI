@@ -23,6 +23,8 @@ std::map<std::string, Cube_raster_buffer::Type> create_type_map()
     std::map<std::string, Cube_raster_buffer::Type> m;
     m["Simple"] = Cube_raster_buffer::Simple;
     m["Accumulating"] = Cube_raster_buffer::Accumulating;
+    m["Reweighting"] = Cube_raster_buffer::Reweighting;
+    m["Distance_weighted"] = Cube_raster_buffer::Distance_weighted;
     return m;
 }
 
