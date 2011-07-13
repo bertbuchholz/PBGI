@@ -3,6 +3,8 @@
 
 #include <tr1/unordered_set>
 
+#include <yafray_config.h>
+
 __BEGIN_YAFRAY
 
 class Cube_raster_buffer;

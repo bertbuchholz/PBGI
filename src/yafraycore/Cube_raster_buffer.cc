@@ -30,4 +30,15 @@ std::map<std::string, Cube_raster_buffer::Type> create_type_map()
 
 std::map<std::string, Cube_raster_buffer::Type> Cube_raster_buffer::enum_type_map = create_type_map();
 
+const vector3d_t Cube_raster_buffer::cube_plane_normals[] =
+{
+    yafaray::Cube_raster_buffer::Point( 1.0f,  0.0f,  0.0f),
+    yafaray::Cube_raster_buffer::Point(-1.0f,  0.0f,  0.0f),
+    yafaray::Cube_raster_buffer::Point( 0.0f,  1.0f,  0.0f),
+    yafaray::Cube_raster_buffer::Point( 0.0f, -1.0f,  0.0f),
+    yafaray::Cube_raster_buffer::Point( 0.0f,  0.0f,  1.0f),
+    yafaray::Cube_raster_buffer::Point( 0.0f,  0.0f, -1.0f)
+};
+
+
 __END_YAFRAY

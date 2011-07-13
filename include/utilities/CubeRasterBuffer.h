@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <vector>
+#include <map>
 
 #include <core_api/color.h>
 #include <core_api/vector3d.h>
@@ -72,6 +73,8 @@ public:
 
     static std::map<std::string, Splat_type> enum_splat_type_map;
     static std::map<std::string, Type> enum_type_map;
+
+    static const vector3d_t cube_plane_normals[];
 
     typedef vector3d_t Point;
     typedef color_t Color;
@@ -472,16 +475,6 @@ public:
 
         // --- new square projection ---
 
-        Point normals[6] =
-        {
-            Point( 1.0f,  0.0f,  0.0f),
-            Point(-1.0f,  0.0f,  0.0f),
-            Point( 0.0f,  1.0f,  0.0f),
-            Point( 0.0f, -1.0f,  0.0f),
-            Point( 0.0f,  0.0f,  1.0f),
-            Point( 0.0f,  0.0f, -1.0f),
-        };
-
         // float inv_cell_area = 1.0f / float(resolution_2 * resolution_2);
 
         // find intersection point on plane
@@ -496,13 +489,13 @@ public:
 
             if (dir[normal_axis] < 0.0f) ++plane_index;
 
-            assert(dir * normals[plane_index] > 0.0f);
+            assert(dir * cube_plane_normals[plane_index] > 0.0f);
 
             float alpha = 0.0f;
-            linePlaneIntersection(dir, normals[plane_index], alpha);
+            linePlaneIntersection(dir, cube_plane_normals[plane_index], alpha);
             if (alpha < 1.0f)
             {
-                std::cout << alpha << " " << dir << " " <<  normals[plane_index] << std::endl;
+                std::cout << alpha << " " << dir << " " <<  cube_plane_normals[plane_index] << std::endl;
             }
             assert(alpha >= 1.0f);
 
@@ -696,16 +689,6 @@ public:
 
     float get_solid_angle(Cube_cell const& c) const
     {
-        Point const normals[6] =
-        {
-            Point( 1.0f,  0.0f,  0.0f),
-            Point(-1.0f,  0.0f,  0.0f),
-            Point( 0.0f,  1.0f,  0.0f),
-            Point( 0.0f, -1.0f,  0.0f),
-            Point( 0.0f,  0.0f,  1.0f),
-            Point( 0.0f,  0.0f, -1.0f),
-        };
-
         // TODO: add solid angle calculation for different cells depending on distance and angle
         float radius = (1.0f / float(_resolution));
         Point p = get_cell_center(c);
@@ -713,23 +696,13 @@ public:
 
         // float corrected_area = 2.0f * M_PI * radius * radius * M_PI * 0.5f;
 
-        float solid_angle = (normals[c.plane] * p) * radius * radius;
+        float solid_angle = (cube_plane_normals[c.plane] * p) * radius * radius;
 
         return solid_angle;
     }
 
     Color get_diffuse(Point const& normal) const
     {
-        Point const normals[6] =
-        {
-            Point( 1.0f,  0.0f,  0.0f),
-            Point(-1.0f,  0.0f,  0.0f),
-            Point( 0.0f,  1.0f,  0.0f),
-            Point( 0.0f, -1.0f,  0.0f),
-            Point( 0.0f,  0.0f,  1.0f),
-            Point( 0.0f,  0.0f, -1.0f),
-        };
-
         Color diffuse(0.0f);
 
         Cube_cell c;
@@ -755,7 +728,7 @@ public:
 
                     if (cos_sp_normal_cell_dir < 0.001f) continue;
 
-                    float cos_plane_normal_cell_dir = std::max(0.0f, normals[c.plane] * p); // solid angle of pixel
+                    float cos_plane_normal_cell_dir = std::max(0.0f, cube_plane_normals[c.plane] * p); // solid angle of pixel
 
                     if (cos_plane_normal_cell_dir < 0.001f) continue;
 

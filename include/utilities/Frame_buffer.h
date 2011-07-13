@@ -422,7 +422,7 @@ public:
 
         int group_index = 0;
 
-        for (unsigned int i = 0; i < pixel_colors.size(); ++i)
+        for (unsigned int i = 0; i < pixel_colors.size(); )
         {
             Color_depth_pixel const& c = pixel_colors[i];
 
