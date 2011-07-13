@@ -112,7 +112,8 @@ public:
     }
 
 
-    void setup(Type type, int resolution,
+    void setup(Type fb_type,
+               int resolution,
                Splat_type const node_splat_type,
                Splat_type const surfel_far_splat_type,
                Splat_type const surfel_near_splat_type)
@@ -132,19 +133,19 @@ public:
 
         for (int i = 0; i < 6; ++i)
         {
-            if (type == Simple)
+            if (fb_type == Simple)
             {
                 buffers[i] = new Simple_frame_buffer(_resolution, i);
             }
-            else if (type == Accumulating)
+            else if (fb_type == Accumulating)
             {
                 buffers[i] = new Accumulating_frame_buffer(_resolution, i);
             }
-            else if (type == Reweighting)
+            else if (fb_type == Reweighting)
             {
                 buffers[i] = new Reweighting_frame_buffer(_resolution, i);
             }
-            else if (type == Distance_weighted)
+            else if (fb_type == Distance_weighted)
             {
                 buffers[i] = new Distance_weighted_frame_buffer(_resolution, i);
             }
@@ -475,12 +476,11 @@ public:
 
         // --- new square projection ---
 
-        // float inv_cell_area = 1.0f / float(resolution_2 * resolution_2);
+        float const pixel_width = 1.0f / float(_resolution_2);
 
         // find intersection point on plane
         for (int i = 0; i < 3; ++i)
         {
-            // int longest_axis = get_longest_axis(dir);
             int normal_axis = i;
 
             if (std::abs(dir[normal_axis]) < 1e-10f) continue;
@@ -501,8 +501,6 @@ public:
 
             Point hit_point = alpha * dir;
 
-            // float const square_area = solid_angle * alpha * alpha / (dir * normals[plane_index]);
-            // float const square_area = solid_angle * alpha * alpha * (dir * normals[plane_index]);
             float const square_area = solid_angle; // * (dir * normals[plane_index]);
             float const square_width_2 = std::sqrt(square_area) / 2.0f;
 
@@ -520,6 +518,9 @@ public:
 
             u_plus = into_range(-float(_resolution_2), float(_resolution_2), u_plus);
             v_plus = into_range(-float(_resolution_2), float(_resolution_2), v_plus);
+
+            float const u_center = (u_minus + u_plus) / 2.0f;
+            float const v_center = (v_minus + v_plus) / 2.0f;
 
             float u = u_minus;
 
@@ -551,12 +552,25 @@ public:
 
                     debug_acc_area += area;
 
-                    float const ratio = area / grid_area;
+                    float fill_ratio = area / grid_area;
+
 
                     int const cell_u = into_range(-_resolution_2, _resolution_2 - 1, int(std::floor(u)));
                     int const cell_v = into_range(-_resolution_2, _resolution_2 - 1, int(std::floor(v)));
 
-                    buffers[plane_index]->add_point(cell_u, cell_v, color, ratio, depth, radius, node);
+                    /*
+                    if (square_width_2 * 2.0f > pixel_width * 3.0f)
+                    {
+                        float const sigma = (square_width_2 * 2.0f) / 2.0f;
+                        float const dist_from_center = std::sqrt((cell_u - u_center) * (cell_u - u_center) + (cell_v - v_center) * (cell_v - v_center));
+                        float const x = dist_from_center;
+                        float const gauss = std::min(1.0, 1.0f / std::sqrt(M_2PI * sigma * sigma) * std::exp(-(x*x) / (2.0f * sigma * sigma)));
+                        fill_ratio *= gauss;
+                    }
+                    */
+
+                    // buffers[plane_index]->add_point(cell_u, cell_v, color, ratio, depth, radius, node);
+                    buffers[plane_index]->add_point(cell_u, cell_v, color, fill_ratio, depth, radius, node);
                     // buffers[plane_index].add_point(cell_u, cell_v, color * inv_cell_area, ratio, depth);
 
                     //                std::cout << "add to cell: " << cell_u << " " << cell_v << " area: " << area << " ratio: " << ratio << std::endl;

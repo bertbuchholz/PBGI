@@ -388,11 +388,12 @@ public:
 
     virtual color_t get_color(int const x, int const y, Debug_info * debug_info = NULL)
     {
-        color_t accumulated_color;
-
         int const pixel = (x + _resolution_2) + _resolution * (y + _resolution_2);
+        std::vector<Color_depth_pixel> & pixel_colors = _data[pixel];
 
-        if (_data[pixel].size() == 0) return accumulated_color;
+        if (pixel_colors.size() == 0) return color_t(0.0f);
+
+        color_t accumulated_color(0.0f);
 
         bool debug_pixel = false;
 
@@ -404,19 +405,19 @@ public:
             debug_pixel = debug_info->cube_plane == _debug_plane && debug_info->cube_x == cube_x && debug_info->cube_y == cube_y;
         }
 
-        std::sort(_data[pixel].begin(), _data[pixel].end());
-        std::reverse(_data[pixel].begin(), _data[pixel].end());
+        std::sort(pixel_colors.begin(), pixel_colors.end());
+        std::reverse(pixel_colors.begin(), pixel_colors.end());
 
         if (debug_info)
         {
-            for (unsigned int i = 0; i < _data[pixel].size(); ++i)
+            for (unsigned int i = 0; i < pixel_colors.size(); ++i)
             {
-                Color_depth_pixel const& c = _data[pixel][i];
+                Color_depth_pixel const& c = pixel_colors[i];
                 debug_info->gi_points.insert(c.node);
             }
         }
 
-        std::vector<Color_depth_pixel> const& pixel_colors = _data[pixel];
+
 
         // float const z_threshold = 0.1f;
 
@@ -431,13 +432,15 @@ public:
 
             int const group_start_index = i;
 
-            // float depth = c.depth;
+            float previous_depth = c.depth;
+            float previous_radius = c.radius;
 
             while (i < pixel_colors.size())
             {
                 Color_depth_pixel const& c2 = pixel_colors[i];
 
-                if (std::abs(c2.depth - c.depth) > c.radius + c2.radius)
+                // if (std::abs(c2.depth - c.depth) > c.radius + c2.radius)
+                if (std::abs(c2.depth - previous_depth) > previous_radius + c2.radius)
                 {
                     break;
                 }
@@ -447,6 +450,9 @@ public:
 
                 locally_accumulated_color += c2.color * weight;
                 weight_sum += weight;
+
+                previous_depth = c2.depth;
+                previous_radius = c2.radius;
 
                 ++i;
             }
