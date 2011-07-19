@@ -508,12 +508,12 @@ public:
             {
                 for (unsigned int j = 0; j < debug_info->single_pixel_contributors.size(); ++j)
                 {
-                    debug_info->single_pixel_contributors[j].weight *= (1.0f - weight_sum);
+                    debug_info->single_pixel_contributors[j].group_weight *= (1.0f - weight_sum);
                 }
 
                 for (unsigned int j = group_start_index; j < i; ++j)
                 {
-                    debug_info->single_pixel_contributors.push_back(Node_weight_pair(pixel_colors[j].node, weight_sum, group_index));
+                    debug_info->single_pixel_contributors.push_back(Node_weight_pair(pixel_colors[j].node, pixel_colors[j].filling_degree, group_index, weight_sum));
                 }
             }
 

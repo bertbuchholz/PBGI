@@ -10,14 +10,33 @@ __BEGIN_YAFRAY
 class Cube_raster_buffer;
 class GiPoint;
 
+
+
 struct Node_weight_pair
 {
-    Node_weight_pair(GiPoint const* n, float w, int group_i = -1) : node(n), weight(w), group_index(group_i) {}
+    Node_weight_pair(GiPoint const* n, float w, int group_i = -1, float group_w = 0.0f) :
+        node(n),
+        weight(w),
+        group_index(group_i),
+        group_weight(group_w)
+    {}
 
     GiPoint const* node;
     float weight;
     int group_index;
+    float group_weight;
 };
+
+struct Comp_Node_weight_pair_by_weight
+{
+    bool operator() (Node_weight_pair const& i, Node_weight_pair const& j) { return i.weight < j.weight; }
+};
+
+struct Comp_Node_weight_pair_by_group_weight
+{
+    bool operator() (Node_weight_pair const& i, Node_weight_pair const& j) { return i.group_weight < j.group_weight; }
+};
+
 
 struct Debug_info
 {
@@ -41,7 +60,6 @@ struct Debug_info
     int used_far_surfels;
     int node_depth;
     bool color_by_depth;
-    //std::vector<GiPoint const*> gi_points;
     std::tr1::unordered_set<GiPoint const*> gi_points;
     std::vector<Node_weight_pair> single_pixel_contributors;
     Cube_raster_buffer * result_fb;
