@@ -208,6 +208,11 @@ class YAFRAYCORE_EXPORT scene_t
 		
         std::map<objID_t, objData_t> meshes;
 
+        surfaceIntegrator_t * getSurfaceIntegrator()
+        {
+            return surfIntegrator;
+        }
+
 
 	protected:
 

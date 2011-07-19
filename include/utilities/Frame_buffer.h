@@ -428,12 +428,47 @@ public:
             Color_depth_pixel const& c = pixel_colors[i];
 
             color_t locally_accumulated_color(0.0f);
+            float locally_accumulated_filling_degree(0.0f);
             float weight_sum = 0.0f;
 
             int const group_start_index = i;
 
             float previous_depth = c.depth;
             float previous_radius = c.radius;
+
+            int group_size = 0;
+
+            /*
+            while (i < pixel_colors.size())
+            {
+                Color_depth_pixel const& c2 = pixel_colors[i];
+
+                // if (std::abs(c2.depth - c.depth) > c.radius + c2.radius)
+                if (std::abs(c2.depth - previous_depth) > previous_radius + c2.radius)
+                {
+                    break;
+                }
+
+                float filling_degree = c2.filling_degree;
+                assert(c2.filling_degree <= 1.0f);
+
+                const float weight = filling_degree;
+                // locally_accumulated_color += c2.color * weight;
+                locally_accumulated_color += c2.color * weight;
+                locally_accumulated_filling_degree += filling_degree * weight;
+                weight_sum += weight;
+
+                previous_depth = c2.depth;
+                previous_radius = c2.radius;
+
+                ++i;
+            }
+
+//            weight_sum = std::min(1.0f, weight_sum);
+
+            locally_accumulated_color *= 1.0f / weight_sum;
+            locally_accumulated_filling_degree /= weight_sum;
+            */
 
             while (i < pixel_colors.size())
             {
@@ -445,11 +480,12 @@ public:
                     break;
                 }
 
-                float weight = c2.filling_degree;
+                float filling_degree = c2.filling_degree;
                 assert(c2.filling_degree <= 1.0f);
 
-                locally_accumulated_color += c2.color * weight;
-                weight_sum += weight;
+                // locally_accumulated_color += c2.color * weight;
+                locally_accumulated_color += c2.color * filling_degree;
+                locally_accumulated_filling_degree += filling_degree;
 
                 previous_depth = c2.depth;
                 previous_radius = c2.radius;
@@ -457,11 +493,16 @@ public:
                 ++i;
             }
 
-            locally_accumulated_color *= 1.0f / weight_sum;
+            if (locally_accumulated_filling_degree > 1.0f)
+            {
+                locally_accumulated_color *= 1.0f / locally_accumulated_filling_degree;
+            }
 
-            weight_sum = std::min(1.0f, weight_sum);
+            locally_accumulated_filling_degree = std::min(1.0f, locally_accumulated_filling_degree);
 
-            accumulated_color = accumulated_color * (1.0f - weight_sum) + locally_accumulated_color * weight_sum;
+            // accumulated_color = accumulated_color * (1.0f - weight_sum) + locally_accumulated_color * weight_sum;
+            accumulated_color = accumulated_color * (1.0f - locally_accumulated_filling_degree) + locally_accumulated_color * locally_accumulated_filling_degree;
+
 
             if (debug_pixel)
             {

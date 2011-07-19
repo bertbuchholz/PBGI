@@ -98,6 +98,19 @@ public:
 
     void generate_gi_points(renderState_t & state);
 
+    float get_max_solid_angle() { return maxSolidAngle; }
+    int get_raster_buffer_resolution() const { return raster_buffer_resolution; }
+    Cube_raster_buffer::Type get_raster_buffer_type() const { return raster_buffer_type; }
+
+    float get_surfel_near_threshold() const { return surfel_near_threshold; }
+    Cube_raster_buffer::Splat_type get_node_splat_type() const { return node_splat_type; }
+    Cube_raster_buffer::Splat_type get_surfel_far_splat_type() const { return surfel_far_splat_type; }
+    Cube_raster_buffer::Splat_type get_surfel_near_splat_type() const { return surfel_near_splat_type; }
+
+    MyTree* get_tree() { return _bspTree; }
+
+    void set_load_gi_points(bool const b) { do_load_gi_points = b; }
+
 private:
     enum Debug_type { NoTree, Tree, Tree_sh, Tree_sh_fb, Tree_sh_leafs };
 
@@ -105,7 +118,6 @@ private:
     int samplesPerArea;
     bool debug;
     bool indirectOnly;
-    float maxSolidAngle;
     int debugTreeDepth;
     bool debugOutputPointsToFile;
     Debug_type debug_type;
@@ -116,6 +128,7 @@ private:
 
     bool do_load_gi_points;
 
+    float maxSolidAngle;
     int raster_buffer_resolution;
     Cube_raster_buffer::Type raster_buffer_type;
 

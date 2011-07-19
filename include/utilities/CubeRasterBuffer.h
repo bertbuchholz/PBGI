@@ -500,8 +500,11 @@ public:
             assert(alpha >= 1.0f);
 
             Point hit_point = alpha * dir;
+            Point hit_dir = hit_point;
+            hit_dir.normalize();
 
-            float const square_area = solid_angle; // * (dir * normals[plane_index]);
+
+            float const square_area = solid_angle * 2.0f; // * (dir * normals[plane_index]);
             float const square_width_2 = std::sqrt(square_area) / 2.0f;
 
             int const axis_0 = (normal_axis + 1) % 3;
@@ -519,8 +522,8 @@ public:
             u_plus = into_range(-float(_resolution_2), float(_resolution_2), u_plus);
             v_plus = into_range(-float(_resolution_2), float(_resolution_2), v_plus);
 
-            float const u_center = (u_minus + u_plus) / 2.0f;
-            float const v_center = (v_minus + v_plus) / 2.0f;
+            float const u_center = hit_point[axis_0] * _resolution_2;
+            float const v_center = hit_point[axis_1] * _resolution_2;
 
             float u = u_minus;
 
@@ -568,6 +571,17 @@ public:
                         fill_ratio *= gauss;
                     }
                     */
+
+                    Cube_cell c;
+                    c.pos[0] = cell_u;
+                    c.pos[1] = cell_v;
+                    c.plane = plane_index;
+
+                    vector3d_t cell_dir = get_cell_center(c);
+                    cell_dir.normalize();
+
+                    float const alpha = std::max(0.0f, 2.0f * ((dir * cell_dir) - 0.5f));
+                    fill_ratio *= alpha;
 
                     // buffers[plane_index]->add_point(cell_u, cell_v, color, ratio, depth, radius, node);
                     buffers[plane_index]->add_point(cell_u, cell_v, color, fill_ratio, depth, radius, node);
