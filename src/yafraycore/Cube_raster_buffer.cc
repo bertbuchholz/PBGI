@@ -25,6 +25,7 @@ std::map<std::string, Cube_raster_buffer::Type> create_type_map()
     m["Accumulating"] = Cube_raster_buffer::Accumulating;
     m["Reweighting"] = Cube_raster_buffer::Reweighting;
     m["Distance_weighted"] = Cube_raster_buffer::Distance_weighted;
+    m["Front_stacked"] = Cube_raster_buffer::Front_stacked;
     return m;
 }
 

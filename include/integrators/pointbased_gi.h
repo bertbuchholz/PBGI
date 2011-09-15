@@ -14,6 +14,7 @@
 #include <utilities/RegularBspTree.h>
 #include <utilities/CubeRasterBuffer.h>
 #include <utilities/Debug_info.h>
+#include <utilities/SerializationHelper.h>
 
 __BEGIN_YAFRAY
 
@@ -28,7 +29,8 @@ struct GiPoint
         depth(-1),
         is_surfel(true)
     {
-        sh_representation = GiSphericalHarmonics<vector3d_t, color_t>(false, 3);
+        // sh_representation = new GiSphericalHarmonics<vector3d_t, color_t>(true, 3);
+        sh_representation = new Cube_spherical_function<vector3d_t, color_t>();
     }
 
     vector3d_t pos;
@@ -41,38 +43,22 @@ struct GiPoint
     bool is_surfel;
     mutable float debug_radius;
 
-    GiSphericalHarmonics<vector3d_t, color_t> sh_representation;
+    //GiSphericalHarmonics<vector3d_t, color_t> sh_representation;
+    Spherical_function<vector3d_t, color_t> * sh_representation;
 
-    friend std::ostream & operator<<(std::ostream & s, GiPoint const& p)
+    friend class boost::serialization::access;
+
+    template <class Archive>
+    void serialize(Archive & ar, const unsigned int version)
     {
-        s <<
-             p.pos.x << " " << p.pos.y << " " << p.pos.z << " " <<
-             p.normal.x << " " << p.normal.y << " " << p.normal.z << " " <<
-             p.color.R << " " << p.color.G << " " << p.color.B << " " <<
-             p.area << " " <<
-             p.energy.R << " " << p.energy.G << " " << p.energy.B << " " <<
-             p.depth << " " <<
-             p.sh_representation << " " <<
-             p.debug_radius
-             ;
-
-        return s;
-    }
-
-    friend std::istream & operator>>(std::istream & s, GiPoint & p)
-    {
-        s >>
-             p.pos.x >> p.pos.y >> p.pos.z >>
-             p.normal.x >> p.normal.y >> p.normal.z >>
-             p.color.R >> p.color.G >> p.color.B >>
-             p.area >>
-             p.energy.R >> p.energy.G >> p.energy.B >>
-             p.depth >>
-             p.sh_representation >>
-             p.debug_radius
-             ;
-
-        return s;
+        ar & pos;
+        ar & normal;
+        ar & color;
+        ar & area;
+        ar & energy;
+        ar & depth;
+        ar & is_surfel;
+        ar & sh_representation;
     }
 };
 

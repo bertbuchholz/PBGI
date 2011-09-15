@@ -49,6 +49,7 @@ struct Debug_info
         result_fb(NULL),
         checked_cells(0),
         time_add_point(0.0f),
+        show_octree_node_area(false),
         cube_plane(-1),
         cube_x(-1),
         cube_y(-1)
@@ -65,6 +66,7 @@ struct Debug_info
     Cube_raster_buffer * result_fb;
     int checked_cells;
     float time_add_point;
+    bool show_octree_node_area; // contrary to visible area
 
     // debug settings, not to be reset
     int cube_plane, cube_x, cube_y;

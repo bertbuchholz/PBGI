@@ -33,7 +33,7 @@ add_library(sppm SHARED sppm.cc)
 target_link_libraries(sppm yafaraycore)
 
 add_library(pbgi SHARED pointbased_gi.cc)
-target_link_libraries(pbgi yafaraycore)
+target_link_libraries(pbgi yafaraycore boost_serialization)
 
 install (TARGETS directlight photonmap pathtrace bidirpath sppm pbgi
 		EmissionIntegrator SingleScatterIntegrator EmptyVolumeIntegrator DebugIntegrator SkyIntegrator

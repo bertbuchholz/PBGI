@@ -68,7 +68,7 @@ cube, hemisphere
 class Cube_raster_buffer
 {
 public:
-    enum Type { Simple = 0, Accumulating, Reweighting, Distance_weighted };
+    enum Type { Simple = 0, Accumulating, Reweighting, Distance_weighted, Front_stacked };
     enum Splat_type { Single_pixel = 0, Disc_tracing, AA_square, SA_tracing };
 
     static std::map<std::string, Splat_type> enum_splat_type_map;
@@ -111,6 +111,10 @@ public:
         }
     }
 
+    void setup_simple(int resolution)
+    {
+        setup(Simple, resolution, Single_pixel, Single_pixel, Single_pixel);
+    }
 
     void setup(Type fb_type,
                int resolution,
@@ -149,6 +153,11 @@ public:
             {
                 buffers[i] = new Distance_weighted_frame_buffer(_resolution, i);
             }
+            else if (fb_type == Front_stacked)
+            {
+                buffers[i] = new Front_stacked_frame_buffer(_resolution, i);
+            }
+
             else
             {
                 std::cout << "Unknown FB type ..." << std::endl;
@@ -172,6 +181,7 @@ public:
                     c.pos[1] = v;
 
                     _cell_centers[get_serial_index(c)] = calc_cell_center(c);
+                    _cube_cells.push_back(c);
                 }
             }
         }
@@ -283,6 +293,11 @@ public:
         int serial = get_serial_index(c);
 
         return _cell_centers[serial];
+    }
+
+    std::vector<Cube_cell> const& get_cube_cells()
+    {
+        return _cube_cells;
     }
 
     std::vector<Point> get_cell_corners(Cube_cell const& c) const
@@ -504,7 +519,7 @@ public:
             hit_dir.normalize();
 
 
-            float const square_area = solid_angle * 2.0f; // * (dir * normals[plane_index]);
+            float const square_area = solid_angle; // * (dir * normals[plane_index]);
             float const square_width_2 = std::sqrt(square_area) / 2.0f;
 
             int const axis_0 = (normal_axis + 1) % 3;
@@ -572,6 +587,7 @@ public:
                     }
                     */
 
+                    /*
                     Cube_cell c;
                     c.pos[0] = cell_u;
                     c.pos[1] = cell_v;
@@ -582,12 +598,11 @@ public:
 
                     float const alpha = std::max(0.0f, 2.0f * ((dir * cell_dir) - 0.5f));
                     fill_ratio *= alpha;
+                    */
 
                     // buffers[plane_index]->add_point(cell_u, cell_v, color, ratio, depth, radius, node);
                     buffers[plane_index]->add_point(cell_u, cell_v, color, fill_ratio, depth, radius, node);
                     // buffers[plane_index].add_point(cell_u, cell_v, color * inv_cell_area, ratio, depth);
-
-                    //                std::cout << "add to cell: " << cell_u << " " << cell_v << " area: " << area << " ratio: " << ratio << std::endl;
 
                     v = next_v;
                 }
@@ -682,10 +697,69 @@ public:
 
 
 
+    void add_point_solid_angle_rays_sub_pixel(Gi_point_info const& point_info, GiPoint const* node = NULL)
+    {
+        Color const& color = point_info.color;
+        Point const& disc_normal = (point_info.receiver_position - point_info.position).normalize();
+        Point disc_center = point_info.position - point_info.receiver_position; // -> make receiving point the origin as seen from the disc's center
+        float const disc_radius = std::sqrt(point_info.solid_angle * point_info.depth * point_info.depth / M_PI);
+        float const radius = point_info.radius;
+        // float const depth = point_info.depth;
+
+        Cube_cell c;
+
+        float disc_radius_sqr = disc_radius * disc_radius;
+
+        for (int plane_index = 0; plane_index < 6; ++plane_index)
+        {
+            c.plane = plane_index;
+
+            for (int u = -_resolution_2; u < _resolution_2; ++u)
+            {
+                c.pos[0] = u;
+
+                for (int v = -_resolution_2; v < _resolution_2; ++v)
+                {
+                    c.pos[1] = v;
+
+                    Point cell_center = get_cell_center(c);
+                    cell_center.normalize();
+
+                    float alpha;
+
+                    linePlaneIntersection(Point(0.0f), cell_center, disc_center, disc_normal, alpha);
+
+                    if (alpha > 0.0f)
+                    {
+                        Point hit_point = alpha * cell_center;
+
+                        float dist_sqr = (hit_point - disc_center).lengthSqr();
+
+                        if (dist_sqr < disc_radius_sqr)
+                        {
+                            buffers[plane_index]->add_point(u, v, color, 1.0f, alpha, radius, node);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
 
     void add_point(Gi_point_info const& point_info, GiPoint const* gi_point = NULL)
     {
         (this->*add_point_map[point_info.type])(point_info, gi_point);
+    }
+
+    void set_color(Cube_cell const& c, Color const& color)
+    {
+        buffers[c.plane]->add_point(c.pos[0], c.pos[1], color, 1.0f, 0.0f, 0.0f);
+    }
+
+    void add_color(Cube_cell const& c, Color const& color)
+    {
+        Color current_color = get_color(c);
+        set_color(c, current_color + color);
     }
 
     Color get_color(Cube_cell const& c, Debug_info * debug_info = NULL) const
@@ -832,6 +906,7 @@ private:
     int _resolution_2;
 
     std::vector<Point> _cell_centers;
+    std::vector<Cube_cell> _cube_cells;
 
     std::vector<Add_point_function_ptr> add_point_map;
 };

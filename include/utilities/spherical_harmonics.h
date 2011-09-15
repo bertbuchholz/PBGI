@@ -1,10 +1,17 @@
 #ifndef SPHERICAL_HARMONICS_H
 #define SPHERICAL_HARMONICS_H
 
+#include <cmath>
+//#include <stdint.h>
+
+#include <boost/serialization/export.hpp>
+#include <boost/serialization/vector.hpp>
+#include <boost/serialization/serialization.hpp>
+
 #include <yafray_config.h>
 #include <utilities/mcqmc.h>
-#include <cmath>
-#include <stdint.h>
+#include <core_api/scene.h>
+#include "CubeRasterBuffer.h"
 
 __BEGIN_YAFRAY
 
@@ -48,8 +55,46 @@ static unsigned int factorial_table[] =
 8683317618811886495518194401280000000 };
 */
 
+template <class Color, class Vector>
+Color estimate_light_sample_no_shadow_test(renderState_t &state, ray_t const& lightRay, Color const& light_color, const surfacePoint_t &surfel, const Vector &wo)
+{
+    color_t col(0.f);
+    const material_t *material = surfel.material;
+
+    // handle lights with delta distribution, e.g. point and directional lights
+    Color surfCol = material->eval(state, surfel, wo, lightRay.dir, BSDF_ALL);
+    // color_t transmitCol = scene->volIntegrator->transmittance(state, lightRay);
+    col = surfCol * light_color * std::fabs(surfel.N*lightRay.dir); // * transmitCol;
+
+    return col;
+}
+
 template <class Point, class Color>
-class GiSphericalHarmonics
+class Spherical_function
+{
+public:
+    virtual ~Spherical_function() {}
+
+    virtual void calc_coefficients_random(renderState_t & state, surfacePoint_t const& surfel, float const area, ray_t const& lightRay, color_t const& light_color) = 0;
+
+    virtual float get_area(Point const& dir) const  = 0;
+    virtual Color get_color(Point const& dir) const = 0;
+
+    virtual void  add(Spherical_function const* s) = 0;
+    virtual void  normalize(float const factor) = 0;
+
+    virtual Spherical_function * clone() = 0;
+
+    friend class boost::serialization::access;
+
+    template <class Archive>
+    void serialize(Archive & /*ar*/, const unsigned int /*version*/)
+    {
+    }
+};
+
+template <class Point, class Color>
+class GiSphericalHarmonics : public Spherical_function<Point, Color>
 {
     public:
     typedef float (GiSphericalHarmonics::*sh_coefficient_func)(Point const& dir) const; // sh_coefficient_func;
@@ -105,12 +150,14 @@ class GiSphericalHarmonics
         sh_functions[8] = &GiSphericalHarmonics::SH_precomputed_8;
     }
 
-    void calc_coefficients_random(Point const& normal, Color const& color, Color const& energy, float const area)
+    virtual void calc_coefficients_random(renderState_t & state, surfacePoint_t const& surfel, float const area, ray_t const& lightRay, color_t const& light_color)
     {
         sh_color_coefficients = std::vector<Color>(bands * bands, Color(0.0f));
         sh_area_coefficients = std::vector<float>(bands * bands, 0.0f);
 
         random_t random;
+
+        vector3d_t const& normal = surfel.N;
 
         float res_u = 10.0f;
         float res_v = 20.0f;
@@ -121,8 +168,8 @@ class GiSphericalHarmonics
             {
                 float x = (u + random()) / res_u;
                 float y = (v + random()) / res_v;
-//                float x = u / res_u;
-//                float y = v / res_v;
+                //                float x = u / res_u;
+                //                float y = v / res_v;
 
                 float theta = 2.0f * std::acos(std::sqrt(1.0f - x));
                 float phi = 2.0f * M_PI * y;
@@ -132,6 +179,10 @@ class GiSphericalHarmonics
                           std::cos(theta));
 
                 // std::cout << "---" << std::endl;
+
+                float const cos_dir_normal_abs = std::abs(dir * normal);
+                vector3d_t const& wo = dir;
+                color_t reflected_color = estimate_light_sample_no_shadow_test(state, lightRay, light_color, surfel, wo);
 
                 if (exact)
                 {
@@ -148,8 +199,9 @@ class GiSphericalHarmonics
                             // float base_coeff = std::max(dir * normal, 0.0f) * Y_l_m;
                             float base_coeff = Y_l_m;
 
-                            sh_color_coefficients[sh_index] += color * energy * base_coeff;
-                            sh_area_coefficients[sh_index]  += base_coeff * area * std::max(dir * normal, 0.0f);
+                            // sh_color_coefficients[sh_index] += color * energy * base_coeff;
+                            sh_color_coefficients[sh_index] += base_coeff * reflected_color;
+                            sh_area_coefficients[sh_index]  += base_coeff * area * cos_dir_normal_abs;
                             // sh_area_coefficients[sh_index]  += base_coeff * area;
                         }
                     }
@@ -163,9 +215,10 @@ class GiSphericalHarmonics
                         // float const base_coeff = std::max(dir * normal, 0.0f) * Y_l_m;
                         float const base_coeff = Y_l_m;
 
-                        sh_color_coefficients[sh_index] += color * energy * base_coeff;
+                        // sh_color_coefficients[sh_index] += color * energy * base_coeff;
+                        sh_color_coefficients[sh_index] += base_coeff * reflected_color;
+                        sh_area_coefficients[sh_index]  += base_coeff * area * cos_dir_normal_abs;
                         // sh_area_coefficients[sh_index]  += base_coeff * area;
-                        sh_area_coefficients[sh_index]  += base_coeff * area * std::max(dir * normal, 0.0f);
                     }
                 }
             }
@@ -178,7 +231,6 @@ class GiSphericalHarmonics
             sh_color_coefficients[sh_index] *= inv;
             sh_area_coefficients[sh_index]  *= inv;
         }
-
     }
 
     void test(Point const& normal, float const area)
@@ -227,7 +279,72 @@ class GiSphericalHarmonics
         std::cout << "random, test area real: " << test_area_real << " sh: " << test_area_sh << std::endl;
     }
 
+    virtual float get_area(Point const& dir) const
+    {
+        return get_sh_area(dir);
+    }
 
+    virtual Color get_color(Point const& dir) const
+    {
+        return get_sh_color(dir);
+    }
+
+    virtual void add(Spherical_function<Point, Color> const* s)
+    {
+        GiSphericalHarmonics const* sph_harmonics = dynamic_cast<GiSphericalHarmonics const*>(s);
+
+        *this = *this + *sph_harmonics;
+    }
+
+    void normalize(float const factor)
+    {
+        normalize_color(factor);
+    }
+
+    void normalize_color(float const factor)
+    {
+        for (int j = 0; j < bands * bands; ++j)
+        {
+            sh_color_coefficients[j] *= factor;
+        }
+    }
+
+    Spherical_function<Point, Color> * clone()
+    {
+        return new GiSphericalHarmonics(*this);
+    }
+
+    friend GiSphericalHarmonics operator+(GiSphericalHarmonics const& lhs, GiSphericalHarmonics const& rhs)
+    {
+        assert(lhs.bands == rhs.bands && lhs.exact == rhs.exact);
+
+        GiSphericalHarmonics result(lhs.exact, lhs.bands);
+
+        for (int j = 0; j < lhs.bands * lhs.bands; ++j)
+        {
+            result.sh_area_coefficients[j] = lhs.sh_area_coefficients[j] + rhs.sh_area_coefficients[j];
+            result.sh_color_coefficients[j] = lhs.sh_color_coefficients[j] + rhs.sh_color_coefficients[j];
+        }
+
+        return result;
+    }
+
+    friend class boost::serialization::access;
+
+    template <class Archive>
+    void serialize(Archive & ar, const unsigned int version)
+    {
+        ar & boost::serialization::base_object<Spherical_function<Point, Color> >(*this);
+
+        ar & bands;
+
+        ar & sh_color_coefficients;
+        ar & sh_area_coefficients;
+
+        ar & exact;
+    }
+
+private:
     float get_sh_area(Point const& dir) const
     {
         if (!exact)
@@ -316,6 +433,7 @@ class GiSphericalHarmonics
 
         return result;
     }
+
 
     Color const& get_color_coefficient(int index) const
     {
@@ -443,77 +561,6 @@ class GiSphericalHarmonics
         return 0.54627 * (square(dir[0]) - square(dir[1]));
     }
 
-    void normalize_color(float factor)
-    {
-        for (int j = 0; j < bands * bands; ++j)
-        {
-            sh_color_coefficients[j] *= factor;
-        }
-    }
-
-
-    friend std::ostream & operator<<(std::ostream & s, GiSphericalHarmonics const& p)
-    {
-        s <<
-             p.bands << " " <<
-             p.exact << " ";
-
-        for (int i = 0; i < 9; ++i)
-        {
-            s <<
-                 p.sh_color_coefficients[i].R << " " <<
-                 p.sh_color_coefficients[i].G << " " <<
-                 p.sh_color_coefficients[i].B << " ";
-        }
-
-        s << std::endl;
-
-        for (int i = 0; i < 9; ++i)
-        {
-            s << p.sh_area_coefficients[i] << " ";
-        }
-
-        return s;
-    }
-
-    friend std::istream & operator>>(std::istream & s, GiSphericalHarmonics & p)
-    {
-        s >>
-             p.bands >>
-             p.exact;
-
-        for (int i = 0; i < 9; ++i)
-        {
-            s >>
-                 p.sh_color_coefficients[i].R >>
-                 p.sh_color_coefficients[i].G >>
-                 p.sh_color_coefficients[i].B;
-        }
-
-        for (int i = 0; i < 9; ++i)
-        {
-            s >> p.sh_area_coefficients[i];
-        }
-
-        return s;
-    }
-
-    friend GiSphericalHarmonics operator+(GiSphericalHarmonics const& lhs, GiSphericalHarmonics const& rhs)
-    {
-        assert(lhs.bands == rhs.bands && lhs.exact == rhs.exact);
-
-        GiSphericalHarmonics result(lhs.exact, lhs.bands);
-
-        for (int j = 0; j < lhs.bands * lhs.bands; ++j)
-        {
-            result.sh_area_coefficients[j] = lhs.sh_area_coefficients[j] + rhs.sh_area_coefficients[j];
-            result.sh_color_coefficients[j] = lhs.sh_color_coefficients[j] + rhs.sh_color_coefficients[j];
-        }
-
-        return result;
-    }
-
-    private:
     int bands;
 
     std::vector<Color> sh_color_coefficients;
@@ -525,6 +572,111 @@ class GiSphericalHarmonics
 };
 
 
+template <class Point, class Color>
+class Cube_spherical_function : public Spherical_function<Point, Color>
+{
+public:
+    Cube_spherical_function()
+    {
+        // init the buffers!
+        color_buffer.setup_simple(8);
+        area_buffer.setup_simple(8);
+    }
+
+    void calc_coefficients_random(renderState_t & state, surfacePoint_t const& surfel, float const area, ray_t const& lightRay, color_t const& light_color)
+    {
+        Point const& normal = surfel.N;
+
+        std::vector<Cube_cell> const& cube_cells = color_buffer.get_cube_cells();
+
+        for (unsigned int i = 0; i < cube_cells.size(); ++i)
+        {
+            Point const& dir = color_buffer.get_cell_center(cube_cells[i]);
+
+            float const cos_dir_normal_abs = std::abs(dir * normal);
+            vector3d_t const& wo = dir;
+            color_t reflected_color = estimate_light_sample_no_shadow_test(state, lightRay, light_color, surfel, wo);
+
+            color_buffer.set_color(cube_cells[i], reflected_color);
+            area_buffer .set_color(cube_cells[i], color_t(area * cos_dir_normal_abs));
+            // area_buffer .set_color(cube_cells[i], color_t(cos_dir_normal_abs));
+        }
+    }
+
+    float get_area(Point const& dir) const
+    {
+        Cube_cell c;
+        bool ok = area_buffer.get_cell(dir, c);
+        assert(ok);
+
+        Color area = area_buffer.get_color(c);
+
+        return area[0];
+    }
+
+    Color get_color(Point const& dir) const
+    {
+        Cube_cell c;
+        bool ok = color_buffer.get_cell(dir, c);
+        assert(ok);
+
+        return color_buffer.get_color(c);
+    }
+
+    void add(Spherical_function<Point, Color> const* s)
+    {
+        Cube_spherical_function const* csf = dynamic_cast<Cube_spherical_function<Point, Color> const*>(s);
+
+        assert(color_buffer.get_resolution() == csf->color_buffer.get_resolution());
+
+        std::vector<Cube_cell> const& cube_cells = color_buffer.get_cube_cells();
+
+        for (unsigned int i = 0; i < cube_cells.size(); ++i)
+        {
+            Cube_cell const& c = cube_cells[i];
+
+            Color new_color = color_buffer.get_color(c) + csf->color_buffer.get_color(c);
+            float new_area  = area_buffer.get_color(c)[0] + csf->area_buffer.get_color(c)[0];
+
+            color_buffer.set_color(c, new_color);
+            area_buffer .set_color(c, new_area);
+        }
+    }
+
+    void normalize(float const factor)
+    {
+        std::vector<Cube_cell> const& cube_cells = color_buffer.get_cube_cells();
+
+        for (unsigned int i = 0; i < cube_cells.size(); ++i)
+        {
+            Cube_cell const& c = cube_cells[i];
+
+            Color new_color = color_buffer.get_color(c) * factor;
+
+            color_buffer.set_color(c, new_color);
+        }
+    }
+
+    Spherical_function<Point, Color> * clone()
+    {
+        assert(false);
+        return NULL;
+    }
+
+    Cube_raster_buffer const& get_color_buffer() const
+    {
+        return color_buffer;
+    }
+
+    Cube_raster_buffer const& get_area_buffer() const
+    {
+        return area_buffer;
+    }
+
+private:
+    Cube_raster_buffer color_buffer;
+    Cube_raster_buffer area_buffer;
+};
 
 __END_YAFRAY
 

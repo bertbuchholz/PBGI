@@ -159,6 +159,8 @@ protected:
 class Accumulating_frame_buffer : public Abstract_frame_buffer
 {
 public:
+    virtual ~Accumulating_frame_buffer() {}
+
     Accumulating_frame_buffer(int size, int plane) : Abstract_frame_buffer(size, plane)
     {
         set_size(size);
@@ -429,14 +431,12 @@ public:
 
             color_t locally_accumulated_color(0.0f);
             float locally_accumulated_filling_degree(0.0f);
-            float weight_sum = 0.0f;
+            // float weight_sum = 0.0f;
 
             int const group_start_index = i;
 
             float previous_depth = c.depth;
             float previous_radius = c.radius;
-
-            int group_size = 0;
 
             /*
             while (i < pixel_colors.size())
@@ -474,8 +474,183 @@ public:
             {
                 Color_depth_pixel const& c2 = pixel_colors[i];
 
+                // float const stackedness = std::abs(c2.depth - previous_depth) / (5.0f * (previous_radius + c2.radius) * 0.5f);
+
+                // if (std::abs(c2.depth - c.depth) > (c.radius + c2.radius) * 4.0f)
+                if (std::abs(c2.depth - c.depth) > (c.radius) * 4.0f)
+                // if (std::abs(c2.depth - c.depth) > (c.radius + c2.radius))
+                // if (std::abs(c2.depth - previous_depth) > previous_radius + c2.radius)
+                // if (std::abs(c2.depth - previous_depth) > (previous_radius + c2.radius) * 1.0f)
+                {
+                    break;
+                }
+
+                // float stacked_weight = std::max(0.0f, 1.0f - stackedness);
+                float stacked_weight = 1.0f;
+
+                float filling_degree = c2.filling_degree;
+                assert(c2.filling_degree <= 1.0f);
+
+                // locally_accumulated_color += c2.color * weight;
+                locally_accumulated_color += c2.color * filling_degree * stacked_weight;
+                locally_accumulated_filling_degree += filling_degree * stacked_weight;
+
+                previous_depth = c2.depth;
+                previous_radius = c2.radius;
+
+                ++i;
+            }
+
+            if (locally_accumulated_filling_degree > 1.0f)
+            {
+                locally_accumulated_color *= 1.0f / locally_accumulated_filling_degree;
+            }
+
+            locally_accumulated_filling_degree = std::min(1.0f, locally_accumulated_filling_degree);
+
+            // accumulated_color = accumulated_color * (1.0f - weight_sum) + locally_accumulated_color * weight_sum;
+            accumulated_color = accumulated_color * (1.0f - locally_accumulated_filling_degree) + locally_accumulated_color * locally_accumulated_filling_degree;
+
+            if (debug_pixel)
+            {
+                for (unsigned int j = 0; j < debug_info->single_pixel_contributors.size(); ++j)
+                {
+                    debug_info->single_pixel_contributors[j].group_weight *= (1.0f - locally_accumulated_filling_degree);
+                    // debug_info->single_pixel_contributors[j].group_weight *= (1.0f - weight_sum);
+                }
+
+                for (unsigned int j = group_start_index; j < i; ++j)
+                {
+                    debug_info->single_pixel_contributors.push_back(
+                                Node_weight_pair(pixel_colors[j].node, pixel_colors[j].filling_degree, group_index, locally_accumulated_filling_degree));
+                    // debug_info->single_pixel_contributors.push_back(Node_weight_pair(pixel_colors[j].node, pixel_colors[j].filling_degree, group_index, weight_sum));
+                }
+            }
+
+            ++group_index;
+        }
+
+        /*
+        if (debug_pixel)
+        {
+            for (unsigned int i = node_index; i < _data[pixel].size(); ++i)
+            {
+                Color_depth_pixel const& c = _data[pixel][i];
+                debug_info->single_pixel_contributors.push_back(Node_weight_pair(c.node, 0.0f));
+            }
+        }
+        */
+
+        return accumulated_color;
+    }
+};
+
+
+class Distance_weighted_frame_buffer_XXX : public Accumulating_frame_buffer
+{
+public:
+    Distance_weighted_frame_buffer_XXX(int size, int plane) : Accumulating_frame_buffer(size, plane)
+    {
+        set_size(size);
+    }
+
+    virtual Abstract_frame_buffer* clone()
+    {
+        Distance_weighted_frame_buffer_XXX* afb = new Distance_weighted_frame_buffer_XXX(*this);
+
+        return afb;
+    }
+
+    virtual color_t get_color(int const x, int const y, Debug_info * debug_info = NULL)
+    {
+        int const pixel = (x + _resolution_2) + _resolution * (y + _resolution_2);
+        std::vector<Color_depth_pixel> & pixel_colors = _data[pixel];
+
+        if (pixel_colors.size() == 0) return color_t(0.0f);
+
+        color_t accumulated_color(0.0f);
+
+        bool debug_pixel = false;
+
+        if (debug_info)
+        {
+            int cube_x = (pixel % _resolution) - _resolution_2;
+            int cube_y = (pixel / _resolution) - _resolution_2;
+
+            debug_pixel = debug_info->cube_plane == _debug_plane && debug_info->cube_x == cube_x && debug_info->cube_y == cube_y;
+        }
+
+        std::sort(pixel_colors.begin(), pixel_colors.end());
+        std::reverse(pixel_colors.begin(), pixel_colors.end());
+
+        if (debug_info)
+        {
+            for (unsigned int i = 0; i < pixel_colors.size(); ++i)
+            {
+                Color_depth_pixel const& c = pixel_colors[i];
+                debug_info->gi_points.insert(c.node);
+            }
+        }
+
+
+
+        // float const z_threshold = 0.1f;
+
+        int group_index = 0;
+
+        for (unsigned int i = 0; i < pixel_colors.size(); )
+        {
+            Color_depth_pixel const& c = pixel_colors[i];
+
+            color_t locally_accumulated_color(0.0f);
+            float locally_accumulated_filling_degree(0.0f);
+            // float weight_sum = 0.0f;
+
+            int const group_start_index = i;
+
+            float previous_depth = c.depth;
+            float previous_radius = c.radius;
+
+            /*
+            while (i < pixel_colors.size())
+            {
+                Color_depth_pixel const& c2 = pixel_colors[i];
+
                 // if (std::abs(c2.depth - c.depth) > c.radius + c2.radius)
                 if (std::abs(c2.depth - previous_depth) > previous_radius + c2.radius)
+                {
+                    break;
+                }
+
+                float filling_degree = c2.filling_degree;
+                assert(c2.filling_degree <= 1.0f);
+
+                const float weight = filling_degree;
+                // locally_accumulated_color += c2.color * weight;
+                locally_accumulated_color += c2.color * weight;
+                locally_accumulated_filling_degree += filling_degree * weight;
+                weight_sum += weight;
+
+                previous_depth = c2.depth;
+                previous_radius = c2.radius;
+
+                ++i;
+            }
+
+//            weight_sum = std::min(1.0f, weight_sum);
+
+            locally_accumulated_color *= 1.0f / weight_sum;
+            locally_accumulated_filling_degree /= weight_sum;
+            */
+
+            while (i < pixel_colors.size())
+            {
+                Color_depth_pixel const& c2 = pixel_colors[i];
+
+                // if (std::abs(c2.depth - c.depth) > (c.radius + c2.radius) * 4.0f)
+                // if (std::abs(c2.depth - c.depth) > (c.radius + c2.radius))
+                // if (std::abs(c2.depth - previous_depth) > previous_radius + c2.radius)
+                if (std::abs(c2.depth - previous_depth) > (previous_radius + c2.radius) * 1.0f)
                 {
                     break;
                 }
@@ -503,17 +678,19 @@ public:
             // accumulated_color = accumulated_color * (1.0f - weight_sum) + locally_accumulated_color * weight_sum;
             accumulated_color = accumulated_color * (1.0f - locally_accumulated_filling_degree) + locally_accumulated_color * locally_accumulated_filling_degree;
 
-
             if (debug_pixel)
             {
                 for (unsigned int j = 0; j < debug_info->single_pixel_contributors.size(); ++j)
                 {
-                    debug_info->single_pixel_contributors[j].group_weight *= (1.0f - weight_sum);
+                    debug_info->single_pixel_contributors[j].group_weight *= (1.0f - locally_accumulated_filling_degree);
+                    // debug_info->single_pixel_contributors[j].group_weight *= (1.0f - weight_sum);
                 }
 
                 for (unsigned int j = group_start_index; j < i; ++j)
                 {
-                    debug_info->single_pixel_contributors.push_back(Node_weight_pair(pixel_colors[j].node, pixel_colors[j].filling_degree, group_index, weight_sum));
+                    debug_info->single_pixel_contributors.push_back(
+                                Node_weight_pair(pixel_colors[j].node, pixel_colors[j].filling_degree, group_index, locally_accumulated_filling_degree));
+                    // debug_info->single_pixel_contributors.push_back(Node_weight_pair(pixel_colors[j].node, pixel_colors[j].filling_degree, group_index, weight_sum));
                 }
             }
 
@@ -530,6 +707,87 @@ public:
             }
         }
         */
+
+        return accumulated_color;
+    }
+};
+
+
+
+class Front_stacked_frame_buffer : public Accumulating_frame_buffer
+{
+public:
+    Front_stacked_frame_buffer(int size, int plane) : Accumulating_frame_buffer(size, plane)
+    {
+        set_size(size);
+    }
+
+    virtual Abstract_frame_buffer* clone()
+    {
+        Front_stacked_frame_buffer* afb = new Front_stacked_frame_buffer(*this);
+
+        return afb;
+    }
+
+    virtual color_t get_color(int const x, int const y, Debug_info * debug_info = NULL)
+    {
+        int const pixel = (x + _resolution_2) + _resolution * (y + _resolution_2);
+        std::vector<Color_depth_pixel> & pixel_colors = _data[pixel];
+
+        if (pixel_colors.size() == 0) return color_t(0.0f);
+
+        color_t accumulated_color(0.0f);
+
+        bool debug_pixel = false;
+
+        if (debug_info)
+        {
+            int cube_x = (pixel % _resolution) - _resolution_2;
+            int cube_y = (pixel / _resolution) - _resolution_2;
+
+            debug_pixel = debug_info->cube_plane == _debug_plane && debug_info->cube_x == cube_x && debug_info->cube_y == cube_y;
+        }
+
+        std::sort(pixel_colors.begin(), pixel_colors.end());
+
+        if (debug_info)
+        {
+            for (unsigned int i = 0; i < pixel_colors.size(); ++i)
+            {
+                Color_depth_pixel const& c = pixel_colors[i];
+                debug_info->gi_points.insert(c.node);
+            }
+        }
+
+        float accumulated_filling_degree = 0.0f;
+
+        for (unsigned int i = 0; i < pixel_colors.size() && accumulated_filling_degree < 1.0f; ++i)
+        {
+            Color_depth_pixel const& c = pixel_colors[i];
+
+            float stackedness = 0.0f;
+
+            for (unsigned int j = 0; j < i; ++j)
+            {
+                Color_depth_pixel const& c2 = pixel_colors[j];
+
+                float const stackedness_tmp = std::abs(c2.depth - c.depth) / (2.0f * (c.radius + c2.radius) * 0.5f);
+
+                if (stackedness_tmp > stackedness)
+                {
+                    stackedness = stackedness_tmp;
+                }
+            }
+
+            float const filling_degree = std::max(0.0f, 1.0f - stackedness) * c.filling_degree;
+            accumulated_color += c.color * filling_degree;
+            accumulated_filling_degree += filling_degree;
+
+            if (debug_pixel)
+            {
+                debug_info->single_pixel_contributors.push_back(Node_weight_pair(c.node, filling_degree));
+            }
+        }
 
         return accumulated_color;
     }

@@ -61,6 +61,9 @@ class YAFRAYCORE_EXPORT color_t
 		color_t & operator *=(const color_t &c);
 		color_t & operator *=(CFLOAT f);
 
+        PFLOAT   operator[] (int i) const { return (&R)[i]; }
+        PFLOAT & operator[] (int i)       { return (&R)[i]; }
+
 		CFLOAT energy() const {return (R+G+B)*0.333333f;};
 		// Using ITU/Photometric values Y = 0.2126 R + 0.7152 G + 0.0722 B
 		CFLOAT col2bri() const { return (0.2126f*R + 0.7152f*G + 0.0722f*B); }
