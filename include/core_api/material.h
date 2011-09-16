@@ -145,7 +145,7 @@ class YAFRAYCORE_EXPORT material_t
 		
 		virtual float getMatIOR() const { return 1.5f; }
 
-        virtual color_t getDiffuseAtPoint(const renderState_t &state, const surfacePoint_t &sp) const { return color_t(0.0f); }
+                virtual color_t getDiffuseAtPoint(const renderState_t &state, const surfacePoint_t &sp) const { return color_t(0.0f); }
 		
 	protected:
 		/* small function to apply bump mapping to a surface point 

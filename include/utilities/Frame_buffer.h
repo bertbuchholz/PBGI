@@ -65,6 +65,7 @@ public:
 
     virtual void add_point(int const x, int const y, color_t const& color, float const filling_degree, float const depth, float const radius, GiPoint const* node = NULL) = 0;
 
+    virtual void set_color(int const x, int const y, color_t const& color) {}
     virtual color_t get_color(int const x, int const y, Debug_info * debug_info = NULL) = 0;
 
     virtual void set_size(int size) = 0;
@@ -127,6 +128,14 @@ public:
         _data.clear();
     }
 
+    void set_color(int const x, int const y, color_t const& color)
+    {
+        int pixel = (x + _resolution_2) + _resolution * (y + _resolution_2);
+
+        assert(pixel < _resolution * _resolution);
+
+        _data[pixel].color = color;
+    }
 
     virtual color_t get_color(int const x, int const y, Debug_info * debug_info = NULL)
     {

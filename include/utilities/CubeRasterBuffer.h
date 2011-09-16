@@ -21,6 +21,14 @@ inline T into_range(T const& min, T const& max, T const& val)
     return val;
 }
 
+template <class T>
+inline bool is_in_range(T const& min, T const& max, T const& val)
+{
+    if (val < min) return false;
+    else if (val > max) return false;
+    return true;
+}
+
 struct Gi_point_info
 {
     enum Type { Node = 0, Far_surfel, Near_surfel };
@@ -93,8 +101,8 @@ public:
                 buffers[i] = cbr.buffers[i]->clone();
             }
 
-            total_energy = cbr.total_energy;
-            _resolution = cbr._resolution;
+            total_energy  = cbr.total_energy;
+            _resolution   = cbr._resolution;
             _resolution_2 = cbr._resolution_2;
             _cell_centers = cbr._cell_centers;
             add_point_map = cbr.add_point_map;
@@ -753,7 +761,7 @@ public:
 
     void set_color(Cube_cell const& c, Color const& color)
     {
-        buffers[c.plane]->add_point(c.pos[0], c.pos[1], color, 1.0f, 0.0f, 0.0f);
+        buffers[c.plane]->set_color(c.pos[0], c.pos[1], color);
     }
 
     void add_color(Cube_cell const& c, Color const& color)

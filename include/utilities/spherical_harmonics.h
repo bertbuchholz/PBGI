@@ -55,10 +55,10 @@ static unsigned int factorial_table[] =
 8683317618811886495518194401280000000 };
 */
 
-template <class Color, class Vector>
-Color estimate_light_sample_no_shadow_test(renderState_t &state, ray_t const& lightRay, Color const& light_color, const surfacePoint_t &surfel, const Vector &wo)
+template <class Color, class Point>
+Color estimate_light_sample_no_shadow_test(renderState_t &state, ray_t const& lightRay, Color const& light_color, const surfacePoint_t &surfel, const Point &wo)
 {
-    color_t col(0.f);
+    Color col(0.f);
     const material_t *material = surfel.material;
 
     // handle lights with delta distribution, e.g. point and directional lights
@@ -69,7 +69,9 @@ Color estimate_light_sample_no_shadow_test(renderState_t &state, ray_t const& li
     return col;
 }
 
-template <class Point, class Color>
+typedef vector3d_t Point;
+typedef color_t Color;
+
 class Spherical_function
 {
 public:
@@ -93,8 +95,7 @@ public:
     }
 };
 
-template <class Point, class Color>
-class GiSphericalHarmonics : public Spherical_function<Point, Color>
+class GiSphericalHarmonics : public Spherical_function
 {
     public:
     typedef float (GiSphericalHarmonics::*sh_coefficient_func)(Point const& dir) const; // sh_coefficient_func;
@@ -289,7 +290,7 @@ class GiSphericalHarmonics : public Spherical_function<Point, Color>
         return get_sh_color(dir);
     }
 
-    virtual void add(Spherical_function<Point, Color> const* s)
+    virtual void add(Spherical_function const* s)
     {
         GiSphericalHarmonics const* sph_harmonics = dynamic_cast<GiSphericalHarmonics const*>(s);
 
@@ -309,7 +310,7 @@ class GiSphericalHarmonics : public Spherical_function<Point, Color>
         }
     }
 
-    Spherical_function<Point, Color> * clone()
+    Spherical_function * clone()
     {
         return new GiSphericalHarmonics(*this);
     }
@@ -334,7 +335,7 @@ class GiSphericalHarmonics : public Spherical_function<Point, Color>
     template <class Archive>
     void serialize(Archive & ar, const unsigned int version)
     {
-        ar & boost::serialization::base_object<Spherical_function<Point, Color> >(*this);
+        ar & boost::serialization::base_object<Spherical_function>(*this);
 
         ar & bands;
 
@@ -356,7 +357,6 @@ private:
                 float Y_l_m = SH_precomputed(sh_index, dir);
 
                 result += sh_area_coefficients[sh_index] * Y_l_m;
-
             }
 
             return result;
@@ -400,7 +400,6 @@ private:
                 float Y_l_m = SH_precomputed(sh_index, dir);
 
                 result += sh_color_coefficients[sh_index] * Y_l_m;
-
             }
 
             return result;
@@ -572,8 +571,7 @@ private:
 };
 
 
-template <class Point, class Color>
-class Cube_spherical_function : public Spherical_function<Point, Color>
+class Cube_spherical_function : public Spherical_function
 {
 public:
     Cube_spherical_function()
@@ -591,15 +589,17 @@ public:
 
         for (unsigned int i = 0; i < cube_cells.size(); ++i)
         {
-            Point const& dir = color_buffer.get_cell_center(cube_cells[i]);
+            Point dir = color_buffer.get_cell_center(cube_cells[i]);
+            dir.normalize();
 
             float const cos_dir_normal_abs = std::abs(dir * normal);
+            assert(cos_dir_normal_abs <= 1.0f);
+
             vector3d_t const& wo = dir;
             color_t reflected_color = estimate_light_sample_no_shadow_test(state, lightRay, light_color, surfel, wo);
 
             color_buffer.set_color(cube_cells[i], reflected_color);
             area_buffer .set_color(cube_cells[i], color_t(area * cos_dir_normal_abs));
-            // area_buffer .set_color(cube_cells[i], color_t(cos_dir_normal_abs));
         }
     }
 
@@ -623,9 +623,9 @@ public:
         return color_buffer.get_color(c);
     }
 
-    void add(Spherical_function<Point, Color> const* s)
+    void add(Spherical_function const* s)
     {
-        Cube_spherical_function const* csf = dynamic_cast<Cube_spherical_function<Point, Color> const*>(s);
+        Cube_spherical_function const* csf = dynamic_cast<Cube_spherical_function const*>(s);
 
         assert(color_buffer.get_resolution() == csf->color_buffer.get_resolution());
 
@@ -635,11 +635,17 @@ public:
         {
             Cube_cell const& c = cube_cells[i];
 
-            Color new_color = color_buffer.get_color(c) + csf->color_buffer.get_color(c);
-            float new_area  = area_buffer.get_color(c)[0] + csf->area_buffer.get_color(c)[0];
+            Color new_color = color_buffer.get_color(c)    + csf->color_buffer.get_color(c);
+            float new_area  = area_buffer .get_color(c)[0] + csf->area_buffer .get_color(c)[0];
 
             color_buffer.set_color(c, new_color);
             area_buffer .set_color(c, new_area);
+
+            if (!is_in_range(0.9f, 1.1f, area_buffer.get_color(c)[0] / new_area))
+            {
+                // std::cout << "add failed: " << area_buffer.get_color(c)[0] << " " << new_area << std::endl;
+                assert(false);
+            }
         }
     }
 
@@ -657,7 +663,7 @@ public:
         }
     }
 
-    Spherical_function<Point, Color> * clone()
+    Spherical_function * clone()
     {
         assert(false);
         return NULL;

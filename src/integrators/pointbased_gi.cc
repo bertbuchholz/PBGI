@@ -49,6 +49,33 @@ GiPoint * averageGiPoints(std::vector<GiPoint*> const& points)
 
     result->sh_representation->normalize(1.0f / float(points.size()));
 
+    // -------------------- test
+
+    vector3d_t dir(0.4f, 0.3f, 0.5f);
+    dir.normalize();
+
+    float area_sum = 0;
+
+    for (unsigned int i = 0; i < points.size(); ++i)
+    {
+        GiPoint const& p = *points[i];
+
+        area_sum += p.sh_representation->get_area(dir);
+    }
+
+    if (!is_in_range(0.9f, 1.1f, result->sh_representation->get_area(dir) / area_sum))
+    {
+        std::cout << "surfel?: " << points[0]->is_surfel << ", not in range: " << area_sum << " " << result->sh_representation->get_area(dir) << std::endl;
+    }
+    /*
+    else
+    {
+        std::cout << "in range: " << area_sum << " " << result->sh_representation->get_area(dir) << std::endl;
+    }
+    */
+
+    // -------------------------
+
     for (unsigned int i = 0; i < points.size(); ++i)
     {
         GiPoint const* p = points[i];
@@ -98,6 +125,7 @@ pbLighting_t::pbLighting_t(bool transpShad, int shadowDepth, int rayDepth) : max
 	intpb = 0;
     integratorName = "PointBased";
     integratorShortName = "PBGI";
+    do_load_gi_points = false;
 }
 
 
@@ -1093,8 +1121,8 @@ yafaray::pbLighting_t::MyTree * load_gi_points()
     std::ifstream in_file(fileName.c_str(), std::ios_base::binary);
 
     boost::archive::text_iarchive ar(in_file);
-    ar.register_type<GiSphericalHarmonics<vector3d_t, color_t> >();
-    ar.register_type<Cube_spherical_function<vector3d_t, color_t> >();
+    ar.register_type<GiSphericalHarmonics>();
+    ar.register_type<Cube_spherical_function>();
 
     ar >> points;
 
@@ -1164,11 +1192,7 @@ bool pbLighting_t::preprocess()
 
     MyTree::averageData(_bspTree);
 
-    // empty out debug file
-    std::ofstream file_stream_fb("/tmp/pbgi_frame_buffer");
-    file_stream_fb.close();
-
-//    _bspTree->printAveraged();
+    // _bspTree->printAveraged();
 
     // Y_INFO << "PBGI: BSP: " << *_bspTree << std::endl;
 
@@ -1676,12 +1700,6 @@ color_t doPointBasedGiTree_sh_fb(
                     cluster_contribution = gi_point.sh_representation->get_color(giToSp);
                     // cluster_contribution = giP.color * giP.energy; // * cos_sp_gip;
                 }
-
-                // bool const use_rays = true;
-                // frame_buffer.add_point(-giToSp, cluster_contribution, solidAngle, distance, use_rays);
-                // frame_buffer.add_point_from_sphere_with_rays(-giToSp, cluster_contribution, node->getRadius(), distance, node->getClusteredData());
-
-                //float const visible_area = std::max(0.0f, gi_point.sh_representation.get_sh_area(giToSp));
 
                 yafaray::GiPoint * debug_point = NULL;
 

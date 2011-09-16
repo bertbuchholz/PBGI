@@ -30,7 +30,7 @@ struct GiPoint
         is_surfel(true)
     {
         // sh_representation = new GiSphericalHarmonics<vector3d_t, color_t>(true, 3);
-        sh_representation = new Cube_spherical_function<vector3d_t, color_t>();
+        sh_representation = new Cube_spherical_function();
     }
 
     vector3d_t pos;
@@ -44,7 +44,7 @@ struct GiPoint
     mutable float debug_radius;
 
     //GiSphericalHarmonics<vector3d_t, color_t> sh_representation;
-    Spherical_function<vector3d_t, color_t> * sh_representation;
+    Spherical_function * sh_representation;
 
     friend class boost::serialization::access;
 
