@@ -12,6 +12,7 @@
 #include <utilities/spherical_harmonics.h>
 
 #include <utilities/RegularBspTree.h>
+#include <utilities/PointKdTree.h>
 #include <utilities/CubeRasterBuffer.h>
 #include <utilities/Debug_info.h>
 #include <utilities/SerializationHelper.h>
@@ -29,8 +30,9 @@ struct GiPoint
         depth(-1),
         is_surfel(true)
     {
-        // sh_representation = new GiSphericalHarmonics<vector3d_t, color_t>(true, 3);
-        sh_representation = new Cube_spherical_function();
+        sh_representation = new GiSphericalHarmonics(true, 3);
+        // sh_representation = new GiSphericalHarmonics;
+        // sh_representation = new Cube_spherical_function;
     }
 
     vector3d_t pos;
@@ -69,7 +71,8 @@ class YAFRAYPLUGIN_EXPORT pbLighting_t: public mcIntegrator_t
 public:
     static std::vector<color_t> debug_colors;
 
-    typedef RegularBspTree<vector3d_t, 3, GiPoint*> MyTree;
+    // typedef RegularBspTree<vector3d_t, 3, GiPoint*> MyTree;
+    typedef Point_kd_tree<vector3d_t, 3, GiPoint*> MyTree;
 
     pbLighting_t(bool transpShad=false, int shadowDepth=4, int rayDepth=6);
     virtual bool preprocess();

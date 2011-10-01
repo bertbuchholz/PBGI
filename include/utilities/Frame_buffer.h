@@ -2,6 +2,7 @@
 #define FRAME_BUFFER_H
 
 #include <cassert>
+#include <vector>
 
 #include <core_api/color.h>
 #include <utilities/Debug_info.h>
@@ -65,8 +66,9 @@ public:
 
     virtual void add_point(int const x, int const y, color_t const& color, float const filling_degree, float const depth, float const radius, GiPoint const* node = NULL) = 0;
 
-    virtual void set_color(int const x, int const y, color_t const& color) {}
+    virtual void    set_color(int const /* x */, int const /* y */, color_t const& /* color */) {}
     virtual color_t get_color(int const x, int const y, Debug_info * debug_info = NULL) = 0;
+    virtual color_t get_color_interpolated(float const /* x */, float const /* y */, Debug_info * debug_info = NULL) { assert(false); return color_t(); }
 
     virtual void set_size(int size) = 0;
 
@@ -160,9 +162,132 @@ public:
         return c.color;
     }
 
+    color_t interpolate(color_t const& i1 , color_t const& i2 , float const offset)
+    {
+        assert(offset >= 0.0f && offset <= 1.0f);
+        return i1 * (1.0f - offset) + i2 * offset;
+    }
+
+    virtual color_t get_color_interpolated(float const x, float const y, Debug_info * debug_info = NULL)
+    {
+        int x0 = int(std::floor(x - 0.5f));
+        int y0 = int(std::floor(y - 0.5f));
+
+        int x1 = x0 + 1;
+        int y1 = y0 + 1;
+
+        if (x1 >= _resolution_2)
+        {
+            x1 = x0;
+        }
+        else if (x0 < -_resolution_2)
+        {
+            x0 = x1;
+        }
+
+        if (y1 >= _resolution_2)
+        {
+            y1 = y0;
+        }
+        else if (y0 < -_resolution_2)
+        {
+            y0 = y1;
+        }
+
+
+        //x0 = std::max(-_resolution_2 + 1, std::min(int(std::floor(x - 0.5f)), _resolution_2 - 2));
+        //y0 = std::max(-_resolution_2 + 1, std::min(int(std::floor(y - 0.5f)), _resolution_2 - 2));
+
+        float offset_x = x - x0 - 0.5f;
+        float offset_y = y - y0 - 0.5f;
+
+        offset_x = std::max(0.0f, std::min(offset_x, 1.0f));
+        offset_y = std::max(0.0f, std::min(offset_y, 1.0f));
+
+        color_t const c1 = get_color(x0, y0);
+        color_t const c2 = get_color(x1, y0);
+        color_t const c3 = get_color(x0, y1);
+        color_t const c4 = get_color(x1, y1);
+
+        color_t const c1_2 = interpolate(c1, c2, offset_x);
+        color_t const c3_4 = interpolate(c3, c4, offset_x);
+
+        if (!(x1 < _resolution_2 && y1 < _resolution_2))
+        {
+            std::cout << "_resolution_2: " << _resolution_2 << " x: " << x << " y: " << y << " x_0: " << x0 << " y_0: " << y0 << std::endl;
+            assert(false);
+        }
+
+        return interpolate(c1_2, c3_4, offset_y);
+    }
+
 protected:
     std::vector<Color_depth_pixel> _data;
 };
+
+
+// store only a single color value per pixel, use wavelet compression
+class Simple_wavelet_frame_buffer : public Abstract_frame_buffer
+{
+public:
+    Simple_wavelet_frame_buffer() {}
+
+    Simple_wavelet_frame_buffer(int size, int plane) : Abstract_frame_buffer(size, plane)
+    {
+        set_size(size);
+    }
+
+    virtual Abstract_frame_buffer* clone()
+    {
+        Simple_wavelet_frame_buffer* sfb = new Simple_wavelet_frame_buffer(*this);
+
+        return sfb;
+    }
+
+    virtual void add_point(int const x, int const y, color_t const& color,
+                           float const /* filling_degree */, float const /* depth */, float const /* radius */, GiPoint const* node = NULL)
+    {
+        int pixel = (x + _resolution_2) + _resolution * (y + _resolution_2);
+
+        assert(pixel < _resolution * _resolution);
+
+        _data[pixel] = color;
+    }
+
+    virtual void set_size(int size)
+    {
+        _resolution = size;
+        _resolution_2 = _resolution / 2;
+
+        _data.clear();
+        _data.resize(_resolution * _resolution);
+    }
+
+    virtual void clear()
+    {
+        _data.clear();
+    }
+
+    void set_color(int const x, int const y, color_t const& color)
+    {
+        int pixel = (x + _resolution_2) + _resolution * (y + _resolution_2);
+
+        assert(pixel < _resolution * _resolution);
+
+        _data[pixel] = color;
+    }
+
+    virtual color_t get_color(int const x, int const y, Debug_info * debug_info = NULL)
+    {
+        int const pixel = (x + _resolution_2) + _resolution * (y + _resolution_2);
+
+        return _data[pixel];
+    }
+
+protected:
+    std::vector<color_t> _data;
+};
+
 
 // store a list of color values and corresponding depths and weights (for example filling) per pixel
 class Accumulating_frame_buffer : public Abstract_frame_buffer
@@ -254,11 +379,13 @@ public:
 
             float weight = c.filling_degree;
 
+            /*
             if (acc_filling_degree + weight > 1.0f)
             {
                 pixel_full = true;
                 weight = (1.0f - acc_filling_degree);
             }
+            */
 
             acc_filling_degree += weight;
             accumulated_color += c.color * weight;
@@ -278,6 +405,11 @@ public:
                 Color_depth_pixel const& c = _data[pixel][i];
                 debug_info->single_pixel_contributors.push_back(Node_weight_pair(c.node, 0.0f));
             }
+        }
+
+        if (acc_filling_degree > 1.0f)
+        {
+            accumulated_color *= 1.0f / acc_filling_degree;
         }
 
         return accumulated_color;
@@ -533,6 +665,13 @@ public:
                     debug_info->single_pixel_contributors.push_back(
                                 Node_weight_pair(pixel_colors[j].node, pixel_colors[j].filling_degree, group_index, locally_accumulated_filling_degree));
                     // debug_info->single_pixel_contributors.push_back(Node_weight_pair(pixel_colors[j].node, pixel_colors[j].filling_degree, group_index, weight_sum));
+
+
+                    std::cout <<
+                                 "c.filling_degree: " << pixel_colors[j].filling_degree << " " <<
+                                 "c.depth: " << pixel_colors[j].depth << " " <<
+                                 "c.radius: " << pixel_colors[j].radius << " " <<
+                                 std::endl;
                 }
             }
 
@@ -780,7 +919,9 @@ public:
             {
                 Color_depth_pixel const& c2 = pixel_colors[j];
 
-                float const stackedness_tmp = std::abs(c2.depth - c.depth) / (2.0f * (c.radius + c2.radius) * 0.5f);
+                assert(c2.depth <= c.depth);
+
+                float const stackedness_tmp = std::abs(c2.depth - c.depth) / (2.0f * (c.radius + c2.radius) * 0.5f) * c2.filling_degree / c.filling_degree;
 
                 if (stackedness_tmp > stackedness)
                 {
@@ -788,12 +929,25 @@ public:
                 }
             }
 
-            float const filling_degree = std::max(0.0f, 1.0f - stackedness) * c.filling_degree;
+            float filling_degree = std::max(0.0f, 1.0f - stackedness) * c.filling_degree;
+
+            if (accumulated_filling_degree  + filling_degree > 1.0f)
+            {
+                filling_degree = 1.0f - accumulated_filling_degree + 0.01f;
+            }
+
             accumulated_color += c.color * filling_degree;
             accumulated_filling_degree += filling_degree;
 
             if (debug_pixel)
             {
+                std::cout << "stackedness: " << stackedness << " " <<
+                             "filling_degree: " << filling_degree << " " <<
+                             "c.filling_degree: " << c.filling_degree << " " <<
+                             "c.depth: " << c.depth << " " <<
+                             "c.radius: " << c.radius << " " <<
+                             std::endl;
+
                 debug_info->single_pixel_contributors.push_back(Node_weight_pair(c.node, filling_degree));
             }
         }

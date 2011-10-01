@@ -14,7 +14,22 @@ shinyDiffuseMat_t::shinyDiffuseMat_t(const color_t &col, const color_t &srcol, f
 	emitVal = emit;
 	mDiffuse = diffuse;
 	bsdfFlags = BSDF_NONE;
-	if(emitVal > 0.f) bsdfFlags |= BSDF_EMIT;
+        if(emitVal > 0.f) bsdfFlags |= BSDF_EMIT;
+}
+
+shinyDiffuseMat_t::shinyDiffuseMat_t(const color_t &col, const color_t &srcol, float diffuse, bool simple):
+                        isTranspar(false), isTransluc(false), isReflective(false), isDiffuse(false), fresnelEffect(false),
+                        diffuseS(0), bumpS(0), transpS(0), translS(0), specReflS(0), mirColS(0), color(col), specRefCol(srcol),
+                        mSpecRefl(0.0f), mTransp(0.0f), mTransl(0.0f), mDiffuse(diffuse), orenNayar(false), nBSDF(0)
+{
+        float emit = 0.0f;
+        emitCol = emit*col;
+        emitVal = emit;
+        mDiffuse = diffuse;
+        bsdfFlags = BSDF_NONE;
+        if(emitVal > 0.f) bsdfFlags |= BSDF_EMIT;
+
+        config(NULL, NULL, NULL, NULL, NULL);
 }
 
 shinyDiffuseMat_t::~shinyDiffuseMat_t()

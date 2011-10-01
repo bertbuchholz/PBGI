@@ -48,6 +48,7 @@ struct Cube_cell
 {
     int plane;
     int pos[2];
+    float offset[2]; // 0..1
 
     friend bool operator==(Cube_cell const& lhs, Cube_cell const& rhs)
     {
@@ -133,6 +134,9 @@ public:
         _resolution = resolution;
         _resolution_2 = _resolution / 2;
 
+        float angle = std::atan(1.0 / (_resolution));
+        _pixel_solid_angle = 2.0 * M_PI * (1.0 - std::cos(angle));
+
         std::map<Splat_type, Add_point_function_ptr> splat_type_to_function_map;
         splat_type_to_function_map[Single_pixel] = &Cube_raster_buffer::add_point_single_pixel;
         splat_type_to_function_map[Disc_tracing] = &Cube_raster_buffer::add_point_disc_tracing;
@@ -165,7 +169,6 @@ public:
             {
                 buffers[i] = new Front_stacked_frame_buffer(_resolution, i);
             }
-
             else
             {
                 std::cout << "Unknown FB type ..." << std::endl;
@@ -240,14 +243,18 @@ public:
 
         float inv_longest_extent = 1.0f / longest_extent;
 
-        float axis_0_pos = dir[axis_0] * inv_longest_extent;
-        float axis_1_pos = dir[axis_1] * inv_longest_extent;
+        float const axis_0_pos = dir[axis_0] * inv_longest_extent * _resolution_2;
+        float const axis_1_pos = dir[axis_1] * inv_longest_extent * _resolution_2;
 
-        result.pos[0] = std::floor(axis_0_pos * _resolution_2);
-        result.pos[1] = std::floor(axis_1_pos * _resolution_2);
+        result.pos[0] = std::floor(axis_0_pos);
+        result.pos[1] = std::floor(axis_1_pos);
 
-        result.pos[0] = std::max(-_resolution_2, std::min(result.pos[0], _resolution_2 - 1));
-        result.pos[1] = std::max(-_resolution_2, std::min(result.pos[1], _resolution_2 - 1));
+        result.pos[0] = into_range(-_resolution_2, _resolution_2 - 1, result.pos[0]);
+        result.pos[1] = into_range(-_resolution_2, _resolution_2 - 1, result.pos[1]);
+        //result.pos[1] = std::max(-_resolution_2, std::min(result.pos[1], _resolution_2 - 1));
+
+        result.offset[0] = axis_0_pos - result.pos[0];
+        result.offset[1] = axis_1_pos - result.pos[1];
 
         return result;
     }
@@ -286,7 +293,7 @@ public:
     }
 
 
-    int get_serial_index(Cube_cell const& c) const
+    inline int get_serial_index(Cube_cell const& c) const
     {
         int serial =
                 (c.pos[1] + _resolution_2) +
@@ -414,6 +421,7 @@ public:
         Cube_cell c;
 
         float disc_radius_sqr = disc_radius * disc_radius;
+        float cell_radius_sqr = 1.0f / float(_resolution * _resolution);
 
         for (int plane_index = 0; plane_index < 6; ++plane_index)
         {
@@ -427,6 +435,9 @@ public:
                 {
                     c.pos[1] = v;
 
+                    Point cell_center = get_cell_center(c);
+
+                    /*
                     Point cell_center = get_cell_center(c);
                     cell_center.normalize();
 
@@ -442,7 +453,27 @@ public:
 
                         if (dist_sqr < disc_radius_sqr)
                         {
-                            buffers[plane_index]->add_point(u, v, color, 1.0f, alpha, disc_radius, node);
+                            float const filling_degree = std::min(1.0f, point_info.solid_angle / _pixel_solid_angle);
+
+                            buffers[plane_index]->add_point(u, v, color, filling_degree, alpha, disc_radius, node);
+                        }
+                    }
+                    */
+
+                    float alpha = -1.0f;
+                    linePlaneIntersection(Point(0.0f), disc_center, cell_center, -cube_plane_normals[plane_index], alpha);
+
+                    if (alpha > 0.0f)
+                    {
+                        Point hit_point = alpha * disc_center;
+
+                        float dist_sqr = (hit_point - cell_center).lengthSqr();
+
+                        if (dist_sqr < cell_radius_sqr)
+                        {
+                            float const filling_degree = std::min(1.0f, point_info.solid_angle / _pixel_solid_angle);
+
+                            buffers[plane_index]->add_point(u, v, color, filling_degree, alpha, disc_radius, node);
                         }
                     }
                 }
@@ -775,6 +806,11 @@ public:
         return buffers[c.plane]->get_color(c.pos[0], c.pos[1], debug_info);
     }
 
+    Color get_color_interpolated(Cube_cell const& c, Debug_info * debug_info = NULL) const
+    {
+        return buffers[c.plane]->get_color_interpolated(c.pos[0] + c.offset[0], c.pos[1] + c.offset[1], debug_info);
+    }
+
     /*
     friend std::ostream & operator<<(std::ostream & s, Cube_raster_buffer const& c)
     {
@@ -912,6 +948,8 @@ private:
     float total_energy;
     int _resolution;
     int _resolution_2;
+
+    float _pixel_solid_angle; // solid angle of a pixel, FIXME: assuming for now it's constant
 
     std::vector<Point> _cell_centers;
     std::vector<Cube_cell> _cube_cells;

@@ -10,8 +10,10 @@
 
 #include <yafray_config.h>
 #include <utilities/mcqmc.h>
+#include <utilities/sample_utils.h>
 #include <core_api/scene.h>
-#include "CubeRasterBuffer.h"
+#include <core_api/surface.h>
+#include <utilities/CubeRasterBuffer.h>
 
 __BEGIN_YAFRAY
 
@@ -72,6 +74,18 @@ Color estimate_light_sample_no_shadow_test(renderState_t &state, ray_t const& li
 typedef vector3d_t Point;
 typedef color_t Color;
 
+class GiSphericalHarmonics;
+class Cube_spherical_function;
+
+class Spherical_function_visitor
+{
+public:
+    virtual void visit(GiSphericalHarmonics * sf) = 0;
+    virtual void visit(Cube_spherical_function * sf) = 0;
+    virtual void identify() { std::cout << "Spherical_function_visitor" << std::endl; }
+};
+
+
 class Spherical_function
 {
 public:
@@ -82,8 +96,10 @@ public:
     virtual float get_area(Point const& dir) const  = 0;
     virtual Color get_color(Point const& dir) const = 0;
 
-    virtual void  add(Spherical_function const* s) = 0;
-    virtual void  normalize(float const factor) = 0;
+    virtual void add(Spherical_function const* s) = 0;
+    virtual void normalize(float const factor) = 0;
+
+    virtual void accept(Spherical_function_visitor * visitor) = 0;
 
     virtual Spherical_function * clone() = 0;
 
@@ -345,6 +361,13 @@ class GiSphericalHarmonics : public Spherical_function
         ar & exact;
     }
 
+
+    virtual void accept(Spherical_function_visitor * visitor)
+    {
+        visitor->visit(this);
+    }
+
+
 private:
     float get_sh_area(Point const& dir) const
     {
@@ -577,11 +600,12 @@ public:
     Cube_spherical_function()
     {
         // init the buffers!
-        color_buffer.setup_simple(8);
-        area_buffer.setup_simple(8);
+        color_buffer.setup_simple(4);
+        area_buffer. setup_simple(4);
     }
 
-    void calc_coefficients_random(renderState_t & state, surfacePoint_t const& surfel, float const area, ray_t const& lightRay, color_t const& light_color)
+    // only one sample on each cube cell (center) and the surfel (center)
+    void sample_single(renderState_t & state, surfacePoint_t const& surfel, float const area, ray_t const& lightRay, color_t const& light_color)
     {
         Point const& normal = surfel.N;
 
@@ -589,7 +613,9 @@ public:
 
         for (unsigned int i = 0; i < cube_cells.size(); ++i)
         {
-            Point dir = color_buffer.get_cell_center(cube_cells[i]);
+            Cube_cell const& cell = cube_cells[i];
+
+            Point dir = color_buffer.get_cell_center(cell);
             dir.normalize();
 
             float const cos_dir_normal_abs = std::abs(dir * normal);
@@ -598,29 +624,188 @@ public:
             vector3d_t const& wo = dir;
             color_t reflected_color = estimate_light_sample_no_shadow_test(state, lightRay, light_color, surfel, wo);
 
-            color_buffer.set_color(cube_cells[i], reflected_color);
-            area_buffer .set_color(cube_cells[i], color_t(area * cos_dir_normal_abs));
+            color_buffer.set_color(cell, reflected_color);
+            area_buffer .set_color(cell, color_t(area * cos_dir_normal_abs));
         }
+    }
+
+    // one sample on the surfel (center) and many on each cube cell
+    void sample_cube_cell_area(renderState_t & state, surfacePoint_t const& surfel, float const area, ray_t const& lightRay, color_t const& light_color)
+    {
+        Point const& normal = surfel.N;
+
+        std::vector<Cube_cell> const& cube_cells = color_buffer.get_cube_cells();
+
+        int const num_samples_per_cell = 8;
+        int const combined_sample_count = num_samples_per_cell * cube_cells.size();
+
+        float const cell_width_2 = 1.0f / color_buffer.get_resolution();
+
+        int combined_samples_n = 0;
+
+        for (unsigned int i = 0; i < cube_cells.size(); ++i)
+        {
+            Cube_cell const& cell = cube_cells[i];
+
+            /*
+            Point dir = color_buffer.get_cell_center(cell);
+            dir.normalize();
+
+            float const cos_dir_normal_abs = std::abs(dir * normal);
+            assert(cos_dir_normal_abs <= 1.0f);
+
+            vector3d_t const& wo = dir;
+            color_t reflected_color = estimate_light_sample_no_shadow_test(state, lightRay, light_color, surfel, wo);
+            */
+
+            color_t reflected_color(0.0f);
+            float averaged_area = 0.0f;
+
+            int plane = cell.plane / 2;
+            int const axis_0 = (plane + 1) % 3;
+            int const axis_1 = (plane + 2) % 3;
+
+            for (int j = 0; j  < num_samples_per_cell; ++j)
+            {
+                float s1, s2;
+
+                hammersley_2(combined_samples_n, combined_sample_count, s1, s2);
+
+                vector3d_t offset(0.0f);
+                offset[axis_0] = (2.0f * s1 - 1.0f) * cell_width_2;
+                offset[axis_1] = (2.0f * s2 - 1.0f) * cell_width_2;
+
+                Point dir = color_buffer.get_cell_center(cell) + offset;
+                dir.normalize();
+
+                float const cos_dir_normal_abs = std::abs(dir * normal);
+                assert(cos_dir_normal_abs <= 1.0f);
+
+                vector3d_t const& wo = dir;
+                reflected_color += estimate_light_sample_no_shadow_test(state, lightRay, light_color, surfel, wo);
+
+                averaged_area += area * cos_dir_normal_abs;
+
+                ++combined_samples_n;
+            }
+
+            reflected_color *= 1.0f / float(num_samples_per_cell);
+            averaged_area   /= float(num_samples_per_cell);
+
+            color_buffer.set_color(cell, reflected_color);
+            area_buffer .set_color(cell, color_t(averaged_area));
+        }
+
+        assert(combined_samples_n == combined_sample_count);
+    }
+
+    void sample_surfel_area(renderState_t & state, surfacePoint_t const& surfel, float const area, ray_t const& lightRay, color_t const& light_color)
+    {
+        Point const& normal = surfel.N;
+
+        std::vector<Cube_cell> const& cube_cells = color_buffer.get_cube_cells();
+
+        int const num_samples_per_surfel = 8;
+        int const combined_sample_count = num_samples_per_surfel * cube_cells.size();
+
+        int combined_samples_n = 0;
+
+        float const surfel_radius = std::sqrt(area / M_PI);
+
+        vector3d_t light_pos = vector3d_t(lightRay.from) + lightRay.dir * lightRay.tmax;
+
+//        std::cout << "light_pos: " << light_pos << std::endl;
+
+        for (unsigned int i = 0; i < cube_cells.size(); ++i)
+        {
+            Cube_cell const& cell = cube_cells[i];
+
+            color_t reflected_color(0.0f);
+            float averaged_area = 0.0f;
+
+            for (int j = 0; j  < num_samples_per_surfel; ++j)
+            {
+                float s1, s2;
+
+                // hammersley_2(combined_samples_n, combined_sample_count, s1, s2);
+                hammersley_2(j, num_samples_per_surfel, s1, s2);
+
+                vector3d_t offset_2d = SampleDisc(s1, s2);
+                vector3d_t offset_3d;
+
+                offset_3d = offset_2d.x * surfel.NU + offset_2d.y * surfel.NV;
+                offset_3d *= surfel_radius;
+
+//                std::cout << "offset_2d: " << offset_2d << std::endl;
+
+                vector3d_t surfel_sample_point = vector3d_t(surfel.P) + offset_3d;
+
+                ray_t sample_light_ray(surfel_sample_point, (light_pos - surfel_sample_point).normalize(), lightRay.tmin, lightRay.tmax);
+
+                Point dir = color_buffer.get_cell_center(cell); // - surfel_sample_point;
+                dir.normalize();
+
+//                std::cout << "dir: " << dir << std::endl;
+
+                float const cos_dir_normal_abs = std::abs(dir * normal);
+                if (cos_dir_normal_abs > 1.0001f)
+                {
+                    std::cout << dir << " " << normal << " " << cos_dir_normal_abs << std::endl;
+                    assert(false);
+                }
+                assert(cos_dir_normal_abs <= 1.0001f);
+
+                vector3d_t const& wo = dir;
+                reflected_color += estimate_light_sample_no_shadow_test(state, sample_light_ray, light_color, surfel, wo);
+
+                averaged_area += area * cos_dir_normal_abs;
+
+                ++combined_samples_n;
+            }
+
+            reflected_color *= 1.0f / float(num_samples_per_surfel);
+            averaged_area   /= float(num_samples_per_surfel);
+
+            color_buffer.set_color(cell, reflected_color);
+            area_buffer .set_color(cell, color_t(averaged_area));
+        }
+
+        assert(combined_samples_n == combined_sample_count);
+    }
+
+    void calc_coefficients_random(renderState_t & state, surfacePoint_t const& surfel, float const area, ray_t const& lightRay, color_t const& light_color)
+    {
+        sample_single(state, surfel, area, lightRay, light_color);
+        // sample_cube_cell_area(state, surfel, area, lightRay, light_color);
+        // sample_surfel_area(state, surfel, area, lightRay, light_color);
     }
 
     float get_area(Point const& dir) const
     {
+        /*
         Cube_cell c;
         bool ok = area_buffer.get_cell(dir, c);
         assert(ok);
+        */
 
-        Color area = area_buffer.get_color(c);
+        Cube_cell c = area_buffer.get_cell(dir);
+        Color area = area_buffer.get_color_interpolated(c);
+        // Color area = area_buffer.get_color(c);
 
         return area[0];
     }
 
     Color get_color(Point const& dir) const
     {
+        /*
         Cube_cell c;
         bool ok = color_buffer.get_cell(dir, c);
         assert(ok);
+        */
 
-        return color_buffer.get_color(c);
+        Cube_cell c = area_buffer.get_cell(dir);
+        return color_buffer.get_color_interpolated(c);
+        // return color_buffer.get_color(c);
     }
 
     void add(Spherical_function const* s)
@@ -677,6 +862,11 @@ public:
     Cube_raster_buffer const& get_area_buffer() const
     {
         return area_buffer;
+    }
+
+    virtual void accept(Spherical_function_visitor * visitor)
+    {
+        visitor->visit(this);
     }
 
 private:

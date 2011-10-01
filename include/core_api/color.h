@@ -118,6 +118,11 @@ class YAFRAYCORE_EXPORT color_t
             return &R;
         }
 
+        float const* data() const
+        {
+            return &R;
+        }
+
 //	protected:
 		CFLOAT R, G, B;
 };

@@ -24,6 +24,7 @@
 
 #include <utilities/RegularBspTree.h>
 #include <utilities/CubeRasterBuffer.h>
+#include <utilities/sample_utils.h>
 #include <integrators/pointbased_gi.h>
 
 #include <yafraycore/timer.h>
@@ -282,47 +283,6 @@ color_t pbLighting_t::estimateIncomingLight(renderState_t & state, light_t *ligh
 
 
 
-
-float radicalInverse(int n, int base)
-{
-    float value = 0;
-    float invBase = 1.0/(float)(base), invBi = invBase;
-
-    while(n > 0)
-    {
-        int d_i = (n % base);
-        value += d_i * invBi;
-        n /= base;
-        invBi *= invBase;
-
-    }
-
-    return value;
-}
-
-
-vector3d_t halton_3(int n)
-{
-    vector3d_t result;
-
-    result[0] = radicalInverse(n, 2);
-    result[1] = radicalInverse(n, 3);
-    result[2] = radicalInverse(n, 5);
-
-    return result;
-}
-
-
-vector3d_t hammersley_3(int const n, int const n_max)
-{
-    vector3d_t result;
-
-    result[0] = n / float(n_max);
-    result[1] = radicalInverse(n, 2);
-    result[2] = radicalInverse(n, 3);
-
-    return result;
-}
 
 
 
@@ -1013,7 +973,7 @@ void pbLighting_t::generate_gi_points(renderState_t & state)
 
     float const largest_distance = generate_histogram(sampling_points, radius);
     // float const largest_distance = radius;
-    float const needed_radius = largest_distance;
+    float const needed_radius = largest_distance * std::sqrt(2.0f) / 2.0f;
     // float const needed_radius = largest_distance * std::sqrt(2.0f);
     float const area_estimation = M_PI * needed_radius * needed_radius;
 
@@ -1093,6 +1053,8 @@ void pbLighting_t::generate_gi_points(renderState_t & state)
 
         points.push_back(giPoint);
     }
+
+    _bspTree->handle_points();
 
     /*
     std::string fileName = "/tmp/pbgi_points_store";
@@ -1186,7 +1148,7 @@ bool pbLighting_t::preprocess()
     }
     else
     {
-        _bspTree = new MyTree(vector3d_t(sceneBound.a), vector3d_t(sceneBound.g), 30, 1);
+        _bspTree = new MyTree(vector3d_t(sceneBound.a), vector3d_t(sceneBound.g), 100, 1);
         generate_gi_points(state);
     }
 
@@ -1549,9 +1511,11 @@ void process_surfel(
     }
     else
     {
+        // evaluate actual BRDF? need to use the spherical function here as well to capture anything else than the diffuse light
         // if (!back_facing)
         {
             contribution = gi_point.color * gi_point.energy;
+            // contribution = gi_point.sh_representation->get_color(giToSp);
         }
     }
 
@@ -1603,19 +1567,19 @@ void process_surfel(
 
 
 color_t doPointBasedGiTree_sh_fb(
-    pbLighting_t::MyTree const* tree,
-    renderState_t & state,
-    surfacePoint_t const& sp,
-    float const solid_angle_threshold,
-    vector3d_t const& wo,
-    int const raster_buffer_resolution,
-    Cube_raster_buffer::Type const raster_buffer_type,
-    Cube_raster_buffer::Splat_type const node_splat_type,
-    Cube_raster_buffer::Splat_type const surfel_far_splat_type,
-    Cube_raster_buffer::Splat_type const surfel_near_splat_type,
-    float const surfel_near_threshold,
-    Debug_info * debug_info
-    )
+        pbLighting_t::MyTree const* tree,
+        renderState_t & state,
+        surfacePoint_t const& sp,
+        float const solid_angle_threshold,
+        vector3d_t const& wo,
+        int const raster_buffer_resolution,
+        Cube_raster_buffer::Type const raster_buffer_type,
+        Cube_raster_buffer::Splat_type const node_splat_type,
+        Cube_raster_buffer::Splat_type const surfel_far_splat_type,
+        Cube_raster_buffer::Splat_type const surfel_near_splat_type,
+        float const surfel_near_threshold,
+        Debug_info * debug_info
+        )
 {
     color_t col(0.0f);
     const material_t *material = sp.material;
@@ -1672,11 +1636,13 @@ color_t doPointBasedGiTree_sh_fb(
 
             // using correction term to remove overshooting values at the "back"
             // float const visible_area = std::max(0.0f, (gi_point.sh_representation->get_area(giToSp) - 0.3f * max_visible_area) * 1.3f);
+            // the sum of the areas in a node can be higher than the actual possible area when the surfels are heavily overlapping (bad sampling!)
+            // float const visible_area = into_range(0.0f, max_visible_area, gi_point.sh_representation->get_area(giToSp));
             float const visible_area = std::max(0.0f, gi_point.sh_representation->get_area(giToSp));
             float const real_solid_angle = visible_area / (distance * distance);
 
-            // if (max_solid_angle > solid_angle_threshold) // || distance < node->getRadius() * 1.5f)
-            if (real_solid_angle > solid_angle_threshold || distance < node->getRadius() * 1.5f) // || distance < node->getRadius() * 1.5f)
+            if (max_solid_angle > solid_angle_threshold) // || distance < node->getRadius() * 1.5f)
+            // if (real_solid_angle > solid_angle_threshold || distance < node->getRadius() * 1.5f) // || distance < node->getRadius() * 1.5f)
             {
                 std::vector<pbLighting_t::MyTree> const& children = node->getChildren();
                 for (unsigned int i = 0; i < children.size(); ++i)

@@ -52,6 +52,19 @@ vector3d_t inline SampleSphere(float s1, float s2)
 	return dir;
 }
 
+vector3d_t inline SampleDisc(float s1, float s2)
+{
+        vector3d_t dir;
+        dir.z = 0.0f;
+        float r = std::sqrt(s1);
+        float phi = 2.0f * M_PI * s2;
+
+        dir.x = r * cos(phi);
+        dir.y = r * sin(phi);
+
+        return dir;
+}
+
 //! uniformly sample a cone. Using doubles because for small cone angles the cosine is very close to one...
 
 vector3d_t inline sampleCone(const vector3d_t &D, const vector3d_t &U, const vector3d_t &V, double maxCosAng, PFLOAT s1, PFLOAT s2)
@@ -76,6 +89,56 @@ void inline CumulateStep1dDF(const float *f, int nSteps, float *integral, float 
 	*integral = (float)c;// * delta;
 	for (i = 1; i < nSteps+1; ++i)
 		cdf[i] /= *integral;
+}
+
+
+
+float inline radicalInverse(int n, int base)
+{
+    float value = 0.0f;
+    float invBase = 1.0f/(float)(base), invBi = invBase;
+
+    while (n > 0)
+    {
+        int d_i = (n % base);
+        value += d_i * invBi;
+        n /= base;
+        invBi *= invBase;
+
+    }
+
+    return value;
+}
+
+
+vector3d_t inline halton_3(int n)
+{
+    vector3d_t result;
+
+    result[0] = radicalInverse(n, 2);
+    result[1] = radicalInverse(n, 3);
+    result[2] = radicalInverse(n, 5);
+
+    return result;
+}
+
+
+vector3d_t inline hammersley_3(int const n, int const n_max)
+{
+    vector3d_t result;
+
+    result[0] = n / float(n_max);
+    result[1] = radicalInverse(n, 2);
+    result[2] = radicalInverse(n, 3);
+
+    return result;
+}
+
+
+void inline hammersley_2(int const n, int const n_max, float & s1, float & s2)
+{
+    s1 = n / float(n_max);
+    s2 = radicalInverse(n, 2);
 }
 
 /*! class that holds a 1D probability distribution function (pdf) and is also able to
