@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <fstream>
 #include <iomanip>
+#include <map>
 
 #include <yafray_config.h>
 #include <core_api/environment.h>
@@ -25,78 +26,15 @@
 #include <utilities/RegularBspTree.h>
 #include <utilities/CubeRasterBuffer.h>
 #include <utilities/sample_utils.h>
+#include <integrators/Dictionary_converter.h>
 #include <integrators/pointbased_gi.h>
+//#include <integrators/KMeans.h>
+#include <integrators/kmeans.hpp>
 
 #include <yafraycore/timer.h>
 
 __BEGIN_YAFRAY
 
-
-GiPoint * averageGiPoints(std::vector<GiPoint*> const& points)
-{
-//    assert(points.size() > 0);
-
-    GiPoint * result = new GiPoint();
-
-    if (points.size() == 0) return result;
-
-    // SH summation
-    for (unsigned int i = 0; i < points.size(); ++i)
-    {
-        GiPoint const& p = *points[i];
-
-        result->sh_representation->add(p.sh_representation);
-    }
-
-    result->sh_representation->normalize(1.0f / float(points.size()));
-
-    // -------------------- test
-
-    vector3d_t dir(0.4f, 0.3f, 0.5f);
-    dir.normalize();
-
-    float area_sum = 0;
-
-    for (unsigned int i = 0; i < points.size(); ++i)
-    {
-        GiPoint const& p = *points[i];
-
-        area_sum += p.sh_representation->get_area(dir);
-    }
-
-    if (!is_in_range(0.9f, 1.1f, result->sh_representation->get_area(dir) / area_sum))
-    {
-        std::cout << "surfel?: " << points[0]->is_surfel << ", not in range: " << area_sum << " " << result->sh_representation->get_area(dir) << std::endl;
-    }
-    /*
-    else
-    {
-        std::cout << "in range: " << area_sum << " " << result->sh_representation->get_area(dir) << std::endl;
-    }
-    */
-
-    // -------------------------
-
-    for (unsigned int i = 0; i < points.size(); ++i)
-    {
-        GiPoint const* p = points[i];
-
-        result->pos    += p->pos;
-        result->normal += p->normal;
-        result->color  += p->color;
-        result->energy += p->energy;
-    }
-
-    result->pos    *= 1.0f / float(points.size());
-    result->color  *= 1.0f / float(points.size());
-    result->energy *= 1.0f / float(points.size());
-
-    result->normal.normalize();
-
-    result->is_surfel = false;
-
-    return result;
-}
 
 const color_t colors[] = {
     color_t(1.0f, 0.0f, 0.0f), // red
@@ -105,26 +43,194 @@ const color_t colors[] = {
     color_t(0.0f, 1.0f, 1.0f), // turquois
     color_t(1.0f, 0.0f, 1.0f), // violet
     color_t(0.5f, 0.5f, 0.5f), // gray
-    color_t(1.0f, 1.0f, 1.0f), // white (7)
-    color_t(1.0f, 0.0f, 0.0f) // red, surfel (8)
+    color_t(1.0f, 1.0f, 1.0f), // white
+    color_t(1.0f, 0.0f, 0.0f)  // red
 };
 
 std::vector<color_t> pbLighting_t::debug_colors(colors, colors + sizeof(colors)/sizeof(*colors));
 
 
+
+void text_to_framebuffer_node(std::istream & area_stream, std::istream & color_stream, GiPoint * gi_point)
+{
+    std::cout << "text_to_framebuffer_node();" << std::endl;
+
+    Cube_spherical_function * csf = dynamic_cast<Cube_spherical_function*>(gi_point->sh_representation);
+
+    Cube_raster_buffer & area_buffer  = csf->get_area_buffer();
+    Cube_raster_buffer & color_buffer = csf->get_color_buffer();
+
+    assert(color_buffer.get_resolution() == area_buffer.get_resolution());
+
+    int const cube_res_2 = color_buffer.get_resolution() / 2;
+
+    for (int plane = 0; plane < 6; ++plane)
+    {
+        for (int x = -cube_res_2; x < cube_res_2; ++x)
+        {
+            for (int y = -cube_res_2; y < cube_res_2; ++y)
+            {
+                Cube_cell c;
+                c.plane = plane;
+                c.pos[0] = x;
+                c.pos[1] = y;
+
+                float area;
+                area_stream >> area;
+
+                area_buffer.set_color(c, color_t(area));
+
+                float r, g, b;
+                color_stream >> r;
+                color_stream >> g;
+                color_stream >> b;
+
+                color_buffer.set_color(c, color_t(r, g, b));
+
+                assert(!area_stream.eof() && !color_stream.eof());
+            }
+        }
+    }
+}
+
+
+void framebuffer_nodes_to_text(pbLighting_t::MyTree * tree, int const cube_resolution)
+{
+    std::cout << "framebuffer_nodes_to_text();" << std::endl;
+
+    std::vector<pbLighting_t::MyTree*> nodes;
+    tree->get_post_order_queue(nodes);
+
+    int const cube_res_2 = cube_resolution / 2;
+
+    std::ofstream area_stream ("/tmp/pbgi_areas.txt", std::ios::out | std::ios::binary);
+    std::ofstream color_stream("/tmp/pbgi_colors.txt", std::ios::out | std::ios::binary);
+
+    area_stream  << cube_resolution << std::endl;
+    color_stream << cube_resolution << std::endl;
+
+    area_stream  << nodes.size() << std::endl;
+    color_stream << nodes.size() << std::endl;
+
+    std::vector<float> v_area_node_data;
+
+    for (unsigned int i = 0; i < nodes.size(); ++i)
+    {
+        yafaray::pbLighting_t::MyTree* node = nodes[i];
+
+        GiPoint * gi_point = node->getClusteredData();
+
+        // if (!gi_point) continue;
+        assert(gi_point);
+
+        Cube_spherical_function * csf = dynamic_cast<Cube_spherical_function*>(gi_point->sh_representation);
+
+        Cube_raster_buffer const& area_buffer  = csf->get_area_buffer();
+        Cube_raster_buffer const& color_buffer = csf->get_color_buffer();
+
+        for (int plane = 0; plane < 6; ++plane)
+        {
+            for (int x = -cube_res_2; x < cube_res_2; ++x)
+            {
+                for (int y = -cube_res_2; y < cube_res_2; ++y)
+                {
+                    Cube_cell c;
+                    c.plane = plane;
+                    c.pos[0] = x;
+                    c.pos[1] = y;
+
+                    float const area     = area_buffer .get_color(c)[0];
+                    color_t const& color = color_buffer.get_color(c);
+
+                    area_stream << area << " ";
+                    color_stream << color.R << " " << color.G << " " << color.B << " ";
+
+                    //area_stream.write((char*)&area, sizeof(area));
+                    //color_stream.write((char*)&color, sizeof(float) * 3);
+
+                    v_area_node_data.push_back(area);
+                }
+            }
+
+            area_stream << std::endl;
+            color_stream << std::endl;
+        }
+    }
+
+    area_stream .close();
+    color_stream.close();
+
+    // verification
+    {
+        std::ifstream area_istream ("/tmp/pbgi_areas.txt",  std::ios::in | std::ios::binary);
+
+        int v_num_nodes;
+        int v_resolution;
+
+        area_istream >> v_resolution;
+        area_istream >> v_num_nodes;
+
+        int counter = 0;
+
+        while (true)
+        {
+            float area;
+            //area_istream.read((char*)&area, sizeof(area));
+            area_istream >> area;
+
+            if (area_istream.eof()) break;
+
+            //std::cout << area << std::endl;
+            assert(std::abs(v_area_node_data[counter] - area) < 0.0001f);
+            ++counter;
+        }
+
+        assert(counter == v_resolution * v_resolution * 6 * v_num_nodes);
+    }
+
+    {
+        std::ifstream color_istream("/tmp/pbgi_colors.txt", std::ios::in | std::ios::binary);
+
+        int v_num_nodes;
+        int v_resolution;
+
+        color_istream >> v_resolution;
+        color_istream >> v_num_nodes;
+
+        int counter = 0;
+
+        while (true)
+        {
+            float col_component;
+            //area_istream.read((char*)&area, sizeof(area));
+            color_istream >> col_component;
+            //std::cout << area << std::endl;
+            //assert(area == v_area_node_data[i]);
+            if (color_istream.eof()) break;
+
+            ++counter;
+        }
+
+        assert(counter == 3 * v_resolution * v_resolution * 6 * v_num_nodes);
+    }
+}
+
+
+
+
 pbLighting_t::pbLighting_t(bool transpShad, int shadowDepth, int rayDepth) : maxSolidAngle(0.5f), _bspTree(NULL)
 {
-	type = SURFACE;
-	causRadius = 0.25;
-	causDepth = 10;
-	nCausPhotons = 100000;
-	nCausSearch = 100;
-	trShad = transpShad;
-	usePhotonCaustics = false;
-	sDepth = shadowDepth;
-	rDepth = rayDepth;
-	intpb = 0;
-    integratorName = "PointBased";
+    type = SURFACE;
+    causRadius = 0.25;
+    causDepth = 10;
+    nCausPhotons = 100000;
+    nCausSearch = 100;
+    trShad = transpShad;
+    usePhotonCaustics = false;
+    sDepth = shadowDepth;
+    rDepth = rayDepth;
+    intpb = 0;
+    integratorName = "PB";
     integratorShortName = "PBGI";
     do_load_gi_points = false;
 }
@@ -154,8 +260,8 @@ color_t pbLighting_t::estimateIncomingLight(renderState_t & state, light_t *ligh
                 // if(trShad) lcol *= scol;
                 // color_t surfCol = material->eval(state, sp, wo, lightRay.dir, BSDF_ALL);
                 // color_t transmitCol = scene->volIntegrator->transmittance(state, lightRay);
-                col += lcol * std::fabs(sp.N * lightRay.dir);
-                // col += lcol * std::max(0.0f, sp.N * lightRay.dir);
+                // col += lcol * std::fabs(sp.N * lightRay.dir);
+                col += lcol * std::max(0.0f, sp.N * lightRay.dir);
             }
         }
     }
@@ -365,7 +471,7 @@ float generate_histogram(std::vector<pbgi_sample_t> const& samples, float const 
         distances[i] = smallest_distance_i;
     }
 
-/*
+    /*
     for (unsigned int i = 0; i < samples.size(); ++i)
     {
         float smallest_distance_i = 1e10f;
@@ -574,7 +680,7 @@ std::vector<pbgi_sample_t> generate_samples_darts_hash(float const min_radius, i
 
 
 
-/*
+        /*
         bool sample_rejected_2 = false;
 
         for (unsigned int i = 0; i < sampling_points.size(); ++i)
@@ -861,7 +967,7 @@ std::vector<pbgi_sample_t> generate_samples_suicide(int const number_of_samples,
     */
 
 
-      // killer loop
+    // killer loop
     for (unsigned int i = 0; i < candidate_samples.size(); ++i)
     {
         point3d_t const& killer_pos = candidate_samples[i].position;
@@ -893,16 +999,16 @@ std::vector<pbgi_sample_t> generate_samples_suicide(int const number_of_samples,
 
 
 
-//        for (unsigned int j = 0; j < candidate_samples.size(); ++j)
-//        {
-//            // if (dead_samples[j] || i == j) continue;
-//            if (i == j) continue;
+        //        for (unsigned int j = 0; j < candidate_samples.size(); ++j)
+        //        {
+        //            // if (dead_samples[j] || i == j) continue;
+        //            if (i == j) continue;
 
-//            if ((candidate_samples[j].position - candidate_samples[i].position).length() < desired_radius * 2.0f)
-//            {
-//                dead_samples[j] = true;
-//            }
-//        }
+        //            if ((candidate_samples[j].position - candidate_samples[i].position).length() < desired_radius * 2.0f)
+        //            {
+        //                dead_samples[j] = true;
+        //            }
+        //        }
 
     }
 
@@ -945,17 +1051,143 @@ std::vector<pbgi_sample_t> generate_samples_suicide(int const number_of_samples,
 }
 
 
-void pbLighting_t::generate_gi_points(renderState_t & state)
+void pbLighting_t::generate_spherical_function(renderState_t & state, GiPoint * gi_point, surfacePoint_t const& sp, std::vector<light_t*> const& lights)
+{
+    ray_t lightRay;
+    lightRay.from = gi_point->pos;
+    bool shadowed;
+    color_t lcol(0.f);
+
+    for (std::vector<light_t *>::const_iterator light = lights.begin(); light != lights.end(); ++light)
+    {
+        if ((*light)->diracLight())
+        {
+            if ((*light)->illuminate(sp, lcol, lightRay))
+            {
+                // ...shadowed...
+                lightRay.tmin = YAF_SHADOW_BIAS; // < better add some _smart_ self-bias value...this is bad.
+                shadowed = scene->isShadowed(state, lightRay);
+                float const cos_sp_N_lightray_dir = sp.N * lightRay.dir;
+                if (!shadowed && cos_sp_N_lightray_dir > 0.0f)
+                {
+                    color_t const incoming_light = lcol;
+                    // color_t const reflected_light = lcol * std::max(0.0f, cos_sp_N_lightray_dir);
+                    gi_point->color += incoming_light;
+                }
+                else
+                {
+                    lcol = color_t(0.0f);
+                }
+            }
+
+            gi_point->sh_representation->calc_coefficients_random(state, sp, gi_point->area, lightRay, lcol);
+        }
+    }
+}
+
+
+bound_t generate_disc_bounding_box(vector3d_t const& p, vector3d_t const& nu, vector3d_t const& nv, float const radius)
+{
+    bound_t bounding_box;
+
+    vector3d_t disc_bound[4];
+    disc_bound[0] = p + nu * radius + nv * radius;
+    disc_bound[1] = p + nu * radius - nv * radius;
+    disc_bound[2] = p - nu * radius - nv * radius;
+    disc_bound[3] = p - nu * radius + nv * radius;
+
+    bounding_box = bound_t(disc_bound[0], disc_bound[1]);
+    bounding_box.include(disc_bound[2]);
+    bounding_box.include(disc_bound[3]);
+
+    return bounding_box;
+}
+
+
+void pbLighting_t::generate_gi_points_data(renderState_t & state,
+                                           std::vector<MyTree*> const& nodes,
+                                           std::map<GiPoint*, surfacePoint_t> const& point_to_surface_point_map,
+                                           Spherical_function_converter const* converter,
+                                           int const treat_depth_as_leaf)
+{
+    Gi_point_averager averager(_spherical_function_factory);
+
+    for (unsigned int i = 0; i < nodes.size(); ++i)
+    {
+        MyTree* node = nodes[i];
+
+        if (node->getIsLeaf())
+        {
+            std::vector<GiPoint*> node_data = node->getData();
+            assert(node_data.size() == 1);
+
+            for (unsigned int j = 0; j < node_data.size(); ++j)
+            {
+                GiPoint * gi_point = node_data[j];
+
+                std::map<GiPoint*, surfacePoint_t>::const_iterator iter = point_to_surface_point_map.find(gi_point);
+                assert(iter != point_to_surface_point_map.end());
+
+                surfacePoint_t const& sp = iter->second;
+
+                material_t const* material = sp.material;
+                BSDF_t bsdfs;
+                material->initBSDF(state, sp, bsdfs);
+                // gi_point->color  = material->getDiffuseAtPoint(state, sp) + material->emission(state, sp, vector3d_t());
+                // gi_point->energy = material->emission(state, sp, vector3d_t());
+
+                generate_spherical_function(state, gi_point, sp, lights);
+
+                gi_point->color *= material->getDiffuseAtPoint(state, sp);
+                gi_point->color += material->emission(state, sp, vector3d_t());
+
+                node->average_node(averager);
+            }
+        }
+        else
+        {
+            bool const treat_as_leaf = (node->getDepth() == treat_depth_as_leaf);
+
+            if (!treat_as_leaf)
+            {
+                node->average_node(averager);
+            }
+
+            if (converter && !treat_as_leaf)
+            {
+                std::vector<MyTree> & children = node->getChildren();
+
+                for (unsigned int j = 0; j < children.size(); ++j)
+                {
+                    Spherical_function * tmp;
+
+                    if (children[j].getIsLeaf())
+                    {
+                        assert(children[j].getData().size() == 1);
+                        tmp = children[j].getData()[0]->sh_representation;
+                        children[j].getData()[0]->sh_representation = converter->convert(children[j].getData()[0]->sh_representation);
+                        delete tmp;
+                    }
+
+                    tmp = children[j].getClusteredData()->sh_representation;
+                    children[j].getClusteredData()->sh_representation = converter->convert(children[j].getClusteredData()->sh_representation);
+                    delete tmp;
+                }
+            }
+        }
+    }
+}
+
+void pbLighting_t::generate_gi_points(renderState_t & state, MyTree * tree, int const number_of_samples, Spherical_function_converter const* converter)
 {
     float const scene_area = get_total_scene_area(scene->meshes);
 
-    int const number_of_samples = samplesPerArea;
     float const area_per_sample = scene_area / float(number_of_samples);
 
     std::cout << "generate_gi_points(): scene_area: " << scene_area << " area_per_sample: " << area_per_sample << std::endl;
 
     float radius = std::sqrt(area_per_sample / M_PI);
-    std::cout << "best radius: " << radius << std::endl;
+    std::cout << "generate_gi_points(): best radius: " << radius << std::endl;
 
     timer_t my_timer;
     my_timer.addEvent("t1");
@@ -971,15 +1203,29 @@ void pbLighting_t::generate_gi_points(renderState_t & state)
 
     std::cout << "samples/desired_samples: " << (sampling_points.size() / float(number_of_samples)) << " time: " << my_timer.getTime("t1") << std::endl;
 
+//    float const needed_radius = radius;
+
     float const largest_distance = generate_histogram(sampling_points, radius);
-    // float const largest_distance = radius;
     float const needed_radius = largest_distance * std::sqrt(2.0f) / 2.0f;
-    // float const needed_radius = largest_distance * std::sqrt(2.0f);
+    // float const needed_radius = largest_distance * std::sqrt(2.0f) / 4.0f; // FIXME: correct factor: std::sqrt(2.0f) / 2.0f but leads to too fast fill degree
+
     float const area_estimation = M_PI * needed_radius * needed_radius;
+
+    std::cout << "generate_gi_points(): needed radius: " << needed_radius << std::endl;
 
     std::vector<GiPoint*> points;
 
-    for (unsigned int i = 0; i < sampling_points.size(); ++i)
+    std::map<GiPoint*, surfacePoint_t> point_to_surface_point_map;
+
+    timer_t timer;
+    timer.addEvent("point_creation");
+    timer.start("point_creation");
+
+    // -------------------------------------------
+    // Put the GI points into the tree and create a correspondency map between
+    // point and its surface point
+    #pragma omp parallel for
+    for (int i = 0; i < int(sampling_points.size()); ++i)
     {
         point3d_t const& hitPoint = sampling_points[i].position;
         triangle_t const& tri = *sampling_points[i].tri_pointer;
@@ -989,72 +1235,75 @@ void pbLighting_t::generate_gi_points(renderState_t & state)
         intersectData_t iData;
         tri.getSurface(sp, hitPoint, iData);
 
-        GiPoint * giPoint = new GiPoint();
-        giPoint->pos = vector3d_t(sp.P);
-        giPoint->normal = sp.N;
+        GiPoint * gi_point = new GiPoint(_spherical_function_factory);
+
+        gi_point->pos          = vector3d_t(sp.P);
+        gi_point->normal       = sp.N;
         //giPoint->area = area_per_sample;
-        giPoint->area = area_estimation;
+        gi_point->area         = area_estimation;
         //giPoint->debug_radius = needed_radius;
-        giPoint->debug_radius = radius;
+        gi_point->debug_radius = radius;
 
-        material_t const* material = sp.material;
-        BSDF_t bsdfs;
-        material->initBSDF(state, sp, bsdfs);
-        giPoint->color = material->getDiffuseAtPoint(state, sp);
+        gi_point->bounding_box = generate_disc_bounding_box(vector3d_t(sp.P), sp.NU, sp.NV, needed_radius);
 
-
-        /*
-        color_t incomingLight;
-        unsigned int loffs = 0;
-        for(std::vector<light_t *>::const_iterator l=lights.begin(); l!=lights.end(); ++l)
+        #pragma omp critical
         {
-            incomingLight += estimateIncomingLight(state, *l, sp, loffs);
-            loffs++;
+            point_to_surface_point_map[gi_point] = sp;
+            tree->addPoint(vector3d_t(sp.P), gi_point);
+            points.push_back(gi_point);
         }
-
-        giPoint->energy = incomingLight + material->emission(state, sp, vector3d_t());
-
-        giPoint->sh_representation->calc_coefficients_random(giPoint->normal, giPoint->color, giPoint->energy, giPoint->area);
-        */
-
-        ray_t lightRay;
-        lightRay.from = sp.P;
-        bool shadowed;
-        color_t lcol(0.f);
-
-        for (std::vector<light_t *>::const_iterator light = lights.begin(); light != lights.end(); ++light)
-        {
-            if ((*light)->diracLight())
-            {
-                if ((*light)->illuminate(sp, lcol, lightRay))
-                {
-                    // ...shadowed...
-                    lightRay.tmin = YAF_SHADOW_BIAS; // < better add some _smart_ self-bias value...this is bad.
-                    shadowed = scene->isShadowed(state, lightRay);
-                    if (!shadowed)
-                    {
-                        color_t incomingLight = estimateIncomingLight(state, *light, sp, 0);
-                        giPoint->energy += incomingLight;
-                    }
-                    else
-                    {
-                        lcol = color_t(0.0f);
-                    }
-                }
-
-                giPoint->sh_representation->calc_coefficients_random(state, sp, giPoint->area, lightRay, lcol);
-            }
-        }
-
-        giPoint->energy += material->emission(state, sp, vector3d_t());
-
-
-        _bspTree->addPoint(giPoint->pos, giPoint);
-
-        points.push_back(giPoint);
     }
 
-    _bspTree->handle_points();
+    tree->finalize_points();
+    timer.stop("point_creation");
+    // ------------------------------------------
+
+
+    // ------------------------------------------
+    // go through all nodes in post order, generate the SF representation in the children,
+    // then go up to the parent, use the children to generate its SF and convert it and delete the children's unconverted etc.
+
+    timer.addEvent("node_data_creation");
+    timer.start("node_data_creation");
+
+    bool use_parallel_splitting = false;
+
+    if (use_parallel_splitting)
+    {
+        int const splitting_depth = 4;
+        int const num_threads = std::pow(2, splitting_depth);
+
+        std::vector<MyTree*> nodes_in_splitting_depth = tree->getNodes(splitting_depth);
+
+        #pragma omp parallel for
+        for (int i = 0; i < num_threads; ++i)
+        {
+            MyTree* split_root = nodes_in_splitting_depth[i];
+
+            std::vector<MyTree*> split_nodes;
+            split_root->get_post_order_queue(split_nodes);
+
+            generate_gi_points_data(state, split_nodes, point_to_surface_point_map, converter);
+        }
+
+        std::cout << "generate_gi_points(): finished lower tree part" << std::endl;
+
+        std::vector<MyTree*> nodes;
+        tree->get_post_order_queue(nodes, splitting_depth);
+
+        generate_gi_points_data(state, nodes, point_to_surface_point_map, converter, splitting_depth);
+    }
+    else
+    {
+        std::vector<MyTree*> nodes;
+        tree->get_post_order_queue(nodes);
+
+        generate_gi_points_data(state, nodes, point_to_surface_point_map, converter);
+    }
+
+    timer.stop("node_data_creation");
+
+    // ------------------------------------------
 
     /*
     std::string fileName = "/tmp/pbgi_points_store";
@@ -1069,10 +1318,19 @@ void pbLighting_t::generate_gi_points(renderState_t & state)
     out_file.close();
     */
 
-    std::cout << "surfel count: " << points.size() << std::endl;
+    std::cout << "surfel count: " << points.size() <<
+                 " timing, points: " << timer.getTime("point_creation") <<
+                 " node data: "      << timer.getTime("node_data_creation") <<
+                 std::endl;
+
+    // surfel count: 100618 timing, points: 12.2492 node data: 122.974
+    // INFO: PBGI: solid angle: 5 2 max depth: 17 min leaf depth: 16 #s: 200000 | rr: 8, Dw, As, Dt, Dt | sa: 5 | sf: Cube, 8
+
+    // surfel count: 100618 timing, points: 3.78485 node data: 11.175
+    // INFO: PBGI: solid angle: 5 2 max depth: 17 min leaf depth: 16 #s: 200000 | rr: 8, Dw, As, Dt, Dt | sa: 5 | sf: SH, 8
 }
 
-
+// FIXME: broken due to fucked up serialisation
 yafaray::pbLighting_t::MyTree * load_gi_points()
 {
     std::cout << "Loading points" << std::endl;
@@ -1082,11 +1340,13 @@ yafaray::pbLighting_t::MyTree * load_gi_points()
     std::string fileName = "/tmp/pbgi_points_store";
     std::ifstream in_file(fileName.c_str(), std::ios_base::binary);
 
+    /*
     boost::archive::text_iarchive ar(in_file);
     ar.register_type<GiSphericalHarmonics>();
     ar.register_type<Cube_spherical_function>();
+    */
 
-    ar >> points;
+    // ar >> points;
 
     in_file.close();
 
@@ -1118,41 +1378,241 @@ yafaray::pbLighting_t::MyTree * load_gi_points()
 }
 
 
+std::vector<Spherical_function*> generate_dictionary_from_gi_points_kmeans(
+        std::vector<GiPoint const*> const& gi_points,
+        Spherical_function_factory const* spherical_function_factory,
+        int const dict_num_centers)
+{
+    std::vector<Spherical_function*> dictionary;
+    // std::vector<float> unpacked_points;
+
+    std::vector<Word> word_list;
+
+    int number_words = 0;
+
+    for (unsigned int i = 0; i < gi_points.size(); ++i)
+    {
+        GiPoint const* gi_point = gi_points[i];
+
+        if (gi_point)
+        {
+            std::vector<Word> components = gi_point->sh_representation->components_to_vectors();
+
+            for (unsigned int i = 0; i < components.size(); ++i)
+            {
+                word_list.push_back(components[i]);
+            }
+
+            number_words += components.size();
+        }
+    }
+
+    kmeans<std::vector<Word>, Distance_function> my_kmeans(word_list, dict_num_centers);
+    my_kmeans.run_default();
+
+    std::vector<Word>   centers     = my_kmeans.centers();
+    // std::vector<size_t> assignments = my_kmeans.clusters();
+
+    for (unsigned int i = 0; i < centers.size(); ++i)
+    {
+        std::vector< std::vector<float> > center_components(6);
+
+        center_components[0] = centers[i];
+
+        Spherical_function * sf = spherical_function_factory->create();
+        sf->from_component_vectors(center_components);
+
+        dictionary.push_back(sf);
+    }
+
+    /*
+    std::cout << "Assignments, kmeans: ";
+    for (unsigned int i = 0; i < assignments.size(); ++i)
+    {
+        std::cout << assignments[i] << " ";
+    }
+    std::cout << std::endl;
+    */
+
+    return dictionary;
+}
+
+
+std::vector<Spherical_function*> generate_random_dictionary_from_gi_points(
+        std::vector<GiPoint const*> const& gi_points,
+        Spherical_function_factory const* spherical_function_factory,
+        int const dict_num_centers)
+{
+    std::vector<Spherical_function*> dictionary;
+
+    random_t my_random;
+
+    for (int i = 0; i < dict_num_centers; )
+    {
+        int const index = my_random() * gi_points.size();
+
+        GiPoint const* gi_point = gi_points[index];
+
+        if (gi_point)
+        {
+            int const random_side = 6.0f * my_random();
+
+            std::vector< std::vector<float> > center_components(6);
+
+            center_components[0] = gi_point->sh_representation->components_to_vectors()[random_side];
+
+            Spherical_function * sf = spherical_function_factory->create();
+
+            sf->from_component_vectors(center_components);
+
+            dictionary.push_back(sf);
+
+            ++i;
+        }
+    }
+
+    return dictionary;
+}
+
+
+std::vector<Spherical_function*> generate_dictionary_from_tree(pbLighting_t::MyTree const* tree,
+                                                               Spherical_function_factory const* spherical_function_factory,
+                                                               pbLighting_t::Dictionary_type const dict_type,
+                                                               int const dict_num_centers)
+{
+    std::vector<pbLighting_t::MyTree const*> nodes = tree->getNodes();
+
+    std::vector<GiPoint const*> gi_points;
+
+    for (unsigned int i = 0; i < nodes.size(); ++i)
+    {
+        GiPoint const* gi_point = nodes[i]->getClusteredData();
+        gi_points.push_back(gi_point);
+    }
+
+    if (dict_type == pbLighting_t::Random_dict)
+    {
+        return generate_random_dictionary_from_gi_points(gi_points, spherical_function_factory, dict_num_centers);
+    }
+    else
+    {
+        return generate_dictionary_from_gi_points_kmeans(gi_points, spherical_function_factory, dict_num_centers);
+    }
+}
+
+std::string extract_initials(std::string const& name)
+{
+    std::string res;
+    res += name[0];
+
+    size_t pos = 0;
+
+    while (true)
+    {
+        pos = name.find("_", pos + 1);
+
+        if (pos == std::string::npos)
+        {
+            break;
+        }
+
+        res += name[pos + 1];
+    }
+
+    return res;
+}
+
+template <class T>
+std::string get_string_from_type_map(T const& type, std::map<std::string, T> const& type_map)
+{
+    typename std::map<std::string, T>::const_iterator iter;
+
+    for (iter = type_map.begin(); iter != type_map.end(); ++iter)
+    {
+        if (iter->second == type)
+        {
+            return iter->first;
+        }
+    }
+
+    return "X";
+}
+
 bool pbLighting_t::preprocess()
 {
     Y_INFO << "PBGI Preprocess" << std::endl;
 
-	bool success = true;
-	settings = "";
+    bool success = true;
+    settings = "";
 
     std::stringstream ss;
-    ss << "type: " << debug_type_str << " | samples: " << samplesPerArea << " | solid angle: " << maxSolidAngle;
+    ss << "#s: "    << surfel_samples <<
+          " | rr: " << raster_buffer_resolution <<
+          ", "      << extract_initials(get_string_from_type_map(raster_buffer_type, Cube_raster_buffer::enum_type_map)) <<
+          ", "      << extract_initials(get_string_from_type_map(node_splat_type, Cube_raster_buffer::enum_splat_type_map)) <<
+          ", "      << extract_initials(get_string_from_type_map(surfel_far_splat_type, Cube_raster_buffer::enum_splat_type_map)) <<
+          ", "      << extract_initials(get_string_from_type_map(surfel_near_splat_type, Cube_raster_buffer::enum_splat_type_map)) <<
+          " | sa: " << maxSolidAngle <<
+          " | sf: " << _spherical_function_factory->get_name() <<
+          ", "      << _sf_resolution;
+          //" | dict: " << _dictionary_type <<
+          //" | samp frac: " << _dictionary_sample_fraction;
 
     settings = ss.str();
 
     background = scene->getBackground();
-	lights = scene->lights;
+    lights = scene->lights;
 
     renderState_t state;
     unsigned char userdata[USER_DATA_SIZE+7];
     state.userdata = (void *)( &userdata[7] - ( ((size_t)&userdata[7])&7 ) ); // pad userdata to 8 bytes
     state.cam = scene->getCamera();
 
-
     bound_t const& sceneBound = scene->getSceneBound();
 
 
-    if (do_load_gi_points)
+    if (_dictionary_type != No_dict)
     {
-        _bspTree = load_gi_points();
+        MyTree * dict_tree = new MyTree(vector3d_t(sceneBound.a), vector3d_t(sceneBound.g), 100, 1);
+        generate_gi_points(state, dict_tree, surfel_samples * _dictionary_sample_fraction);
+
+        Gi_point_averager averager(_spherical_function_factory);
+        dict_tree->averageData(averager);
+
+        _dictionary = generate_dictionary_from_tree(dict_tree, _spherical_function_factory, _dictionary_type, _dict_num_centers);
+
+        Dictionary_converter * converter = new Dictionary_converter(&_dictionary);
+
+        _bspTree = new MyTree(vector3d_t(sceneBound.a), vector3d_t(sceneBound.g), 100, 1);
+        generate_gi_points(state, _bspTree, surfel_samples, converter);
+
+        Indexed_gi_point_averager indexed_averager(_spherical_function_factory, converter);
+        _bspTree->averageData(indexed_averager);
+
+        delete dict_tree;
+        delete converter;
     }
     else
     {
-        _bspTree = new MyTree(vector3d_t(sceneBound.a), vector3d_t(sceneBound.g), 100, 1);
-        generate_gi_points(state);
+        if (do_load_gi_points)
+        {
+            _bspTree = load_gi_points();
+        }
+        else
+        {
+            Spherical_function_converter * converter = new Cube_to_mises_fisher_converter;
+            // Spherical_function_converter * converter = NULL;
+
+            _bspTree = new MyTree(vector3d_t(sceneBound.a), vector3d_t(sceneBound.g), 100, 1);
+            generate_gi_points(state, _bspTree, surfel_samples, converter);
+
+            if (!_use_sf_files)
+            {
+                // framebuffer_nodes_to_text(_bspTree, _sf_resolution);
+            }
+        }
     }
 
-    MyTree::averageData(_bspTree);
 
     // _bspTree->printAveraged();
 
@@ -1163,9 +1623,10 @@ bool pbLighting_t::preprocess()
            << debugTreeDepth << " "
            << "max depth: " << _bspTree->getMaxDepth() << " "
            << "min leaf depth: " << _bspTree->getMinLeafDepth() << " "
+           << settings << " "
            << std::endl;
 
-	return success;
+    return success;
 }
 
 
@@ -1212,7 +1673,7 @@ color_t pbLighting_t::doPointBasedGiTree(renderState_t & state, surfacePoint_t c
                 {
                     color_t surfCol = material->eval(state, sp, wo, -giToSp, BSDF_ALL);
 
-                    col += solidAngle * giP.color * cos_normal_gip * giP.energy * surfCol;
+                    col += solidAngle * giP.color * cos_normal_gip * surfCol;
                 }
 
                 ++shadingDiscs;
@@ -1236,7 +1697,7 @@ color_t pbLighting_t::doPointBasedGiTree(renderState_t & state, surfacePoint_t c
                 // float solidAngle = calcSolidAngle(giP.radius, distance);
 
                 if (std::abs(solidAngle) > maxSolidAngle)
-                // if (true)
+                    // if (true)
                 {
                     std::vector<MyTree> const& children = node->getChildren();
                     for (unsigned int i = 0; i < children.size(); ++i)
@@ -1254,7 +1715,7 @@ color_t pbLighting_t::doPointBasedGiTree(renderState_t & state, surfacePoint_t c
                     {
                         color_t surfCol = material->eval(state, sp, wo, -giToSp, BSDF_ALL);
 
-                        col += solidAngle * giP.color * cos_normal_gip * giP.energy * surfCol;
+                        col += solidAngle * giP.color * cos_normal_gip * surfCol;
                     }
 
                     ++shadingNodes;
@@ -1273,7 +1734,7 @@ color_t pbLighting_t::doPointBasedGiTree(renderState_t & state, surfacePoint_t c
         }
     }
 
-//    std::cout << "shadingDiscs: " << shadingDiscs << " shadingNodes: " << shadingNodes << std::endl;
+    //    std::cout << "shadingDiscs: " << shadingDiscs << " shadingNodes: " << shadingNodes << std::endl;
 
     return col;
 }
@@ -1371,7 +1832,6 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
                         GiPoint * p = new GiPoint(giP);
                         p->area = area;;
                         p->color = contribution;
-                        p->energy = 1.0f;
                         p->depth = node->getDepth();
 
                         debugStorageShadingClusters.push_back(p);
@@ -1435,7 +1895,6 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
                         GiPoint * p = new GiPoint(giP);
                         p->area = area;
                         p->color = cluster_contribution;
-                        p->energy = 1.0f;
                         p->depth = node->getDepth();
 
                         debugStorageShadingClusters.push_back(p);
@@ -1463,29 +1922,32 @@ color_t pbLighting_t::doPointBasedGiTreeSH(renderState_t & state, surfacePoint_t
 
 
 void process_surfel(
-    GiPoint const& gi_point,
-    surfacePoint_t const& sp,
-    Cube_raster_buffer & frame_buffer,
-    float const surfel_near_threshold,
-    Debug_info * debug_info)
+        GiPoint const& gi_point,
+        surfacePoint_t const& rp,
+        Cube_raster_buffer & frame_buffer,
+        float const surfel_near_threshold,
+        float const mix_amount,
+        std::vector<Gi_point_info> & point_infos,
+        std::vector<GiPoint*> & debug_points,
+        Debug_info * debug_info)
 {
-    yafaray::vector3d_t giToSp = (vector3d_t(sp.P) - gi_point.pos);
+    yafaray::vector3d_t surfel_to_rp = (vector3d_t(rp.P) - gi_point.pos);
 
-    float const distance = giToSp.length();
+    float const distance = surfel_to_rp.length();
 
-    giToSp.normalize();
+    surfel_to_rp.normalize();
 
 
-    float cos_rp_n_gip = sp.N * (-giToSp);
+    float const cos_rp_n_gip = rp.N * (-surfel_to_rp);
     if (cos_rp_n_gip < 0.05f) return;
 
     // float const cos_sp_gip = std::max(gi_point.normal * giToSp, 0.0f);
-    float cos_sp_gip = gi_point.normal * giToSp;
-    bool back_facing = cos_sp_gip < 0.0f;
-    cos_sp_gip = std::abs(cos_sp_gip);
-
+    float cos_sp_gip = gi_point.normal * surfel_to_rp;
+    bool const back_facing = cos_sp_gip < 0.0f;
 
     if (back_facing) return;
+
+    cos_sp_gip = std::abs(cos_sp_gip);
 
 
     // float const cos_sp_gip = std::abs(giP.normal * giToSp);
@@ -1502,20 +1964,14 @@ void process_surfel(
 
     if (debug_info && debug_info->color_by_depth)
     {
-        contribution = pbLighting_t::debug_colors.back();
-
-        if (distance < disc_radius * 4.0f)
-        {
-            contribution = color_t(1.0f, 1.0f, 0.0f);
-        }
+        contribution = pbLighting_t::debug_colors.front();
     }
     else
     {
         // evaluate actual BRDF? need to use the spherical function here as well to capture anything else than the diffuse light
         // if (!back_facing)
         {
-            contribution = gi_point.color * gi_point.energy;
-            // contribution = gi_point.sh_representation->get_color(giToSp);
+            contribution = gi_point.sh_representation->get_color(surfel_to_rp) * mix_amount;
         }
     }
 
@@ -1531,12 +1987,13 @@ void process_surfel(
 
     point_info.color = contribution;
     point_info.disc_normal = gi_point.normal;
-    point_info.direction = -giToSp;
+    point_info.direction = -surfel_to_rp;
     point_info.radius = disc_radius;
     point_info.depth = distance;
     point_info.position = gi_point.pos;
-    point_info.receiver_position = vector3d_t(sp.P);
+    point_info.receiver_position = vector3d_t(rp.P);
     point_info.solid_angle = solid_angle_real;
+    point_info.spherical_function = gi_point.sh_representation;
 
     yafaray::GiPoint * debug_point = NULL;
 
@@ -1551,25 +2008,110 @@ void process_surfel(
             ++debug_info->used_far_surfels;
         }
 
-        debug_point = new yafaray::GiPoint(gi_point);
+        debug_point = new GiPoint(gi_point);
 
         //debug_point->area = max_area;
         // debug_point->area = visible_area;
         debug_point->area = gi_point.area;
         debug_point->color = contribution;
-        debug_point->energy = 1.0f;
         debug_point->depth = debug_info->node_depth;
         debug_point->debug_radius = visible_radius; // debug only!
+
+        debug_points.push_back(debug_point);
     }
+
+    // frame_buffer.add_point(point_info, debug_point);
+    point_infos.push_back(point_info);
+}
+
+
+/*
+void process_node(
+        pbLighting_t::MyTree const* node,
+        GiPoint              const& gi_point,
+        surfacePoint_t       const& receiving_point,
+        vector3d_t           const& node_to_rp,
+        Cube_raster_buffer        & frame_buffer,
+        Debug_info                * debug_info)
+{
+    // float const cos_normal_gip = -giToSp * sp.N;
+
+    yafaray::color_t cluster_contribution;
+
+    if (debug_info && debug_info->color_by_depth)
+    {
+        // float const cos_sp_gip = std::max(0.0f, giP.normal * giToSp);
+        cluster_contribution = pbLighting_t::debug_colors[std::min(node->getDepth(), int(pbLighting_t::debug_colors.size()) - 2)]; // * cos_sp_gip;
+    }
+    else
+    {
+        cluster_contribution = gi_point.sh_representation->get_color(node_to_rp);
+        // cluster_contribution = giP.color * giP.energy; // * cos_sp_gip;
+    }
+
+    yafaray::GiPoint * debug_point = NULL;
+
+    if (debug_info)
+    {
+        debug_point = new yafaray::GiPoint(gi_point);
+
+        debug_point->pos = position;
+
+        debug_point->area = visible_area;
+        if (debug_info->show_octree_node_area)
+        {
+            debug_point->area = max_visible_area;
+        }
+
+        debug_point->color = cluster_contribution;
+        debug_point->energy = 1.0f;
+        debug_point->depth = node->getDepth();
+        debug_point->debug_radius = std::sqrt(visible_area / M_PI); // debug only!
+
+        ++debug_info->used_nodes;
+    }
+
+    Gi_point_info point_info;
+    point_info.type = Gi_point_info::Node;
+    point_info.color = cluster_contribution;
+    point_info.direction = -node_to_rp;
+    point_info.depth = distance;
+    point_info.position = position;
+    point_info.receiver_position = vector3d_t(receiving_point.P);
+    // point_info.solid_angle = real_solid_angle * 2.0f;
+    point_info.solid_angle = real_solid_angle;
+    point_info.radius = node_radius;
 
     frame_buffer.add_point(point_info, debug_point);
 }
+*/
+
+
+struct Compare_point_info_by_depth
+{
+    bool operator() (Gi_point_info const& p1, Gi_point_info const& p2)
+    {
+        return (p1.depth < p2.depth);
+    }
+};
+
+
+
+struct Point_and_debug_info {
+    GiPoint*       debug_point;
+    Gi_point_info* point_info;
+
+    bool operator() (Point_and_debug_info const& p1, Point_and_debug_info const& p2)
+    {
+        return (p1.point_info->depth < p2.point_info->depth);
+    }
+};
 
 
 color_t doPointBasedGiTree_sh_fb(
         pbLighting_t::MyTree const* tree,
         renderState_t & state,
-        surfacePoint_t const& sp,
+        surfacePoint_t const& receiving_point,
         float const solid_angle_threshold,
         vector3d_t const& wo,
         int const raster_buffer_resolution,
@@ -1582,7 +2124,293 @@ color_t doPointBasedGiTree_sh_fb(
         )
 {
     color_t col(0.0f);
-    const material_t *material = sp.material;
+    const material_t *material = receiving_point.material;
+
+
+    Cube_raster_buffer frame_buffer;
+    frame_buffer.setup(raster_buffer_type, raster_buffer_resolution, node_splat_type, surfel_far_splat_type, surfel_near_splat_type);
+
+    std::vector<Gi_point_info> point_infos;
+    std::vector<GiPoint*> debug_points;
+
+    point_infos.reserve(10000);
+
+    if (debug_info)
+    {
+        debug_points.reserve(10000);
+    }
+
+    float const fixed_max_solid_angle = frame_buffer.get_solid_angle(vector3d_t(1, 0, 0)) * solid_angle_threshold;
+
+    if (debug_info)
+    {
+        debug_info->my_timer.start("Traversal");
+    }
+
+    // traverse tree, if solid angle of node > max, traverse into the children
+    std::queue<pbLighting_t::MyTree const*> queue;
+    queue.push(tree);
+
+    while (!queue.empty())
+    {
+        pbLighting_t::MyTree const* node = queue.front();
+        queue.pop();
+
+        if (debug_info)
+        {
+            debug_info->node_depth  = node->getDepth();
+            // debug_info->node_height = node->get_node_height(0); // this  is really expensive for every node!
+        }
+
+        // if we are here and we have a leaf, we sample all points in the leaf
+        if (node->getIsLeaf())
+        {
+            if (debug_info)
+            {
+                debug_info->my_timer.start("Surfel");
+            }
+
+            std::vector<GiPoint*> const& points = node->getData();
+
+            assert(points.size() == 1); // true as long as we force 1 surfel per leaf in the tree
+
+            for (unsigned int i = 0; i < points.size(); ++i)
+            {
+                yafaray::GiPoint const& giP = *points[i];
+
+                process_surfel(giP, receiving_point, frame_buffer, surfel_near_threshold, 1.0f, point_infos, debug_points, debug_info);
+            }
+
+            if (debug_info)
+            {
+                debug_info->my_timer.stop("Surfel");
+            }
+        }
+        else if (node->has_children())
+        {
+            if (debug_info)
+            {
+                debug_info->my_timer.start("NodeCheck");
+                ++debug_info->num_node_checks;
+            }
+
+            if (node->isNodeDataBehindPlane(vector3d_t(receiving_point.P), receiving_point.N, 0.1f))
+            // if (node->is_node_data_behind_plane_approx(vector3d_t(receiving_point.P), receiving_point.N, bb_radius, 0.2f))
+            {
+                if (debug_info)
+                {
+                    debug_info->my_timer.stop("NodeCheck");
+                }
+
+                continue;
+            }
+
+            GiPoint const& gi_point = *node->getClusteredData();
+            float const bb_radius = gi_point.bounding_box.get_enclosing_radius();
+
+            // vector3d_t const position = node->getCenter();
+            vector3d_t const& position = gi_point.pos;
+
+            vector3d_t node_to_rp = (vector3d_t(receiving_point.P) - position);
+
+            float const distance = node_to_rp.length();
+
+            node_to_rp.normalize();
+
+            // float const node_radius = node->getRadius();
+            float const node_radius = bb_radius;
+            float const max_visible_area = node_radius * node_radius * M_PI;
+            float const max_node_solid_angle = max_visible_area / (distance * distance);
+
+            // using correction term to remove overshooting values at the "back"
+            // float const visible_area = std::max(0.0f, (gi_point.sh_representation->get_area(giToSp) - 0.3f * max_visible_area) * 1.3f);
+
+            // float const direction_max_solid_angle = frame_buffer.get_solid_angle(node_to_rp) * solid_angle_threshold;
+            float const direction_max_solid_angle = fixed_max_solid_angle;
+
+            if (debug_info)
+            {
+                debug_info->my_timer.stop("NodeCheck");
+            }
+
+            if (max_node_solid_angle > direction_max_solid_angle /* solid_angle_threshold */ || distance < node_radius * 1.5f)
+            // if (real_solid_angle > solid_angle_threshold || distance < node->getRadius() * 1.5f) // || distance < node->getRadius() * 1.5f)
+            {
+                std::vector<pbLighting_t::MyTree> const& children = node->getChildren();
+                for (unsigned int i = 0; i < children.size(); ++i)
+                {
+                    queue.push(&children[i]);
+                }
+            }
+            else
+            {
+                if (debug_info)
+                {
+                    debug_info->my_timer.start("Node");
+                }
+
+                // the sum of the areas in a node can be higher than the actual possible area when the surfels are heavily overlapping (bad sampling!)
+                // or there are faces in the same direction in different depths
+                // float const visible_area = into_range(0.0f, max_visible_area, gi_point.sh_representation->get_area(giToSp));
+                float const visible_area = std::max(0.0f, gi_point.sh_representation->get_area(node_to_rp));
+
+                float const real_solid_angle = visible_area / (distance * distance);
+
+                yafaray::color_t cluster_contribution;
+
+                if (debug_info && debug_info->color_by_depth)
+                {
+                    cluster_contribution = pbLighting_t::debug_colors[std::min(node->get_shortest_distance_to_leaf(), int(pbLighting_t::debug_colors.size()) - 1)];
+                }
+                else
+                {
+                    cluster_contribution = gi_point.sh_representation->get_color(node_to_rp);
+                }
+
+                yafaray::GiPoint * debug_point = NULL;
+
+                if (debug_info)
+                {
+                    debug_point = new yafaray::GiPoint(gi_point);
+
+                    debug_point->pos = position;
+
+                    debug_point->area = visible_area;
+
+                    if (debug_info->show_octree_node_area)
+                    {
+                        debug_point->area = max_visible_area;
+                    }
+
+                    debug_point->color        = cluster_contribution;
+                    debug_point->depth        = node->getDepth();
+                    debug_point->debug_radius = std::sqrt(visible_area / M_PI); // debug only!
+
+                    ++debug_info->used_nodes;
+
+                    debug_points.push_back(debug_point);
+                }
+
+                Gi_point_info point_info;
+                point_info.type               = Gi_point_info::Node;
+                point_info.color              = cluster_contribution;
+                point_info.direction          = -node_to_rp;
+                point_info.depth              = distance;
+                point_info.position           = position;
+                point_info.receiver_position  = vector3d_t(receiving_point.P);
+                // point_info.solid_angle        = real_solid_angle * 2.0f;
+                point_info.solid_angle        = real_solid_angle;
+                point_info.radius             = node_radius;
+                // point_info.radius             = std::sqrt(visible_area / M_PI);
+                point_info.spherical_function = NULL;
+
+                // frame_buffer.add_point(point_info, debug_point);
+                point_infos.push_back(point_info);
+
+
+                if (debug_info)
+                {
+                    debug_info->my_timer.stop("Node");
+                }
+            } // end else (bad solid angle)
+        }
+        else
+        {
+            assert(false);
+        }
+    }
+
+    if (debug_info)
+    {
+        debug_info->my_timer.stop("Traversal");
+        debug_info->my_timer.start("Accumulating");
+    }
+
+    if (debug_info)
+    {
+        assert(point_infos.size() == debug_points.size());
+
+        std::vector<Point_and_debug_info> pd_infos(point_infos.size());
+
+        for (unsigned int i = 0; i < point_infos.size(); ++i)
+        {
+            Point_and_debug_info & pdi = pd_infos[i];
+            pdi.debug_point = debug_points[i];
+            pdi.point_info  = &point_infos[i];
+        }
+
+        std::sort(pd_infos.begin(), pd_infos.end(), Point_and_debug_info());
+
+        for (unsigned int i = 0; i < pd_infos.size(); ++i)
+        {
+            frame_buffer.add_point(*pd_infos[i].point_info, pd_infos[i].debug_point);
+        }
+    }
+    else
+    {
+        // sort and splat, then integrate
+        std::sort(point_infos.begin(), point_infos.end(), Compare_point_info_by_depth());
+
+        for (unsigned int i = 0; i < point_infos.size(); ++i)
+        {
+            frame_buffer.add_point(point_infos[i]);
+            //Gi_point_info const& pi = point_infos[i];
+            //col += pi.color * std::max(0.0f, pi.direction * receiving_point.N) * pi.solid_angle;
+        }
+
+        //col *= 1.0f / (2.0f * M_PI);
+    }
+
+    col = frame_buffer.get_diffuse(receiving_point.N);
+
+    if (material)
+    {
+        color_t surfCol = material->getDiffuseAtPoint(state, receiving_point); //material->eval(state, sp, wo, vector3d_t(0.0f), BSDF_ALL);
+        // surfCol = material->eval(state, sp, wo, vector3d_t(0.0f), BSDF_ALL);
+        col *= surfCol;
+    }
+
+    if (debug_info)
+    {
+        debug_info->my_timer.stop("Accumulating");
+
+        if (debug_info->result_fb)
+        {
+            *debug_info->result_fb = frame_buffer;
+        }
+
+        std::cout <<
+                     " NodeCheck: " << debug_info->my_timer.getTime("NodeCheck") <<
+                     " Node: " << debug_info->my_timer.getTime("Node") <<
+                     " Surfel: " << debug_info->my_timer.getTime("Surfel") <<
+                     " Traversal: " << debug_info->my_timer.getTime("Traversal") <<
+                     " Accumulating: " << debug_info->my_timer.getTime("Accumulating") <<
+                     " num_node_checks: " << debug_info->num_node_checks <<
+                     std::endl ;
+    }
+
+    return col;
+}
+
+
+
+color_t doPointBasedGiTree_sh_fb_variational(
+        pbLighting_t::MyTree const* tree,
+        renderState_t & state,
+        surfacePoint_t const& receiving_point,
+        float const solid_angle_threshold,
+        vector3d_t const& wo,
+        int const raster_buffer_resolution,
+        Cube_raster_buffer::Type const raster_buffer_type,
+        Cube_raster_buffer::Splat_type const node_splat_type,
+        Cube_raster_buffer::Splat_type const surfel_far_splat_type,
+        Cube_raster_buffer::Splat_type const surfel_near_splat_type,
+        float const surfel_near_threshold,
+        Debug_info * debug_info
+        )
+{
+    color_t col(0.0f);
+    const material_t *material = receiving_point.material;
 
     // traverse tree, if solid angle of node > max, traverse into the children
     std::queue<pbLighting_t::MyTree const*> queue;
@@ -1590,6 +2418,8 @@ color_t doPointBasedGiTree_sh_fb(
 
     Cube_raster_buffer frame_buffer;
     frame_buffer.setup(raster_buffer_type, raster_buffer_resolution, node_splat_type, surfel_far_splat_type, surfel_near_splat_type);
+
+    float mix_amount_node_points = -1.0f;
 
     while (!queue.empty())
     {
@@ -1613,22 +2443,25 @@ color_t doPointBasedGiTree_sh_fb(
             {
                 yafaray::GiPoint const& giP = *points[i];
 
-                process_surfel(giP, sp, frame_buffer, surfel_near_threshold, debug_info);
+                // assert(mix_amount_node_points >= 0.0f && mix_amount_node_points <= 1.0f);
+                // process_surfel(giP, receiving_point, frame_buffer, surfel_near_threshold, 1.0f - mix_amount_node_points, debug_info);
+                assert(false);
+                // process surfel BROKEN like this
             }
         }
         else if (node->has_children())
         {
-            if (node->isNodeBehindPlane(vector3d_t(sp.P), sp.N)) continue;
+            if (node->isNodeBehindPlane(vector3d_t(receiving_point.P), receiving_point.N)) continue;
 
             GiPoint const& gi_point = *node->getClusteredData();
             // vector3d_t const position = node->getCenter();
             vector3d_t const& position = gi_point.pos;
 
-            vector3d_t giToSp = (vector3d_t(sp.P) - position);
+            vector3d_t node_to_rp = (vector3d_t(receiving_point.P) - position);
 
-            float const distance = giToSp.length();
+            float const distance = node_to_rp.length();
 
-            giToSp.normalize();
+            node_to_rp.normalize();
 
             float const node_radius = node->getRadius();
             float const max_visible_area = node_radius * node_radius * M_PI;
@@ -1636,13 +2469,20 @@ color_t doPointBasedGiTree_sh_fb(
 
             // using correction term to remove overshooting values at the "back"
             // float const visible_area = std::max(0.0f, (gi_point.sh_representation->get_area(giToSp) - 0.3f * max_visible_area) * 1.3f);
+
             // the sum of the areas in a node can be higher than the actual possible area when the surfels are heavily overlapping (bad sampling!)
+            // or there are faces in the same direction in different depths
             // float const visible_area = into_range(0.0f, max_visible_area, gi_point.sh_representation->get_area(giToSp));
-            float const visible_area = std::max(0.0f, gi_point.sh_representation->get_area(giToSp));
+            float const visible_area = std::max(0.0f, gi_point.sh_representation->get_area(node_to_rp));
+
             float const real_solid_angle = visible_area / (distance * distance);
 
-            if (max_solid_angle > solid_angle_threshold) // || distance < node->getRadius() * 1.5f)
-            // if (real_solid_angle > solid_angle_threshold || distance < node->getRadius() * 1.5f) // || distance < node->getRadius() * 1.5f)
+            // mix_amount_node_points = (solid_angle_threshold / max_solid_angle) * 2.0f - 0.5f;
+            mix_amount_node_points = (solid_angle_threshold / max_solid_angle) - 0.5f;
+            mix_amount_node_points = into_range(0.0f, 1.0f, mix_amount_node_points);
+
+            if (max_solid_angle > solid_angle_threshold || mix_amount_node_points < 0.9999f) // || distance < node->getRadius() * 1.5f)
+                // if (real_solid_angle > solid_angle_threshold || distance < node->getRadius() * 1.5f) // || distance < node->getRadius() * 1.5f)
             {
                 std::vector<pbLighting_t::MyTree> const& children = node->getChildren();
                 for (unsigned int i = 0; i < children.size(); ++i)
@@ -1650,10 +2490,9 @@ color_t doPointBasedGiTree_sh_fb(
                     queue.push(&children[i]);
                 }
             }
-            else
-            {
-                // float const cos_normal_gip = -giToSp * sp.N;
 
+            if (mix_amount_node_points > 0.0001f)
+            {
                 yafaray::color_t cluster_contribution;
 
                 if (debug_info && debug_info->color_by_depth)
@@ -1663,7 +2502,8 @@ color_t doPointBasedGiTree_sh_fb(
                 }
                 else
                 {
-                    cluster_contribution = gi_point.sh_representation->get_color(giToSp);
+                    // assert(mix_amount_node_points >= 0.0f && mix_amount_node_points <= 1.0f);
+                    cluster_contribution = gi_point.sh_representation->get_color(node_to_rp) * mix_amount_node_points; // * into_range(0.0f, 1.0f, mix_amount_node_points);
                     // cluster_contribution = giP.color * giP.energy; // * cos_sp_gip;
                 }
 
@@ -1682,7 +2522,6 @@ color_t doPointBasedGiTree_sh_fb(
                     }
 
                     debug_point->color = cluster_contribution;
-                    debug_point->energy = 1.0f;
                     debug_point->depth = node->getDepth();
                     debug_point->debug_radius = std::sqrt(visible_area / M_PI); // debug only!
 
@@ -1692,26 +2531,26 @@ color_t doPointBasedGiTree_sh_fb(
                 Gi_point_info point_info;
                 point_info.type = Gi_point_info::Node;
                 point_info.color = cluster_contribution;
-                point_info.direction = -giToSp;
+                point_info.direction = -node_to_rp;
                 point_info.depth = distance;
                 point_info.position = position;
-                point_info.receiver_position = vector3d_t(sp.P);
+                point_info.receiver_position = vector3d_t(receiving_point.P);
                 // point_info.solid_angle = real_solid_angle * 2.0f;
                 point_info.solid_angle = real_solid_angle;
                 point_info.radius = node_radius;
 
                 frame_buffer.add_point(point_info, debug_point);
-            } // end else (bad solid angle)
+            }
         }
     }
 
-    col = frame_buffer.get_diffuse(sp.N);
+    col = frame_buffer.get_diffuse(receiving_point.N);
 
     if (material)
     {
-        color_t surfCol = material->getDiffuseAtPoint(state, sp); //material->eval(state, sp, wo, vector3d_t(0.0f), BSDF_ALL);
+        color_t surfCol = material->getDiffuseAtPoint(state, receiving_point); //material->eval(state, sp, wo, vector3d_t(0.0f), BSDF_ALL);
         // surfCol = material->eval(state, sp, wo, vector3d_t(0.0f), BSDF_ALL);
-        col = frame_buffer.get_diffuse(sp.N) * surfCol;
+        col = frame_buffer.get_diffuse(receiving_point.N) * surfCol;
     }
 
     if (debug_info && debug_info->result_fb)
@@ -1753,13 +2592,15 @@ color_t pbLighting_t::doPointBasedGiTreeSH_leafs_only(renderState_t & state, sur
             {
                 yafaray::GiPoint const& giP = *points[i];
 
-                process_surfel(giP, sp, frame_buffer, NULL);
+                //process_surfel(giP, sp, frame_buffer, 0.0f, 1.0f);
+                assert(false);
+                // BROKEN due to call to process_surfel
             }
 
         }
         else
         {
-//            if (node->isNodeBehindPlane(vector3d_t(sp.P), sp.N)) continue;
+            //            if (node->isNodeBehindPlane(vector3d_t(sp.P), sp.N)) continue;
 
             std::vector<MyTree> const& children = node->getChildren();
             for (unsigned int i = 0; i < children.size(); ++i)
@@ -1769,7 +2610,7 @@ color_t pbLighting_t::doPointBasedGiTreeSH_leafs_only(renderState_t & state, sur
         }
     }
 
-//    std::cout << "shadingDiscs: " << shadingDiscs << " shadingNodes: " << shadingNodes << std::endl;
+    //    std::cout << "shadingDiscs: " << shadingDiscs << " shadingNodes: " << shadingNodes << std::endl;
 
 
     color_t surfCol(1.0f);
@@ -1789,28 +2630,28 @@ colorA_t pbLighting_t::integrate(renderState_t &state, diffRay_t &ray) const
         return color_t(0.0);
     }
 
-	color_t col(0.0);
-	float alpha = 0.0;
-	surfacePoint_t sp;
-	void *o_udat = state.userdata;
-	bool oldIncludeLights = state.includeLights;
-	
-	if(scene->intersect(ray, sp)) // If it hits
-	{
-		unsigned char userdata[USER_DATA_SIZE];
-		const material_t *material = sp.material;
-		BSDF_t bsdfs;
+    color_t col(0.0);
+    float alpha = 0.0;
+    surfacePoint_t sp;
+    void *o_udat = state.userdata;
+    bool oldIncludeLights = state.includeLights;
 
-		state.userdata = (void *) userdata;
-		vector3d_t wo = -ray.dir;
-		if(state.raylevel == 0) state.includeLights = true;
-		
-		material->initBSDF(state, sp, bsdfs);
-		
+    if(scene->intersect(ray, sp)) // If it hits
+    {
+        unsigned char userdata[USER_DATA_SIZE];
+        const material_t *material = sp.material;
+        BSDF_t bsdfs;
+
+        state.userdata = (void *) userdata;
+        vector3d_t wo = -ray.dir;
+        if(state.raylevel == 0) state.includeLights = true;
+
+        material->initBSDF(state, sp, bsdfs);
+
         if(bsdfs & BSDF_EMIT) col += material->emission(state, sp, wo);
-		
-		if(bsdfs & BSDF_DIFFUSE)
-		{
+
+        if(bsdfs & BSDF_DIFFUSE)
+        {
             if (!indirectOnly)
             {
                 col += estimateAllDirectLight(state, sp, wo);
@@ -1826,43 +2667,54 @@ colorA_t pbLighting_t::integrate(renderState_t &state, diffRay_t &ray) const
             }
             else if (debug_type == Tree_sh_fb)
             {
-                // col += doPointBasedGiTree_sh_fb(state, sp, wo);
-                col += doPointBasedGiTree_sh_fb(_bspTree, state, sp, maxSolidAngle, wo, raster_buffer_resolution, raster_buffer_type,
-                                                node_splat_type, surfel_far_splat_type, surfel_near_splat_type, surfel_near_threshold);
+                if (variational)
+                {
+                    //col += doPointBasedGiTree_sh_fb_variational(_bspTree, state, sp, maxSolidAngle, wo, raster_buffer_resolution, raster_buffer_type,
+                    //                                            node_splat_type, surfel_far_splat_type, surfel_near_splat_type, surfel_near_threshold);
+                    assert(false);
+                }
+                else
+                {
+                    col += doPointBasedGiTree_sh_fb(_bspTree, state, sp, maxSolidAngle, wo, raster_buffer_resolution, raster_buffer_type,
+                                                    node_splat_type, surfel_far_splat_type, surfel_near_splat_type, surfel_near_threshold);
+                }
             }
             else if (debug_type == Tree_sh_leafs)
             {
                 col += doPointBasedGiTreeSH_leafs_only(state, sp, wo);
             }
         }
-		
-        // recursiveRaytrace(state, ray, bsdfs, sp, wo, col, alpha);
-		
-		float m_alpha = material->getAlpha(state, sp, wo);
-		alpha = m_alpha + (1.f - m_alpha) * alpha;
-	}
-	else // Nothing hit, return background if any
-	{
+
+        if (!indirectOnly)
+        {
+            recursiveRaytrace(state, ray, bsdfs, sp, wo, col, alpha);
+        }
+
+        float m_alpha = material->getAlpha(state, sp, wo);
+        alpha = m_alpha + (1.f - m_alpha) * alpha;
+    }
+    else // Nothing hit, return background if any
+    {
         if (background) col += (*background)(ray, state, false);
-	}
-	
-	state.userdata = o_udat;
-	state.includeLights = oldIncludeLights;
-	return colorA_t(col, alpha);
+    }
+
+    state.userdata = o_udat;
+    state.includeLights = oldIncludeLights;
+    return colorA_t(col, alpha);
 }
 
 integrator_t* pbLighting_t::factory(paraMap_t &params, renderEnvironment_t &render)
 {
-	bool transpShad=false;
-	bool caustics=false;
-	bool do_AO=false;
-	int shadowDepth=5;
-	int raydepth=5, cDepth=10;
-	int search=100, photons=500000;
-	int AO_samples = 32;
-	double cRad = 0.25;
-	double AO_dist = 1.0;
-	color_t AO_col(1.f);
+    bool transpShad=false;
+    bool caustics=false;
+    bool do_AO=false;
+    int shadowDepth=5;
+    int raydepth=5, cDepth=10;
+    int search=100, photons=500000;
+    int AO_samples = 32;
+    double cRad = 0.25;
+    double AO_dist = 1.0;
+    color_t AO_col(1.f);
     int samples = 10;
     bool debug = false;
     bool indirectOnly = false;
@@ -1886,19 +2738,25 @@ integrator_t* pbLighting_t::factory(paraMap_t &params, renderEnvironment_t &rend
     std::string surfel_far_splat_type = Cube_raster_buffer::enum_splat_type_map.begin()->first;
     std::string surfel_near_splat_type = Cube_raster_buffer::enum_splat_type_map.begin()->first;
     float surfel_near_threshold = 2.0f;
+    std::string dictionary_type_str = "No_dict";
+    int sf_resolution = 4;
+    int dict_num_centers = 100;
+    float dictionary_sample_fraction = 0.1f;
+    bool use_sf_files = false;
+    bool variational = false;
 
-	params.getParam("raydepth", raydepth);
-	params.getParam("transpShad", transpShad);
-	params.getParam("shadowDepth", shadowDepth);
-	params.getParam("caustics", caustics);
-	params.getParam("photons", photons);
-	params.getParam("caustic_mix", search);
-	params.getParam("caustic_depth", cDepth);
-	params.getParam("caustic_radius", cRad);
-	params.getParam("do_AO", do_AO);
-	params.getParam("AO_samples", AO_samples);
-	params.getParam("AO_distance", AO_dist);
-	params.getParam("AO_color", AO_col);
+    params.getParam("raydepth", raydepth);
+    params.getParam("transpShad", transpShad);
+    params.getParam("shadowDepth", shadowDepth);
+    params.getParam("caustics", caustics);
+    params.getParam("photons", photons);
+    params.getParam("caustic_mix", search);
+    params.getParam("caustic_depth", cDepth);
+    params.getParam("caustic_radius", cRad);
+    params.getParam("do_AO", do_AO);
+    params.getParam("AO_samples", AO_samples);
+    params.getParam("AO_distance", AO_dist);
+    params.getParam("AO_color", AO_col);
 
     params.getParam("samplesPerArea", samples);
     params.getParam("debug", debug);
@@ -1917,21 +2775,28 @@ integrator_t* pbLighting_t::factory(paraMap_t &params, renderEnvironment_t &rend
     params.getParam("surfel_far_splat_type", surfel_far_splat_type);
     params.getParam("surfel_near_splat_type", surfel_near_splat_type);
     params.getParam("surfel_near_threshold", surfel_near_threshold);
-	
-    pbLighting_t *inte = new pbLighting_t(transpShad, shadowDepth, raydepth);
-	// caustic settings
-	inte->usePhotonCaustics = caustics;
-	inte->nCausPhotons = photons;
-	inte->nCausSearch = search;
-	inte->causDepth = cDepth;
-	inte->causRadius = cRad;
-	// AO settings
-	inte->useAmbientOcclusion = do_AO;
-	inte->aoSamples = AO_samples;
-	inte->aoDist = AO_dist;
-	inte->aoCol = AO_col;
+    params.getParam("dictionary_type", dictionary_type_str);
+    params.getParam("dict_num_centers", dict_num_centers);
+    params.getParam("dict_sample_fraction", dictionary_sample_fraction);
+    params.getParam("sf_resolution", sf_resolution);
+    params.getParam("use_sf_files", use_sf_files);
+    params.getParam("variational", variational);
 
-    inte->samplesPerArea = samples;
+
+    pbLighting_t *inte = new pbLighting_t(transpShad, shadowDepth, raydepth);
+    // caustic settings
+    inte->usePhotonCaustics = caustics;
+    inte->nCausPhotons = photons;
+    inte->nCausSearch = search;
+    inte->causDepth = cDepth;
+    inte->causRadius = cRad;
+    // AO settings
+    inte->useAmbientOcclusion = do_AO;
+    inte->aoSamples = AO_samples;
+    inte->aoDist = AO_dist;
+    inte->aoCol = AO_col;
+
+    inte->surfel_samples = samples;
     inte->debug = debug;
     inte->indirectOnly = indirectOnly;
     inte->debugTreeDepth = debugTreeDepth;
@@ -1945,19 +2810,50 @@ integrator_t* pbLighting_t::factory(paraMap_t &params, renderEnvironment_t &rend
     inte->debug_type_str = debug_type;
 
     inte->render_single_pixel = render_single_pixel;
-    inte->pixel_x = pixel_x;
-    inte->pixel_y = pixel_y;
+    inte->pixel_x             = pixel_x;
+    inte->pixel_y             = pixel_y;
+    inte->variational         = variational;
 
     inte->do_load_gi_points = do_load_gi_points;
 
     inte->raster_buffer_resolution = fb_resolution;
-    inte->raster_buffer_type = Cube_raster_buffer::enum_type_map[fb_type];
-    inte->node_splat_type = Cube_raster_buffer::enum_splat_type_map[node_splat_type];
-    inte->surfel_far_splat_type = Cube_raster_buffer::enum_splat_type_map[surfel_far_splat_type];
-    inte->surfel_near_splat_type = Cube_raster_buffer::enum_splat_type_map[surfel_near_splat_type];
-    inte->surfel_near_threshold = surfel_near_threshold;
+    inte->raster_buffer_type       = Cube_raster_buffer::enum_type_map[fb_type];
+    inte->node_splat_type          = Cube_raster_buffer::enum_splat_type_map[node_splat_type];
+    inte->surfel_far_splat_type    = Cube_raster_buffer::enum_splat_type_map[surfel_far_splat_type];
+    inte->surfel_near_splat_type   = Cube_raster_buffer::enum_splat_type_map[surfel_near_splat_type];
+    inte->surfel_near_threshold    = surfel_near_threshold;
 
     inte->maxSolidAngle = maxSolidAngle;
+
+    std::string spherical_function_factory_type = "SH";
+    params.getParam("spherical_function_type", spherical_function_factory_type);
+    if (spherical_function_factory_type == "Cube")
+    {
+        inte->_spherical_function_factory = new Cube_spherical_function_factory(sf_resolution, false);
+    }
+    else if (spherical_function_factory_type == "SH")
+    {
+        inte->_spherical_function_factory = new Spherical_harmonics_factory;
+    }
+
+    inte->_sf_resolution              = sf_resolution;
+    inte->_use_sf_files               = use_sf_files;
+    inte->_dict_num_centers           = dict_num_centers;
+    inte->_dictionary_sample_fraction = dictionary_sample_fraction;
+
+    if (dictionary_type_str == "No_dict")
+    {
+        inte->_dictionary_type = pbLighting_t::No_dict;
+    }
+    else if (dictionary_type_str == "Random_dict")
+    {
+        inte->_dictionary_type = pbLighting_t::Random_dict;
+    }
+    else if (dictionary_type_str == "Kmeans_dict")
+    {
+        inte->_dictionary_type = pbLighting_t::Kmeans_dict;
+    }
+
 
     Y_INFO <<
               "maxSolidAngle: " << inte->maxSolidAngle << " " <<
@@ -1967,19 +2863,23 @@ integrator_t* pbLighting_t::factory(paraMap_t &params, renderEnvironment_t &rend
               "surfel_far_splat_type: " << inte->surfel_far_splat_type << " " <<
               "surfel_near_splat_type: " << inte->surfel_near_splat_type << " " <<
               "surfel_near_threshold: " << inte->surfel_near_threshold << " " <<
+              "dictionary_type: " << inte->_dictionary_type << " " <<
+              "dict_num_centers: " << inte->_dict_num_centers << " " <<
+              "dict_sample_fraction: " << inte->_dictionary_sample_fraction << " " <<
+              "sf_resolution: " << inte->_sf_resolution << " " <<
               std::endl;
 
 
-	return inte;
+    return inte;
 }
 
 extern "C"
 {
 
-	YAFRAYPLUGIN_EXPORT void registerPlugin(renderEnvironment_t &render)
-	{
-        render.registerFactory("pbgi", pbLighting_t::factory);
-	}
+YAFRAYPLUGIN_EXPORT void registerPlugin(renderEnvironment_t &render)
+{
+    render.registerFactory("pbgi", pbLighting_t::factory);
+}
 
 }
 

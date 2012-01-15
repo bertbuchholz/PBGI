@@ -14,6 +14,7 @@ bool timer_t::addEvent(const std::string &name)
 {
 	if(includes(name)) return false;
 	else events[name] = tdata_t();
+        events[name].elapsed = 0;
 	return true;
 }
 
@@ -43,6 +44,10 @@ bool timer_t::stop(const std::string &name)
 	gettimeofday(&i->second.tvf, &tz);
 #endif
 	i->second.stopped = true;
+
+        const tdata_t &td = i->second;
+        i->second.elapsed += (td.tvf.tv_sec - td.tvs.tv_sec) + double(td.tvf.tv_usec - td.tvs.tv_usec) / 1.0e6;
+
 	return true;
 }
 
@@ -52,6 +57,7 @@ bool timer_t::reset(const std::string &name)
 	if (i==events.end()) return false;
 	i->second.started = false;
 	i->second.stopped = false;
+        i->second.elapsed = 0;
 	return true;
 }
 
@@ -59,13 +65,15 @@ double timer_t::getTime(const std::string &name)
 {
 	std::map<std::string, tdata_t>::const_iterator i=events.find(name);
 	if (i==events.end()) return -1;
+        if(!(i->second.stopped))return -1;
 #ifdef WIN32
 	else return ((double) (i->second.finish - i->second.start) ) / CLOCKS_PER_SEC;
 #else
 	else
 	{
-		const tdata_t &td = i->second;
-		return (td.tvf.tv_sec - td.tvs.tv_sec) + double(td.tvf.tv_usec - td.tvs.tv_usec)/1.0e6;
+            //const tdata_t &td = i->second;
+            //return (td.tvf.tv_sec - td.tvs.tv_sec) + double(td.tvf.tv_usec - td.tvs.tv_usec)/1.0e6;
+            return i->second.elapsed;
 	}
 #endif
 }
@@ -100,6 +108,18 @@ void timer_t::splitTime(double t, double *secs, int *mins, int *hours, int *days
 		times -= m*60;
 	}
 	*secs = t - double(s - times);
+}
+
+bool timer_t::reset_all()
+{
+        std::map<std::string, tdata_t>::iterator i;
+
+        for (i = events.begin(); i != events.end(); ++i)
+        {
+            reset(i->first);
+        }
+
+        return true;
 }
 
 __END_YAFRAY

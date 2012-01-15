@@ -30,7 +30,7 @@ class YAFRAYCORE_EXPORT mutex_t
 		mutex_t(const mutex_t &m);
 		mutex_t & operator = (const mutex_t &m);
 #if HAVE_PTHREAD
-		pthread_mutex_t m;
+                pthread_mutex_t * m;
 #elif defined( WIN32_THREADS )
 		HANDLE winMutex;
 #endif

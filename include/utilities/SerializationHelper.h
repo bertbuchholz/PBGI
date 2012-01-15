@@ -8,8 +8,6 @@
 #include <core_api/vector3d.h>
 #include <core_api/color.h>
 
-#include <utilities/spherical_harmonics.h>
-
 namespace boost {
 namespace serialization {
 

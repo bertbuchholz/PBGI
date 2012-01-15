@@ -83,25 +83,25 @@ class YAFRAYCORE_EXPORT bound_t
 		//! Returns the volume of the bound
 		GFLOAT vol() const;
 		//! Returns the lenght along X axis
-		PFLOAT longX()const {return g.x-a.x;};
+                PFLOAT longX()const {return g.x-a.x;}
 		//! Returns the lenght along Y axis
-		PFLOAT longY()const {return g.y-a.y;};
+                PFLOAT longY()const {return g.y-a.y;}
 		//! Returns the lenght along Y axis
-		PFLOAT longZ()const {return g.z-a.z;};
+                PFLOAT longZ()const {return g.z-a.z;}
 		//! Cuts the bound to have the given max X
-		void setMaxX(PFLOAT X) {g.x=X;};
+                void setMaxX(PFLOAT X) {g.x=X;}
 		//! Cuts the bound to have the given min X
-		void setMinX(PFLOAT X) {a.x=X;};
+                void setMinX(PFLOAT X) {a.x=X;}
 		
 		//! Cuts the bound to have the given max Y
-		void setMaxY(PFLOAT Y) {g.y=Y;};
+                void setMaxY(PFLOAT Y) {g.y=Y;}
 		//! Cuts the bound to have the given min Y
-		void setMinY(PFLOAT Y) {a.y=Y;};
+                void setMinY(PFLOAT Y) {a.y=Y;}
 
 		//! Cuts the bound to have the given max Z
-		void setMaxZ(PFLOAT Z) {g.z=Z;};
+                void setMaxZ(PFLOAT Z) {g.z=Z;}
 		//! Cuts the bound to have the given min Z
-		void setMinZ(PFLOAT Z) {a.z=Z;};
+                void setMinZ(PFLOAT Z) {a.z=Z;}
 		//! Adjust bound size to include point p
 		void include(const point3d_t &p);
 		//! Returns true if the point is inside the bound
@@ -111,10 +111,10 @@ class YAFRAYCORE_EXPORT bound_t
 				 ( pn.y >= a.y ) && ( pn.y <= g.y) &&
 				 ( pn.z >= a.z ) && ( pn.z <= g.z) );
 		};
-		PFLOAT centerX()const {return (g.x+a.x)*0.5;};
-		PFLOAT centerY()const {return (g.y+a.y)*0.5;};
-		PFLOAT centerZ()const {return (g.z+a.z)*0.5;};
-		point3d_t center()const {return (g+a)*0.5;};
+                PFLOAT centerX()const {return (g.x+a.x)*0.5;}
+                PFLOAT centerY()const {return (g.y+a.y)*0.5;}
+                PFLOAT centerZ()const {return (g.z+a.z)*0.5;}
+                point3d_t center()const {return (g+a)*0.5;}
 		int largestAxis()
 		{
 			vector3d_t d = g-a;
@@ -128,7 +128,12 @@ class YAFRAYCORE_EXPORT bound_t
 			g.x+=d;
 			g.y+=d;
 			g.z+=d;
-		};
+                }
+
+                float get_enclosing_radius() const
+                {
+                    return (g - a).length() / 2.0f;
+                }
 		
 //	protected: // Lynx; need these to be public.
 		//! Two points define the box

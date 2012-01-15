@@ -27,6 +27,7 @@
 #include <cstring>
 
 
+
 __BEGIN_YAFRAY
 
 #if HAVE_XML
@@ -79,6 +80,7 @@ static void my_fatalError(void *user_data, const char *msg, ...)
     va_end(args);
 }
 
+
 static xmlSAXHandler my_handler =
 {
 	NULL,
@@ -106,13 +108,15 @@ static xmlSAXHandler my_handler =
   my_error,
   my_fatalError
 };
+
 #endif // HAVE_XML
 
 bool parse_xml_file(const char *filename, scene_t *scene, renderEnvironment_t *env, paraMap_t &render)
 {
 #if HAVE_XML
 	xmlParser_t parser(env, scene, render);
-	if (xmlSAXUserParseFile(&my_handler, &parser, filename) < 0)
+
+        if (xmlSAXUserParseFile(&my_handler, &parser, filename) < 0)
 	{
 		Y_ERROR << "XMLParser: Parsing the file " << filename << yendl;
 		return false;
@@ -132,7 +136,7 @@ bool parse_xml_file(const char *filename, scene_t *scene, renderEnvironment_t *e
 xmlParser_t::xmlParser_t(renderEnvironment_t *renv, scene_t *sc, paraMap_t &r):
 	env(renv), scene(sc), render(r), current(0), level(0)
 {
-	cparams = &params;
+        cparams = &params;
 	pushState(startEl_document, endEl_document);
 }
 

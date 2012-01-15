@@ -159,7 +159,8 @@ color_t glossyMat_t::eval(const renderState_t &state, const surfacePoint_t &sp, 
 		}
 		else
 		{
-			glossy = Blinn_D(H*N, exponent) * SchlickFresnel(cos_wi_H, dat->mGlossy) / ASDivisor(cos_wi_H, woN, wiN);
+                        // glossy = Blinn_D(H*N, exponent) * SchlickFresnel(cos_wi_H, dat->mGlossy) / ASDivisor(cos_wi_H, woN, wiN);
+                        glossy = Blinn_D(H*N, exponent) / ASDivisor(cos_wi_H, woN, wiN);
 
 		}
 

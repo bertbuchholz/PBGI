@@ -21,6 +21,7 @@ class YAFRAYCORE_EXPORT timer_t
 		bool start(const std::string &name);
 		bool stop(const std::string &name);
 		bool reset(const std::string &name);
+                bool reset_all();
 		double getTime(const std::string &name);
 		
 		static void splitTime(double t, double *secs, int *mins=0, int *hours=0, int *days=0);
@@ -36,6 +37,7 @@ class YAFRAYCORE_EXPORT timer_t
 			timeval tvs, tvf;
 			#endif
 			bool started, stopped;
+                        double elapsed;
 		};
 		std::map<std::string, tdata_t> events;
 };

@@ -51,7 +51,7 @@ class YAFRAYCORE_EXPORT renderEnvironment_t
 		shader_factory_t* getShaderNodeFactory(const std::string &name)const;
 		background_t* 	getBackground(const std::string &name)const;
 		integrator_t* 	getIntegrator(const std::string &name)const;
-		scene_t * 		getScene() { return curren_scene; };
+                scene_t * 		getScene() { return curren_scene; }
 		
 		light_t* 		createLight		(const std::string &name, paraMap_t &params);
 		texture_t* 		createTexture	(const std::string &name, paraMap_t &params);
@@ -65,7 +65,7 @@ class YAFRAYCORE_EXPORT renderEnvironment_t
 		VolumeRegion*	createVolumeRegion(const std::string &name, paraMap_t &params);
 		imageFilm_t*	createImageFilm(const paraMap_t &params, colorOutput_t &output);
 		imageHandler_t* createImageHandler(const std::string &name, paraMap_t &params, bool addToTable = true);
-		void 			setScene(scene_t *scene) { curren_scene=scene; };
+                void 			setScene(scene_t *scene) { curren_scene=scene; }
 		bool			setupScene(scene_t &scene, const paraMap_t &params, colorOutput_t &output, progressBar_t *pb = 0);
 		void clearAll();
 

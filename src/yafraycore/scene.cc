@@ -46,7 +46,7 @@ scene_t::scene_t():  volIntegrator(0), camera(0), imageFilm(0), tree(0), vtree(0
                     AA_samples(1), AA_passes(1), AA_threshold(0.05), nthreads(1), mode(1), do_depth(false), yaf_signals(0)
 {
 	state.changes = C_ALL;
-	state.stack.push_front(READY);
+        state.stack.push_front(READY);
 	state.nextFreeID = 1;
 	state.curObj = 0;
 }

@@ -37,6 +37,18 @@ inline static double CosineInterpolate(
 }
 
 template <class T>
+inline static T CosineInterpolate(
+                T y1, T y2,
+                double mu)
+{
+        double mu2;
+
+        mu2 = (1 - fCos(mu * M_PI)) * 0.5f;
+        return ( y1 * (1 - mu2) + y2 * mu2);
+}
+
+
+template <class T>
 inline T CubicInterpolate(
 		const T &y0, const T &y1,
 		const T &y2, const T &y3,

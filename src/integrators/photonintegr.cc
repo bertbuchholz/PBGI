@@ -576,12 +576,12 @@ bool photonIntegrator_t::preprocess()
 		if(intpb) pbar = intpb;
 		else pbar = new ConsoleProgressBar_t(80);
 		pbar->init(pgdat.rad_points.size());
-		foundPhoton_t *gathered = (foundPhoton_t *)malloc(nDifuseSearch * sizeof(foundPhoton_t));
+                foundPhoton_t *gathered = (foundPhoton_t *)malloc(nDiffuseSearch * sizeof(foundPhoton_t));
 		PFLOAT dsRadius_2 = dsRadius*dsRadius;
 		for(unsigned int n=0; n< pgdat.rad_points.size(); ++n)
 		{
 			PFLOAT radius = dsRadius_2; //actually the square radius...
-			int nGathered = diffuseMap.gather(pgdat.rad_points[n].pos, gathered, nDifuseSearch, radius);
+                        int nGathered = diffuseMap.gather(pgdat.rad_points[n].pos, gathered, nDiffuseSearch, radius);
 			color_t sum(0.0);
 			if(nGathered > 0)
 			{

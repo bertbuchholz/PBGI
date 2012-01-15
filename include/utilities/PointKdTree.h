@@ -6,8 +6,11 @@
 #include <cmath>
 #include <queue>
 
+#include <yafray_constants.h>
+
 //#include <core_api/color.h>
-//#include <core_api/vector3d.h>
+#include <core_api/vector3d.h>
+#include <utilities/mcqmc.h>
 
 __BEGIN_YAFRAY
 
@@ -109,6 +112,11 @@ public:
         return _children;
     }
 
+    std::vector<Point_kd_tree> & getChildren()
+    {
+        return _children;
+    }
+
     std::vector<Point> const& getPoints() const
     {
         return _points;
@@ -129,9 +137,38 @@ public:
         return (_cellMax - _cellMin).length() * 0.5f;
     }
 
+    float get_points_radius() const
+    {
+        return (_points_max - _points_min).length() * 0.5f;
+    }
+
+    Point get_points_center() const
+    {
+        return (_points_max + _points_min) * 0.5f;
+    }
+
     Point getCenter() const
     {
         return (_cellMax + _cellMin) * 0.5f;
+    }
+
+    void get_points_bounding_box(Point & min, Point & max)
+    {
+        min = Point( 1e10f);
+        max = Point(-1e10f);
+
+        for (unsigned int i = 0; i < _points.size(); ++i)
+        {
+            Point const& p = _points[i];
+
+            for (int axis = 0; axis < dim; ++axis)
+            {
+                if (p[axis] < min[axis]) min[axis] = p[axis];
+                if (p[axis] > max[axis]) max[axis] = p[axis];
+            }
+        }
+
+        assert(min[0] <= max[0] && min[1] <= max[1] && min[2] <= max[2]);
     }
 
     bool isNodeBehindPlane(Point const& pos, Point const& normal) const
@@ -165,6 +202,52 @@ public:
 
             if (front > 0.0f) return false;
         }
+
+        return true;
+    }
+
+    bool isNodeDataBehindPlane(Point const& pos, Point const& normal, float const bias) const
+    {
+        int corners[][3] = {
+            {0, 0, 0},
+            {0, 1, 0},
+            {0, 0, 1},
+            {0, 1, 1},
+            {1, 0, 0},
+            {1, 1, 0},
+            {1, 0, 1},
+            {1, 1, 1}
+        };
+
+        Point const* minmax[] = { &_points_min, &_points_max };
+
+        for (int i = 0; i < 8; ++i)
+        {
+            int const x = corners[i][0];
+            int const y = corners[i][1];
+            int const z = corners[i][2];
+
+            Point corner((*minmax[x])[0],
+                         (*minmax[y])[1],
+                         (*minmax[z])[2]);
+
+
+            float front = (corner - pos).normalize() * normal;
+
+            if (front > bias) return false;
+        }
+
+        return true;
+    }
+
+    bool is_node_data_behind_plane_approx(Point const& pos, Point const& normal, float const radius, float const bias) const
+    {
+        Point p = (get_points_center() + radius * normal) - pos;
+        p.normalize();
+
+        float const cos_normal_point_dir = p * normal;
+
+        if (cos_normal_point_dir > bias) return false;
 
         return true;
     }
@@ -223,7 +306,8 @@ public:
         int axis;
     };
 
-    void handle_points()
+    // actually build the tree from the previously added points
+    void finalize_points()
     {
         // std::cout << "Depth: " << _depth << " adding point: " << point << std::endl;
 
@@ -240,7 +324,10 @@ public:
                 // split();
                 _children.resize(2, Point_kd_tree(_cellMin, _cellMax, _maxDepth, _maxPoints));
 
-                Point cell_extent = _cellMax - _cellMin;
+                get_points_bounding_box(_points_min, _points_max);
+
+                // Point cell_extent = _cellMax - _cellMin;
+                Point cell_extent = _points_max - _points_min;
 
                 assert(dim == 3 || dim == 2);
 
@@ -255,7 +342,6 @@ public:
                     split_axis = get_longest_axis_2d(cell_extent);
                 }
 
-                /*
                 //std::vector<Point_data> points_sorted_by_axis(_points.size());
                 std::vector<Point_data> points_sorted_by_axis;
 
@@ -278,10 +364,13 @@ public:
                     _children[1].addPoint(*points_sorted_by_axis[i].point, *points_sorted_by_axis[i].data);
                 }
 
+
                 float split_position =
                         0.5f * (*points_sorted_by_axis[median_index - 1].point)[split_axis] +
                         0.5f * (*points_sorted_by_axis[median_index    ].point)[split_axis];
-*/
+
+
+/*
 
                 float split_position = cell_extent[split_axis] / 2.0f + _cellMin[split_axis];
 
@@ -296,6 +385,7 @@ public:
                         _children[1].addPoint(_points[i], _data[i]);
                     }
                 }
+*/
 
                 _points.clear();
                 _data.clear();
@@ -310,8 +400,8 @@ public:
                 _children[0].setDepth(_depth + 1);
                 _children[1].setDepth(_depth + 1);
 
-                _children[0].handle_points();
-                _children[1].handle_points();
+                _children[0].finalize_points();
+                _children[1].finalize_points();
             }
 
             assert(_points.size() == _data.size());
@@ -386,6 +476,19 @@ public:
         list.push_back(node);
     }
 
+    void get_post_order_queue(std::vector<Point_kd_tree*> & list, int const max_depth = -1)
+    {
+        if (max_depth == -1 || (max_depth != -1 && _depth < max_depth))
+        {
+            for (unsigned int i = 0; i < _children.size(); ++i)
+            {
+                _children[i].get_post_order_queue(list, max_depth);
+            }
+        }
+
+        list.push_back(this);
+    }
+
     void printAveraged() const
     {
         std::cout << "p: d: " << _depth << ", " << _isLeaf << ", " << _data.size() << ")" << std::endl;
@@ -396,10 +499,11 @@ public:
         }
     }
 
-    static void averageData(Point_kd_tree* root)
+    template <class Averager>
+    void averageData(Averager averager)
     {
         std::vector<Point_kd_tree*> nodeQueue;
-        getPostOrderQueue(nodeQueue, root);
+        getPostOrderQueue(nodeQueue, this);
 
         std::cout << "postorder.size: " << nodeQueue.size() << std::endl;
 
@@ -414,7 +518,7 @@ public:
             {
                 if (node._data.size() > 0)
                 {
-                    node._clusteredData = averageGiPoints(node._data);
+                    node._clusteredData = averager.average(node._data);
                 }
                 else
                 {
@@ -445,42 +549,57 @@ public:
                     leafData.push_back(node._children[j]._clusteredData);
                 }
 
-                node._clusteredData = averageGiPoints(leafData);
+                node._clusteredData = averager.average(leafData);
 
                 // node._clusteredData->pos = (node._cellMin + node._cellMax) * 0.5f;
             }
         }
     }
 
+
+    template <class Averager>
+    void average_node(Averager averager)
+    {
+        if (getIsLeaf())
+        {
+            assert(_data.size() == 1);
+
+            _clusteredData = averager.average(_data);
+        }
+        else
+        {
+            assert(_children.size() == 2);
+            assert(_children[0].getClusteredData() != NULL);
+            assert(_children[1].getClusteredData() != NULL);
+
+            std::vector<Data> leafData;
+            leafData.push_back(_children[0]._clusteredData);
+            leafData.push_back(_children[1]._clusteredData);
+
+            _clusteredData = averager.average(leafData);
+        }
+    }
+
+
     Data const& getClusteredData() const
     {
         return _clusteredData;
     }
 
-    std::vector<Point_kd_tree const*> get_all_nodes() const
+    Data & getClusteredData()
     {
-        std::vector<Point_kd_tree const*> result;
-
-        std::queue<Point_kd_tree const*> queue;
-        queue.push(this);
-
-        while (!queue.empty())
-        {
-            Point_kd_tree const* node = queue.front();
-            queue.pop();
-
-            result.push_back(node);
-
-            for (unsigned int i = 0; i < node->_children.size(); ++i)
-            {
-                queue.push(&(node->_children[i]));
-            }
-        }
-
-        return result;
+        return _clusteredData;
     }
 
-    std::vector<Point_kd_tree const*> getNodes(int depth) const
+
+    void set_clustered_data(Data const& data)
+    {
+        _clusteredData = data;
+    }
+
+
+    // get nodes in specified depth or all nodes for depth == -1
+    std::vector<Point_kd_tree const*> getNodes(int const depth = -1) const
     {
         std::vector<Point_kd_tree const*> result;
 
@@ -492,19 +611,51 @@ public:
             Point_kd_tree const* node = queue.front();
             queue.pop();
 
-            if (node->_depth < depth)
+            if (depth == -1 || node->_depth < depth)
             {
                 for (unsigned int i = 0; i < node->_children.size(); ++i)
                 {
                     queue.push(&(node->_children[i]));
                 }
             }
-            else if (node->_depth == depth)
+
+            if (depth == -1 || node->_depth == depth)
             {
                 result.push_back(node);
             }
 
-            assert(node->_depth <= depth);
+            assert(depth == -1 || node->_depth <= depth);
+        }
+
+        return result;
+    }
+
+    std::vector<Point_kd_tree*> getNodes(int const depth = -1)
+    {
+        std::vector<Point_kd_tree*> result;
+
+        std::queue<Point_kd_tree*> queue;
+        queue.push(this);
+
+        while (!queue.empty())
+        {
+            Point_kd_tree * node = queue.front();
+            queue.pop();
+
+            if (depth == -1 || node->_depth < depth)
+            {
+                for (unsigned int i = 0; i < node->_children.size(); ++i)
+                {
+                    queue.push(&(node->_children[i]));
+                }
+            }
+
+            if (depth == -1 || node->_depth == depth)
+            {
+                result.push_back(node);
+            }
+
+            assert(depth == -1 || node->_depth <= depth);
         }
 
         return result;
@@ -586,6 +737,76 @@ public:
         return count;
     }
 
+    // longest path to a leaf
+    int get_node_height(int const height) const
+    {
+        if (getIsLeaf())
+        {
+            return height;
+        }
+
+        int height_0 = _children[0].get_node_height(height + 1);
+        int height_1 = _children[1].get_node_height(height + 1);
+
+        return height_0 > height_1 ? height_0 : height_1;
+    }
+
+    int get_shortest_distance_to_leaf(int const height = 0) const
+    {
+        if (getIsLeaf())
+        {
+            return height;
+        }
+
+        int height_0 = _children[0].get_shortest_distance_to_leaf(height + 1);
+        int height_1 = _children[1].get_shortest_distance_to_leaf(height + 1);
+
+        return height_0 < height_1 ? height_0 : height_1;
+    }
+
+
+    static void test()
+    {
+        typedef Point_kd_tree<vector3d_t, 3> MyTree;
+        MyTree tree(vector3d_t(0.0f, 0.0f, 0.0f), vector3d_t(1.0f, 0.0f, 0.0f), 10, 1);
+
+
+        random_t my_random;
+
+        for (int i = 0; i < 20; ++i)
+        {
+            tree.addPoint(vector3d_t(my_random(), my_random(), my_random()));
+        }
+
+        /*
+        tree.addPoint(vector3d_t(0.0f, 0.0f, 0.0f));
+        tree.addPoint(vector3d_t(0.5f, 0.0f, 0.0f));
+        tree.addPoint(vector3d_t(1.0f, 0.0f, 0.0f));
+        */
+
+        tree.finalize_points();
+
+        std::vector<MyTree*> nodes_in_depth_2 = tree.getNodes(2);
+
+        std::vector<MyTree*> nodes_with_depth_2_as_leafs;
+        tree.get_post_order_queue(nodes_with_depth_2_as_leafs, 2);
+
+        // std::vector<MyTree*> nodes = tree.getNodes();
+
+
+        for (unsigned int i = 0; i < nodes_in_depth_2.size(); ++i)
+        {
+            MyTree * node = nodes_in_depth_2[i];
+            std::cout << "i: " << i << " " << node << " " << node->getDepth() << std::endl;
+        }
+
+        for (unsigned int i = 0; i < nodes_with_depth_2_as_leafs.size(); ++i)
+        {
+            MyTree * node = nodes_with_depth_2_as_leafs[i];
+            std::cout << "i: " << i << " " << node << " " << node->getDepth() << std::endl;
+        }
+    }
+
 private:
     Point _cellMin;
     Point _cellMax;
@@ -594,6 +815,9 @@ private:
 
     std::vector<Point> _points;
     std::vector<Data> _data;
+
+    Point _points_min;
+    Point _points_max;
 
     Data _clusteredData;
 

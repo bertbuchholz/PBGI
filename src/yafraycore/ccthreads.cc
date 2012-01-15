@@ -11,7 +11,9 @@ namespace yafthreads {
 mutex_t::mutex_t() 
 {
 #if HAVE_PTHREAD
-	int error=pthread_mutex_init(&m, NULL);
+        // BBB int error=pthread_mutex_init(&m, NULL);
+        m = new pthread_mutex_t;
+        int error=pthread_mutex_init(m, NULL);
 	switch(error)
 	{
 		case EINVAL: throw std::runtime_error("pthread_mutex_init error EINVAL"); break;
@@ -27,7 +29,8 @@ mutex_t::mutex_t()
 void mutex_t::lock() 
 {
 #if HAVE_PTHREAD
-	if(pthread_mutex_lock(&m))
+    // BBB if(pthread_mutex_lock(&m))
+        if(pthread_mutex_lock(m))
 	{
 		throw std::runtime_error("Error mutex lock");
 	}
@@ -39,7 +42,8 @@ void mutex_t::lock()
 void mutex_t::unlock() 
 {
 #if HAVE_PTHREAD
-	if(pthread_mutex_unlock(&m))
+    // BBB if(pthread_mutex_unlock(&m))
+        if(pthread_mutex_unlock(m))
 	{
 		throw std::runtime_error("Error mutex lock");
 	}
@@ -51,7 +55,8 @@ void mutex_t::unlock()
 mutex_t::~mutex_t() 
 {
 #if HAVE_PTHREAD
-	pthread_mutex_destroy(&m);
+    // BBB pthread_mutex_destroy(&m);
+        pthread_mutex_destroy(m);
 #elif defined( WIN32_THREADS )
 	CloseHandle(winMutex);
 #endif
