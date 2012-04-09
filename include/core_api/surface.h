@@ -48,16 +48,6 @@ struct intersectData_t
 	{
 		b0 = 1.0 - b1 - b2;
 	}
-	
-	inline intersectData_t & operator = (intersectData_t &in)
-	{
-		b0 = in.b0;
-		b1 = in.b1;
-		b2 = in.b2;
-		t = in.t;
-		
-		return *this;
-	}
 };
 
 /*! This holds a sampled surface point's data

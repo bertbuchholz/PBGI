@@ -150,7 +150,7 @@ class YAFRAYCORE_EXPORT scene_t
 		void abort();
 		bool startGeometry();
 		bool endGeometry();
-		bool startTriMesh(objID_t id, int vertices, int triangles, bool hasOrco, bool hasUV=false, int type=0);
+                bool startTriMesh(objID_t id, int vertices, int triangles, bool hasOrco, bool hasUV=false, int type=0, bool const use_for_pbgi = true);
 		bool endTriMesh();
 		bool startCurveMesh(objID_t id, int vertices);
 		bool endCurveMesh(const material_t *mat, float strandStart, float strandEnd, float strandShape);

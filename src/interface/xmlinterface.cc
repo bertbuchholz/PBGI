@@ -67,8 +67,15 @@ bool xmlInterface_t::startTriMesh(unsigned int id, int vertices, int triangles, 
 {
 	last_mat = 0;
 	n_uvs = 0;
+
+        bool use_for_pbgi = true;
+        cparams->getParam("use_for_pbgi", use_for_pbgi);
+        std::cout << "xmlInterface_t::startTriMesh: use_for_pbgi: " << use_for_pbgi << std::endl;
+
 	xmlFile << "\n<mesh vertices=\"" << vertices << "\" faces=\"" << triangles
-			<< "\" has_orco=\"" << hasOrco << "\" has_uv=\"" << hasUV << "\" type=\"" << type <<"\">\n";
+                        << "\" has_orco=\"" << hasOrco << "\" has_uv=\"" << hasUV << "\" type=\"" << type
+                        << "\" use_for_pbgi=\"" << use_for_pbgi
+                        <<"\">\n";
 	return true;
 }
 

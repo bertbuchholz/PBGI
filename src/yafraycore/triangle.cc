@@ -153,7 +153,7 @@ inline float triangle_t::surfaceArea() const
 	return 0.5 * (edge1 ^ edge2).length();
 }
 
-inline void triangle_t::sample(float s1, float s2, point3d_t &p, vector3d_t &n) const
+inline void triangle_t::sample(float s1, float s2, point3d_t &p, vector3d_t &n, intersectData_t & data) const
 {
     point3d_t const& a = mesh->getVertex(pa);
     point3d_t const& b = mesh->getVertex(pb);
@@ -164,6 +164,10 @@ inline void triangle_t::sample(float s1, float s2, point3d_t &p, vector3d_t &n) 
 	float v = s2 * su1;
 	p = u*a + v*b + (1.f-u-v)*c;
 	n = getNormal();
+
+        data.b0 = u;
+        data.b1 = v;
+        data.b2 = (1.f-u-v);
 }
 
 point3d_t triangle_t::getVertex(int i) const
@@ -174,6 +178,26 @@ point3d_t triangle_t::getVertex(int i) const
     else if (i == 2) index = pc;
 
     return mesh->getVertex(index);
+}
+
+int triangle_t::get_vertex_index(int i) const
+{
+    int index = pa;
+
+    if (i == 1) index = pb;
+    else if (i == 2) index = pc;
+
+    return index;
+}
+
+int triangle_t::get_uv_index(int i) const
+{
+    if (!mesh->has_uv) return -1;
+
+    size_t uvi = selfIndex * 3;
+    int const uv_index = mesh->uv_offsets[uvi + i];
+
+    return uv_index;
 }
 
 // triangleInstance_t Methods
@@ -357,7 +381,7 @@ inline float triangleInstance_t::surfaceArea() const
 	return 0.5 * (edge1 ^ edge2).length();
 }
 
-inline void triangleInstance_t::sample(float s1, float s2, point3d_t &p, vector3d_t &n) const
+inline void triangleInstance_t::sample(float s1, float s2, point3d_t &p, vector3d_t &n, intersectData_t &data) const
 {
     point3d_t const& a = mesh->getVertex(mBase->pa);
     point3d_t const& b = mesh->getVertex(mBase->pb);
@@ -548,7 +572,7 @@ float vTriangle_t::surfaceArea() const
 	return 0.5 * (edge1 ^ edge2).length();
 }
 
-void vTriangle_t::sample(float s1, float s2, point3d_t &p, vector3d_t &n) const
+void vTriangle_t::sample(float s1, float s2, point3d_t &p, vector3d_t &n, intersectData_t &data) const
 {
 	const point3d_t &a=mesh->points[pa], &b=mesh->points[pb], &c=mesh->points[pc];
 	float su1 = fSqrt(s1);

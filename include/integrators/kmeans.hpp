@@ -14,8 +14,8 @@
 #include "distance.hpp"
 
 typedef std::vector<float> Word;
-typedef imdb::l1norm<Word> Distance_function;
-// typedef imdb::l2norm<Word> Distance_function;
+//typedef imdb::l1norm<Word> Distance_function;
+typedef imdb::l2norm<Word> Distance_function;
 
 template <class index_t, class collection_t>
 void kmeans_init_random(std::vector<index_t>& centers, const collection_t& collection, std::size_t numclusters)
@@ -125,10 +125,10 @@ class kmeans
 
     typedef typename collection_t::value_type item_t;
 
-    public:
+public:
 
     kmeans(const collection_t& collection, std::size_t numclusters, KmeansInitAlgorithm initalgorithm = KmeansInitRandom, const dist_fn& distfn = dist_fn())
-     : _collection(collection), _distfn(distfn), _centers(numclusters), _clusters(collection.size())
+        : _collection(collection), _distfn(distfn), _centers(numclusters), _clusters(collection.size())
     {
         // get initial centers
         std::vector<std::size_t> initindices;
@@ -207,7 +207,7 @@ class kmeans
             while (!invalid.empty() && !valid.empty())
             {
                 std::size_t current = invalid.back();
-std::cout << "handle invalid clusters: " << invalid.size() << std::endl;
+                std::cout << "handle invalid clusters: " << invalid.size() << std::endl;
                 // compute for each valid cluster the variance
                 // of distances to all members and get the
                 // most distant member
@@ -250,7 +250,7 @@ std::cout << "handle invalid clusters: " << invalid.size() << std::endl;
             //std::cout << "iteration " << iteration << " time: " << time.elapsed() << std::endl;
         }
 
-std::cout << "kmeans iterations: " << iteration << std::endl;
+        std::cout << "kmeans iterations: " << iteration << std::endl;
     }
 
     void run_default()
@@ -269,7 +269,7 @@ std::cout << "kmeans iterations: " << iteration << std::endl;
     }
 
     template <class index_t>
-    void make_cluster_table(std::vector<std::vector<index_t> >& table)
+    void make_cluster_table(std::vector<std::vector<index_t> >& table) const
     {
         table.resize(_centers.size());
         for (std::size_t i = 0; i < _clusters.size(); i++) table[_clusters[i]].push_back(i);
@@ -287,7 +287,7 @@ std::cout << "kmeans iterations: " << iteration << std::endl;
         for (std::size_t i = 0; i < lhs.size(); i++) lhs[i] /= rhs;
     }
 
-    private:
+private:
 
     void distribute_samples(std::size_t& index, std::size_t& changes, mutex_t& mutex)
     {
@@ -319,7 +319,7 @@ std::cout << "kmeans iterations: " << iteration << std::endl;
                     _clusters[i] = c;
                     currentchanges++;
                 }
-//if (i % 1000 == 0) std::cout << "kmeans distribute: " << i << std::endl;
+                //if (i % 1000 == 0) std::cout << "kmeans distribute: " << i << std::endl;
             }
         }
 
@@ -349,10 +349,10 @@ class kmedian
 
     typedef typename collection_t::value_type item_t;
 
-    public:
+public:
 
     kmedian(const collection_t& collection, std::size_t numclusters, KmeansInitAlgorithm initalgorithm = KmeansInitRandom, const dist_fn& distfn = dist_fn())
-     : _collection(collection), _distfn(distfn), _centers(numclusters), _clusters(collection.size())
+        : _collection(collection), _distfn(distfn), _centers(numclusters), _clusters(collection.size())
     {
         // get initial centers
         std::vector<std::size_t> initindices;
@@ -378,8 +378,8 @@ class kmedian
         {
             if (maxiteration > 0 && iteration == maxiteration) break;
 
-//QTime time;
-//time.start();
+            //QTime time;
+            //time.start();
             std::size_t changes = 0;
 
             // distribute items on clusters in parallel
@@ -394,7 +394,7 @@ class kmedian
 
             iteration++;
 
-//std::cout << "changes: " << changes << " distribution time: " << time.elapsed() << std::endl;
+            //std::cout << "changes: " << changes << " distribution time: " << time.elapsed() << std::endl;
 
             if (changes <= std::ceil(_collection.size() * minchangesfraction)) break;
 
@@ -443,7 +443,7 @@ class kmedian
                 {
                     invalid.push_back(i);
                 }
-//std::cout << "clustersize " << i << ": " << clustersize[i] << std::endl;
+                //std::cout << "clustersize " << i << ": " << clustersize[i] << std::endl;
             }
 
             // fix invalid centers, i.e. those with no members
@@ -482,16 +482,16 @@ class kmedian
                 _centers[current] = _collection[farthest[c]];
                 _clusters[farthest[c]] = current;
 
-//std::cout << "reassign " << current << " to sample " << farthest[c] << " of cluster " << c << std::endl;
+                //std::cout << "reassign " << current << " to sample " << farthest[c] << " of cluster " << c << std::endl;
 
                 valid.pop_back();
                 invalid.pop_back();
             }
 
-//std::cout << "iteration " << iteration << " time: " << time.elapsed() << std::endl;
+            //std::cout << "iteration " << iteration << " time: " << time.elapsed() << std::endl;
         }
 
-std::cout << "kmeans iterations: " << iteration << std::endl;
+        std::cout << "kmeans iterations: " << iteration << std::endl;
     }
 
     void run_default()
@@ -516,7 +516,7 @@ std::cout << "kmeans iterations: " << iteration << std::endl;
         for (std::size_t i = 0; i < _clusters.size(); i++) table[_clusters[i]].push_back(i);
     }
 
-    private:
+private:
 
     void distribute_samples(std::size_t& index, std::size_t& changes, mutex_t& mutex)
     {
@@ -548,7 +548,7 @@ std::cout << "kmeans iterations: " << iteration << std::endl;
                     _clusters[i] = c;
                     currentchanges++;
                 }
-//if (i % 1000 == 0) std::cout << "kmeans distribute: " << i << std::endl;
+                //if (i % 1000 == 0) std::cout << "kmeans distribute: " << i << std::endl;
             }
         }
 

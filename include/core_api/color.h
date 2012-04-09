@@ -36,9 +36,23 @@ class YAFRAYCORE_EXPORT color_t
 	friend color_t operator * (const color_t &a, const color_t &b);
 	friend color_t operator * (const CFLOAT f, const color_t &b);
 	friend color_t operator * (const color_t &b, const CFLOAT f);
+        friend color_t operator / (const color_t &a, const color_t &b);
 	friend color_t operator / (const color_t &b, const CFLOAT f);
 	friend color_t operator + (const color_t &a, const color_t &b);
 	friend color_t operator - (const color_t &a, const color_t &b);
+        friend bool operator != (const color_t &a, const color_t &b)
+        {
+            return (a.R != b.R || a.G != b.G || a.B != b.B);
+        }
+        friend bool operator >(const color_t &a, const color_t &b)
+        {
+            return (a.energy() > b.energy());
+        }
+        friend bool operator <(const color_t &a, const color_t &b)
+        {
+            return (a.energy() < b.energy());
+        }
+
 	friend CFLOAT maxAbsDiff(const color_t &a, const color_t &b);
 	friend YAFRAYCORE_EXPORT void operator >> (unsigned char *data, color_t &c);
 	friend YAFRAYCORE_EXPORT void operator << (unsigned char *data, const color_t &c);
@@ -49,8 +63,8 @@ class YAFRAYCORE_EXPORT color_t
 	friend YAFRAYCORE_EXPORT color_t convergenceAccell(const color_t &cn_1, const color_t &cn0, const color_t &cn1);
 	public:
 		color_t() { R=G=B=0; }
-		color_t(CFLOAT r, CFLOAT g, CFLOAT b) {R=r;G=g;B=b;};
-		color_t(CFLOAT g) { R=G=B=g; }
+                color_t(CFLOAT r, CFLOAT g, CFLOAT b) {R=r;G=g;B=b;}
+                color_t(CFLOAT g) { R=G=B=g; }
 		color_t(CFLOAT af[3]) { R=af[0];  G=af[1];  B=af[2]; }
 		bool isBlack() const { return ((R==0) && (G==0) && (B==0)); }
 		~color_t() {}
@@ -64,7 +78,7 @@ class YAFRAYCORE_EXPORT color_t
         PFLOAT   operator[] (int i) const { return (&R)[i]; }
         PFLOAT & operator[] (int i)       { return (&R)[i]; }
 
-		CFLOAT energy() const {return (R+G+B)*0.333333f;};
+                CFLOAT energy() const {return (R+G+B)*0.333333f;}
 		// Using ITU/Photometric values Y = 0.2126 R + 0.7152 G + 0.0722 B
 		CFLOAT col2bri() const { return (0.2126f*R + 0.7152f*G + 0.0722f*B); }
 		CFLOAT abscol2bri() const { return (0.2126f*std::fabs(R) + 0.7152f*std::fabs(G) + 0.0722f*std::fabs(B)); }
@@ -238,6 +252,11 @@ YAFRAYCORE_EXPORT colorA_t mix(const colorA_t &a,const colorA_t &b,CFLOAT point)
 inline color_t operator * (const color_t &a,const color_t &b)
 {
 	return color_t(a.R*b.R,a.G*b.G,a.B*b.B);
+}
+
+inline color_t operator / (const color_t &a,const color_t &b)
+{
+        return color_t(a.R / b.R, a.G / b.G, a.B / b.B);
 }
 
 inline color_t operator * (const CFLOAT f,const color_t &b)

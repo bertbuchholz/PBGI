@@ -8,35 +8,16 @@
 #include <core_api/vector3d.h>
 #include <utilities/Debug_info.h>
 
+#include <utilities/spherical_harmonics.h>
+#include <utilities/Mises_fisher.h>
+
+#include <integrators/Gi_point_info.h>
+#include <bert/shared/Registry_parameters.h>
+#include <bert/shared/Parameter.h>
 
 __BEGIN_YAFRAY
 
 
-struct Color_depth_pixel
-{
-    Color_depth_pixel() :
-        depth(1e10f),
-        filling_degree(0.0f),
-        radius(0.0f),
-        cone_angle(0.0f),
-        node(NULL)
-    {
-
-    }
-
-    color_t color;
-    float depth;
-    float filling_degree;
-    float radius;
-    float cone_angle;
-    vector3d_t direction;
-    GiPoint const* node;
-
-    friend bool operator<(Color_depth_pixel const& lhs, Color_depth_pixel const& rhs)
-    {
-        return (lhs.depth < rhs.depth);
-    }
-};
 
 /*
 
@@ -54,6 +35,7 @@ cube, hemisphere
 
 */
 
+template <class Data>
 class Abstract_frame_buffer
 {
 public:
@@ -69,12 +51,24 @@ public:
 
     virtual Abstract_frame_buffer* clone() = 0;
 
-    virtual void add_point(int const x, int const y, color_t const& color, float const filling_degree, float const depth, float const radius, vector3d_t const& direction,
+    virtual void set_parameters(Parameter_list const& parameters)
+    {
+        _resolution = parameters["Abstract_frame_buffer/resolution"]->get_value<int>();
+        _resolution += _resolution % 2;
+        _resolution_2 = _resolution / 2;
+    }
+
+//    virtual void add_point(int const x, int const y, Data const& color, float const filling_degree, float const depth, float const radius, vector3d_t const& direction,
+//                           Spherical_node_representation const* sf_representation,
+//                           GiPoint const* node = NULL) = 0;
+
+    virtual void add_point(int const x, int const y, Data const& color, float const filling_degree, Gi_point_info const& point_info,
                            GiPoint const* node = NULL) = 0;
 
-    virtual void    set_color(int const /* x */, int const /* y */, color_t const& /* color */) {}
-    virtual color_t get_color(int const x, int const y, Debug_info * debug_info = NULL) = 0;
-    virtual color_t get_color_interpolated(float const /* x */, float const /* y */, Debug_info * debug_info = NULL) { assert(false); return color_t(); }
+    virtual void set_color(int const /* x */, int const /* y */, Data const& /* color */) {}
+
+    virtual Data get_color(int const x, int const y, Debug_info * debug_info = NULL) const = 0;
+    virtual Data get_color_interpolated(float const /* x */, float const /* y */, Debug_info * debug_info = NULL) { assert(false); return Data(); }
 
     virtual void set_size(int size) = 0;
 
@@ -82,7 +76,28 @@ public:
 
     inline int calc_serial_index(int const x, int const y) const
     {
-        return (x + _resolution_2) + _resolution * (y + _resolution_2);
+        int serial_index = (x + _resolution_2) + _resolution * (y + _resolution_2);
+        assert(serial_index < Abstract_frame_buffer<Data>::_resolution * Abstract_frame_buffer<Data>::_resolution);
+        return serial_index;
+    }
+
+    void set_plane(int const plane)
+    {
+        _debug_plane = plane;
+    }
+
+    int get_resolution() const
+    {
+        return _resolution;
+    }
+
+    static Parameter_list get_parameters()
+    {
+        Parameter_list parameters;
+
+        parameters.add_parameter(new Parameter("Abstract_frame_buffer/resolution", 8, 2, 128));
+
+        return parameters;
     }
 
 protected:
@@ -95,29 +110,32 @@ protected:
 
 
 // store only a single color value and depth per pixel
-class Simple_single_value_frame_buffer : public Abstract_frame_buffer
+template <class Data>
+class Simple_single_value_frame_buffer : public Abstract_frame_buffer<Data>
 {
 public:
     Simple_single_value_frame_buffer() {}
 
-    Simple_single_value_frame_buffer(int size, int plane) : Abstract_frame_buffer(size, plane)
+    Simple_single_value_frame_buffer(int size, int plane) : Abstract_frame_buffer<Data>(size, plane)
     {
         set_size(size);
     }
 
-    static Abstract_frame_buffer* create(int resolution, int plane)
-    {
-        return new Simple_single_value_frame_buffer(resolution, plane);
-    }
+    void set_parameters(Parameter_list const& parameters) {}
 
-    virtual Abstract_frame_buffer* clone()
+//    static Abstract_frame_buffer<Data>* create(int resolution, int plane)
+//    {
+//        return new Simple_single_value_frame_buffer(resolution, plane);
+//    }
+
+    virtual Abstract_frame_buffer<Data>* clone()
     {
         Simple_single_value_frame_buffer* sfb = new Simple_single_value_frame_buffer(*this);
 
         return sfb;
     }
 
-    virtual void add_point(int const x, int const y, color_t const& color, float const filling_degree, float const depth, float const radius, vector3d_t const& direction,
+    virtual void add_point(int const x, int const y, Data const& color, float const filling_degree, Gi_point_info const& point_info,
                            GiPoint const* node = NULL)
     {
         assert(false);
@@ -126,7 +144,7 @@ public:
     virtual void set_size(int size)
     {
         _data.clear();
-        _data.resize(_resolution * _resolution);
+        _data.resize(Abstract_frame_buffer<Data>::_resolution * Abstract_frame_buffer<Data>::_resolution);
     }
 
     virtual void clear()
@@ -134,209 +152,70 @@ public:
         _data.clear();
     }
 
-    void set_color(int const x, int const y, color_t const& color)
+    void set_color(int const x, int const y, Data const& color)
     {
-        int serial_index = calc_serial_index(x, y);
+        int serial_index = Abstract_frame_buffer<Data>::calc_serial_index(x, y);
 
-        assert(serial_index < _resolution * _resolution);
+        assert(serial_index < Abstract_frame_buffer<Data>::_resolution * Abstract_frame_buffer<Data>::_resolution);
 
         _data[serial_index] = color;
     }
 
-    virtual color_t get_color(int const x, int const y, Debug_info * /* debug_info */ = NULL)
+    virtual Data get_color(int const x, int const y, Debug_info * /* debug_info */ = NULL) const
     {
-        int serial_index = calc_serial_index(x, y);
+        int serial_index = Abstract_frame_buffer<Data>::calc_serial_index(x, y);
         return _data[serial_index];
     }
 
-protected:
-    std::vector<color_t> _data;
-};
-
-
-
-
-
-// store only a single color value and depth per pixel
-class Simple_frame_buffer : public Abstract_frame_buffer
-{
-public:
-    Simple_frame_buffer() {}
-
-    Simple_frame_buffer(int size, int plane) : Abstract_frame_buffer(size, plane)
+    static Simple_single_value_frame_buffer * create()
     {
-        set_size(size);
-    }
-
-    static Abstract_frame_buffer* create(int resolution, int plane)
-    {
-        return new Simple_frame_buffer(resolution, plane);
-    }
-
-    virtual Abstract_frame_buffer* clone()
-    {
-        Simple_frame_buffer* sfb = new Simple_frame_buffer(*this);
-
-        return sfb;
-    }
-
-    virtual void add_point(int const x, int const y, color_t const& color, float const filling_degree, float const depth, float const radius, vector3d_t const& direction,
-                           GiPoint const* node = NULL)
-    {
-        int pixel = (x + _resolution_2) + _resolution * (y + _resolution_2);
-
-        assert(pixel < _resolution * _resolution);
-
-        if (depth < _data[pixel].depth)
-        {
-            _data[pixel].color          = color;
-            _data[pixel].depth          = depth;
-            _data[pixel].filling_degree = filling_degree;
-            _data[pixel].node           = node;
-            _data[pixel].radius         = radius;
-            _data[pixel].cone_angle     = std::atan2(radius, depth);
-        }
-    }
-
-    virtual void set_size(int size)
-    {
-        _resolution = size;
-        _resolution_2 = _resolution / 2;
-
-        _data.clear();
-        _data.resize(_resolution * _resolution);
-    }
-
-    virtual void clear()
-    {
-        _data.clear();
-    }
-
-    void set_color(int const x, int const y, color_t const& color)
-    {
-        int pixel = (x + _resolution_2) + _resolution * (y + _resolution_2);
-
-        assert(pixel < _resolution * _resolution);
-
-        _data[pixel].color = color;
-    }
-
-    virtual color_t get_color(int const x, int const y, Debug_info * debug_info = NULL)
-    {
-        int const pixel = (x + _resolution_2) + _resolution * (y + _resolution_2);
-
-        Color_depth_pixel const& c = _data[pixel];
-
-        if (debug_info && c.node)
-        {
-            // debug_info->gi_points.push_back(c.node);
-            debug_info->gi_points.insert(c.node);
-
-            int cube_x = (pixel % _resolution) - _resolution_2;
-            int cube_y = (pixel / _resolution) - _resolution_2;
-
-            if (debug_info->cube_plane == _debug_plane && debug_info->cube_x == cube_x && debug_info->cube_y == cube_y)
-            {
-                debug_info->single_pixel_contributors.push_back(Node_weight_pair(c.node, 1.0f));
-            }
-        }
-
-        return c.color;
-    }
-
-    color_t interpolate(color_t const& i1 , color_t const& i2 , float const offset)
-    {
-        assert(offset >= 0.0f && offset <= 1.0f);
-        return i1 * (1.0f - offset) + i2 * offset;
-    }
-
-    virtual color_t get_color_interpolated(float const x, float const y, Debug_info * debug_info = NULL)
-    {
-        int x0 = int(std::floor(x - 0.5f));
-        int y0 = int(std::floor(y - 0.5f));
-
-        int x1 = x0 + 1;
-        int y1 = y0 + 1;
-
-        if (x1 >= _resolution_2)
-        {
-            x1 = x0;
-        }
-        else if (x0 < -_resolution_2)
-        {
-            x0 = x1;
-        }
-
-        if (y1 >= _resolution_2)
-        {
-            y1 = y0;
-        }
-        else if (y0 < -_resolution_2)
-        {
-            y0 = y1;
-        }
-
-
-        //x0 = std::max(-_resolution_2 + 1, std::min(int(std::floor(x - 0.5f)), _resolution_2 - 2));
-        //y0 = std::max(-_resolution_2 + 1, std::min(int(std::floor(y - 0.5f)), _resolution_2 - 2));
-
-        float offset_x = x - x0 - 0.5f;
-        float offset_y = y - y0 - 0.5f;
-
-        offset_x = std::max(0.0f, std::min(offset_x, 1.0f));
-        offset_y = std::max(0.0f, std::min(offset_y, 1.0f));
-
-        color_t const c1 = get_color(x0, y0);
-        color_t const c2 = get_color(x1, y0);
-        color_t const c3 = get_color(x0, y1);
-        color_t const c4 = get_color(x1, y1);
-
-        color_t const c1_2 = interpolate(c1, c2, offset_x);
-        color_t const c3_4 = interpolate(c3, c4, offset_x);
-
-        if (!(x1 < _resolution_2 && y1 < _resolution_2))
-        {
-            std::cout << "_resolution_2: " << _resolution_2 << " x: " << x << " y: " << y << " x_0: " << x0 << " y_0: " << y0 << std::endl;
-            assert(false);
-        }
-
-        return interpolate(c1_2, c3_4, offset_y);
+        return new Simple_single_value_frame_buffer(1, 1);
     }
 
 protected:
-    std::vector<Color_depth_pixel> _data;
+    std::vector<Data> _data;
 };
+
+
+static Base_registration< Abstract_frame_buffer<color_t> > Simple_single_value_frame_buffer_color_t("Accumulating_frame_buffer_without_queue",
+                                                                                                         &Simple_single_value_frame_buffer<color_t>::create);
 
 
 
 // store a list of color values and corresponding depths and weights (for example filling) per pixel
-class Simple_frame_buffer_without_queue : public Abstract_frame_buffer
+template <class Data>
+class Simple_frame_buffer_without_queue : public Abstract_frame_buffer<Data>
 {
     struct Color_filled
     {
-        color_t color;
+        Color_filled() : color(0.0f), filled(false)
+        {}
+
+        Data color;
         bool filled;
     };
 
 public:
     virtual ~Simple_frame_buffer_without_queue() {}
 
-    Simple_frame_buffer_without_queue(int size, int plane) : Abstract_frame_buffer(size, plane)
+    Simple_frame_buffer_without_queue(int size, int plane) : Abstract_frame_buffer<Data>(size, plane)
     {
         set_size(size);
     }
 
-    static Abstract_frame_buffer* create(int resolution, int plane)
+    static Abstract_frame_buffer<Data>* create(int resolution, int plane)
     {
         return new Simple_frame_buffer_without_queue(resolution, plane);
     }
 
-    virtual Abstract_frame_buffer* clone()
+    virtual Abstract_frame_buffer<Data>* clone()
     {
         Simple_frame_buffer_without_queue* afb = new Simple_frame_buffer_without_queue(*this);
 
         return afb;
     }
+
+    void set_parameters(Parameter_list const& parameters) {}
 
     virtual void set_size(int size)
     {
@@ -349,12 +228,10 @@ public:
         _data.clear();
     }
 
-    virtual void add_point(int const x, int const y, color_t const& color, float const filling_degree, float const depth, float const radius, vector3d_t const& direction,
+    virtual void add_point(int const x, int const y, Data const& color, float const filling_degree, Gi_point_info const& point_info,
                            GiPoint const* node = NULL)
     {
-        int const serial_index = calc_serial_index(x, y);
-
-        assert(serial_index < _resolution * _resolution);
+        int const serial_index = Abstract_frame_buffer<Data>::calc_serial_index(x, y);
 
         if (!_data[serial_index].filled)
         {
@@ -365,10 +242,10 @@ public:
             {
                 if (_single_pixel_contributors.size() == 0)
                 {
-                    _single_pixel_contributors.resize(_resolution * _resolution);
+                    _single_pixel_contributors.resize(Abstract_frame_buffer<Data>::_resolution * Abstract_frame_buffer<Data>::_resolution);
                 }
 
-                Node_weight_pair nwp(node, filling_degree, 0);
+                Node_weight_pair nwp(node, filling_degree, color);
                 _single_pixel_contributors[serial_index].push_back(nwp);
 
                 _debug_gi_points.insert(node);
@@ -376,15 +253,15 @@ public:
         }
     }
 
-    virtual color_t get_color(int const x, int const y, Debug_info * debug_info = NULL)
+    virtual Data get_color(int const x, int const y, Debug_info * debug_info = NULL) const
     {
-        int const serial_index = calc_serial_index(x, y);
+        int const serial_index = Abstract_frame_buffer<Data>::calc_serial_index(x, y);
 
         if (debug_info)
         {
-            bool debug_pixel = debug_info->cube_plane == _debug_plane && debug_info->cube_x == x && debug_info->cube_y == y;
+            bool debug_pixel = debug_info->cube_plane == Abstract_frame_buffer<Data>::_debug_plane && debug_info->cube_x == x && debug_info->cube_y == y;
 
-            for (std::tr1::unordered_set<yafaray::GiPoint const*>::iterator iter = _debug_gi_points.begin(); iter != _debug_gi_points.end(); ++iter)
+            for (std::tr1::unordered_set<yafaray::GiPoint const*>::const_iterator iter = _debug_gi_points.begin(); iter != _debug_gi_points.end(); ++iter)
             {
                 debug_info->gi_points.insert(*iter);
             }
@@ -404,29 +281,400 @@ protected:
     std::vector<Color_filled> _data;
 
     std::tr1::unordered_set<GiPoint const*> _debug_gi_points;
-    std::vector< std::vector<Node_weight_pair> > _single_pixel_contributors;
+    mutable std::vector< std::vector<Node_weight_pair> > _single_pixel_contributors;
 };
 
 
+
+
 // store a list of color values and corresponding depths and weights (for example filling) per pixel
-class Accumulating_frame_buffer_without_queue : public Abstract_frame_buffer
+template <class Data>
+class Accumulating_frame_buffer_without_queue : public Abstract_frame_buffer<Data>
 {
+
+    struct Data_depth_pixel
+    {
+        Data_depth_pixel() :
+            depth(1e10f),
+            filling_degree(0.0f),
+            radius(0.0f),
+            cone_angle(0.0f),
+            is_full(false),
+            node(NULL),
+            debug_depth(0.0f)
+        { }
+
+        Data color;
+        float depth;
+        float filling_degree;
+        float radius;
+        float cone_angle;
+        vector3d_t direction;
+        bool is_full;
+        GiPoint const* node;
+        float debug_depth;
+
+        friend bool operator<(Data_depth_pixel const& lhs, Data_depth_pixel const& rhs)
+        {
+            return (lhs.depth < rhs.depth);
+        }
+    };
+
 public:
     virtual ~Accumulating_frame_buffer_without_queue() {}
 
-    Accumulating_frame_buffer_without_queue(int size, int plane) : Abstract_frame_buffer(size, plane)
+    Accumulating_frame_buffer_without_queue()
+    { }
+
+    Accumulating_frame_buffer_without_queue(int size, int plane) : Abstract_frame_buffer<Data>(size, plane)
+    {
+        set_size(size);
+
+        _use_visibility = true;
+        _use_corrected_epsilon_z_buffer = false;
+        _use_epsilon_z_buffer = false;
+        _use_depth_dependant = false;
+        _use_depth_modulation = false;
+        _use_stochastic_visibility = false;
+    }
+
+    virtual Abstract_frame_buffer<Data>* clone()
+    {
+        Accumulating_frame_buffer_without_queue* afb = new Accumulating_frame_buffer_without_queue(*this);
+
+        return afb;
+    }
+
+    void set_parameters(Parameter_list const& parameters)
+    {
+        Abstract_frame_buffer<color_t>::set_parameters(parameters);
+
+        _use_visibility = parameters["Accumulating_frame_buffer_without_queue/use_visibility"]->get_value<bool>();
+        _use_depth_modulation = parameters["Accumulating_frame_buffer_without_queue/use_depth_modulation"]->get_value<bool>();
+
+        set_size(this->_resolution);
+    }
+
+    virtual void set_size(int size)
+    {
+        _data.clear();
+        _data.resize(size * size);
+    }
+
+    virtual void clear()
+    {
+        _data.clear();
+    }
+
+    float apply_z_correction(float const radius, float const distance_from_center)
+    {
+        return std::sqrt(radius * radius - distance_from_center * distance_from_center);
+    }
+
+    virtual void add_point(int const x, int const y, Data const& color, float const filling_degree, Gi_point_info const& point_info,
+                           GiPoint const* node = NULL)
+    {
+        int const serial_index = Abstract_frame_buffer<Data>::calc_serial_index(x, y);
+
+        Data_depth_pixel & c = _data[serial_index];
+
+        bool accepted = false;
+        float weight = filling_degree;
+
+        if (_use_visibility)
+        {
+            if (c.filling_degree < 1.0f)
+            {
+                if (c.filling_degree + weight > 1.0f)
+                {
+                    weight = 1.0f - c.filling_degree;
+                }
+
+                accepted = true;
+            }
+        }
+        else if (_use_epsilon_z_buffer)
+        {
+            if (c.depth > 1e5f)
+            {
+                c.depth = point_info.depth + point_info.radius;
+                // c.depth = point_info.depth + 0.01f;
+            }
+
+            if (point_info.depth < c.depth)
+            {
+                accepted = true;
+            }
+        }
+        else if (_use_corrected_epsilon_z_buffer)
+        {
+            if (c.depth > 1e5f)
+            {
+                c.depth = point_info.depth - apply_z_correction(point_info.radius, point_info.distance_from_center) + point_info.radius;
+                // c.depth = point_info.depth + 0.01f;
+            }
+
+            if (point_info.depth - apply_z_correction(point_info.radius, point_info.distance_from_center) < c.depth)
+            {
+                accepted = true;
+                c.debug_depth = point_info.distance_from_center / point_info.radius;
+            }
+        }
+        else if (_use_stochastic_visibility)
+        {
+            if (!c.is_full && c.filling_degree + weight > 1.0f)
+            {
+                if (int(weight * 100000.0f) % 10 < 5.0f) // russian roulette
+                {
+                    accepted = true;
+                }
+                else
+                {
+                    c.is_full = true;
+                }
+            }
+
+            if (!c.is_full)
+            {
+                accepted = true;
+            }
+        }
+        else if (_use_depth_dependant)
+        {
+            if (c.filling_degree + weight > 1.0f)
+            {
+                if (c.depth > 1e5f) // first node being splat onto this pixel that completely fills the pixel
+                {
+                    c.depth  = point_info.depth;
+                    c.radius = point_info.radius;
+                }
+                else
+                {
+                    float const d_0 = c.depth;
+                    float const distance_threshold = c.radius / 10.0f;
+
+                    if (point_info.depth > d_0 + distance_threshold)
+                    {
+                        weight = 0.0f;
+                    }
+                }
+            }
+
+            accepted = true;
+        }
+        else if (_use_depth_modulation)
+        {
+            accepted = true;
+
+            // if (c.filling_degree + weight > 1.0f)
+            {
+                if (c.depth > 1e5f) // first node being splat onto this pixel
+                {
+                    c.depth  = point_info.depth;
+                    c.radius = point_info.radius;
+                }
+                else
+                {
+                    float const d_0 = c.depth;
+                    float const max_dist = 2.0f * c.radius;
+                    //float const depth_modulation = (depth - d_0) / (2.0f * d_0 - d_0);
+                    // float const depth_modulation = (point_info.depth - d_0) / (1.1f * d_0 - d_0);
+                    float const depth_modulation = (point_info.depth - d_0) / max_dist;
+
+                    assert(d_0 <= point_info.depth && depth_modulation >= 0.0f);
+
+                    if (depth_modulation < 1.0f)
+                    {
+                        weight = weight * (std::pow(1.0f - depth_modulation, 3.0f) + (3.0f * depth_modulation + 1));
+                    }
+                    else
+                    {
+                        accepted = false;
+                    }
+                }
+            }
+        }
+        else
+        {
+            accepted = true;
+        }
+
+        if (accepted && weight > 0.0001f)
+        {
+            c.filling_degree += weight;
+            c.color += color * weight;
+
+            // c.depth = (c.depth > 1e5f) ? point_info.depth * weight : c.depth + point_info.depth * weight;
+
+            if (node)
+            {
+                if (_single_pixel_contributors.size() == 0)
+                {
+                    _single_pixel_contributors.resize(Abstract_frame_buffer<Data>::_resolution * Abstract_frame_buffer<Data>::_resolution);
+                }
+
+                Node_weight_pair nwp(node, weight, color);
+                _single_pixel_contributors[serial_index].push_back(nwp);
+                _debug_gi_points.insert(node);
+            }
+        }
+    }
+
+    virtual Data get_color(int const x, int const y, Debug_info * debug_info = NULL) const
+    {
+        int const serial_index = Abstract_frame_buffer<Data>::calc_serial_index(x, y);
+
+        Data_depth_pixel const& c = _data[serial_index];
+
+        Color result_color = c.color;
+
+//        if (c.filling_degree > 0.01f)
+//        {
+//            result_color *= 1.0f / c.filling_degree;
+//        }
+
+        if (c.filling_degree > 0.1f)
+        {
+            result_color *= 1.0f / c.filling_degree;
+        }
+        else if (c.filling_degree > 0.0001f)
+        {
+            result_color *= 1.0f / c.filling_degree;
+            result_color *= c.filling_degree / 0.1f;
+        }
+        else
+        {
+            result_color = color_t(0.0f);
+        }
+
+
+
+        if (debug_info)
+        {
+            for (std::tr1::unordered_set<yafaray::GiPoint const*>::const_iterator iter = _debug_gi_points.begin(); iter != _debug_gi_points.end(); ++iter)
+            {
+                debug_info->gi_points.insert(*iter);
+            }
+
+            bool const debug_pixel = debug_info->cube_plane == Abstract_frame_buffer<Data>::_debug_plane && debug_info->cube_x == x && debug_info->cube_y == y;
+
+            if (debug_pixel && _single_pixel_contributors.size() > 0)
+            {
+                debug_info->single_pixel_contributors = _single_pixel_contributors[serial_index];
+            }
+
+            // std::cout << "debug_gi_points: " << debug_gi_points.size() << std::endl;
+
+            if (debug_info->debug_return_type == std::string("depth"))
+            {
+                result_color = color_t(c.debug_depth);
+
+                // result_color = color_t(c.depth);
+                // result_color = color_t(0.5f);
+            }
+            else if (debug_info->debug_return_type == std::string("filling_degree"))
+            {
+                result_color = color_t(c.filling_degree);
+            }
+        }
+
+        return result_color;
+    }
+
+
+    static Accumulating_frame_buffer_without_queue * create()
+    {
+        return new Accumulating_frame_buffer_without_queue;
+    }
+
+    static Parameter_list get_parameters()
+    {
+        Parameter_list parameters = Abstract_frame_buffer<color_t>::get_parameters();
+
+        parameters.add_parameter(new Parameter("Accumulating_frame_buffer_without_queue/use_visibility",       true));
+        parameters.add_parameter(new Parameter("Accumulating_frame_buffer_without_queue/use_depth_modulation", false));
+
+
+//        bool const use_visibility = false;
+//        bool const use_corrected_epsilon_z_buffer = false;
+//        bool const use_epsilon_z_buffer = false;
+//        bool const use_depth_dependant = false;
+//        bool const use_depth_modulation = false;
+//        bool const use_stochastic_visibility = false;
+
+        return parameters;
+    }
+
+protected:
+    std::vector<Data_depth_pixel> _data;
+
+    std::tr1::unordered_set<GiPoint const*> _debug_gi_points;
+    std::vector< std::vector<Node_weight_pair> > _single_pixel_contributors;
+
+    bool _use_visibility;
+    bool _use_corrected_epsilon_z_buffer;
+    bool _use_epsilon_z_buffer;
+    bool _use_depth_dependant;
+    bool _use_depth_modulation;
+    bool _use_stochastic_visibility;
+};
+
+
+
+static Class_parameter_registration< Abstract_frame_buffer<color_t> > Accumulating_frame_buffer_without_queue_float("Accumulating_frame_buffer_without_queue",
+                                                                                                                  &Accumulating_frame_buffer_without_queue<color_t>::create,
+                                                                                                                   Accumulating_frame_buffer_without_queue<color_t>::get_parameters());
+
+
+// REGISTER_CLASS_WITH_PARAMETERS("Accumulating_frame_buffer_without_queue", Abstract_frame_buffer<float>, Accumulating_frame_buffer_without_queue<float>);
+
+
+
+// store a list of color values and corresponding depths and weights (for example filling) per pixel
+template <class Data>
+class Parameter_frame_buffer : public Abstract_frame_buffer<Data>
+{
+    struct Pixel
+    {
+        Pixel() :
+            lobe(Mises_fisher_lobe<color_t>(vector3d_t(0.0f), 0.0f, Data(0.0f))),
+            rp_to_node(vector3d_t(0.0f)),
+            depth(1e10f),
+            filling_degree(0.0f),
+            radius(0.0f),
+            node(NULL)
+        { }
+
+        Mises_fisher_lobe<color_t> lobe;
+        vector3d_t rp_to_node;
+        float depth;
+        float filling_degree;
+        float radius;
+        GiPoint const* node;
+
+        friend bool operator<(Pixel const& lhs, Pixel const& rhs)
+        {
+            return (lhs.depth < rhs.depth);
+        }
+    };
+
+public:
+    virtual ~Parameter_frame_buffer()
+    {  }
+
+    Parameter_frame_buffer(int size, int plane) : Abstract_frame_buffer<Data>(size, plane)
     {
         set_size(size);
     }
 
-    static Abstract_frame_buffer* create(int resolution, int plane)
+    static Abstract_frame_buffer<Data>* create(int resolution, int plane)
     {
-        return new Accumulating_frame_buffer_without_queue(resolution, plane);
+        return new Parameter_frame_buffer(resolution, plane);
     }
 
-    virtual Abstract_frame_buffer* clone()
+    virtual Abstract_frame_buffer<Data>* clone()
     {
-        Accumulating_frame_buffer_without_queue* afb = new Accumulating_frame_buffer_without_queue(*this);
+        Parameter_frame_buffer* afb = new Parameter_frame_buffer(*this);
 
         return afb;
     }
@@ -442,82 +690,48 @@ public:
         _data.clear();
     }
 
-    virtual void add_point(int const x, int const y, color_t const& color, float const filling_degree, float const depth, float const radius, vector3d_t const& direction,
-                           GiPoint const* node = NULL)
-    {
-        int const serial_index = calc_serial_index(x, y);
+    virtual void add_point(int const x, int const y, Data const& color, float const filling_degree, Gi_point_info const& point_info,
+                           GiPoint const* node = NULL);
 
-        assert(serial_index < _resolution * _resolution);
+    virtual Data get_color(int const x, int const y, Debug_info * debug_info = NULL) const;
 
-        Color_depth_pixel & c = _data[serial_index];
-
-        bool use_visibility = false;
-
-        if (use_visibility)
-        {
-            if (c.filling_degree < 1.0f)
-            {
-                float weight = filling_degree;
-
-                if (c.filling_degree + weight > 1.0f)
-                {
-                    weight = (1.0f - c.filling_degree);
-                }
-
-                c.filling_degree += weight;
-                c.color += color * weight;
-            }
-        }
-        else
-        {
-            c.filling_degree += filling_degree;
-            c.color += color * filling_degree;
-        }
-    }
-
-    virtual color_t get_color(int const x, int const y, Debug_info * debug_info = NULL)
-    {
-        int const serial_index = calc_serial_index(x, y);
-
-        Color_depth_pixel const& c = _data[serial_index];
-
-        if (c.filling_degree > 1.0f)
-        {
-            return c.color / c.filling_degree;
-        }
-
-        return c.color;
-    }
 
 protected:
-    std::vector<Color_depth_pixel> _data;
+    std::vector<Pixel> _data;
+
+    std::tr1::unordered_set<GiPoint const*> _debug_gi_points;
+    mutable std::vector< std::vector<Node_weight_pair> > _single_pixel_contributors;
+    std::vector< std::vector<Mises_fisher_lobe<color_t> > > _pixel_lobes;
 };
 
 
 
+
+
 // store a list of color values and corresponding depths and weights (for example filling) per pixel
-class Grouping_frame_buffer_without_queue : public Abstract_frame_buffer
+template <class Data>
+class Grouping_frame_buffer_without_queue : public Abstract_frame_buffer<Data>
 {
-    struct Color_weight_group
+    struct Data_weight_group
     {
-        color_t color;
+        Data color;
         float weight;
     };
 
 public:
     virtual ~Grouping_frame_buffer_without_queue() {}
 
-    Grouping_frame_buffer_without_queue(int size, int plane) : Abstract_frame_buffer(size, plane)
+    Grouping_frame_buffer_without_queue(int size, int plane) : Abstract_frame_buffer<Data>(size, plane)
     {
         set_size(size);
     }
 
-    static Abstract_frame_buffer* create(int resolution, int plane)
+    static Abstract_frame_buffer<Data>* create(int resolution, int plane)
     {
         return new Grouping_frame_buffer_without_queue(resolution, plane);
     }
 
-    virtual Abstract_frame_buffer* clone()
+    virtual Abstract_frame_buffer<Data>* clone()
     {
         Grouping_frame_buffer_without_queue* afb = new Grouping_frame_buffer_without_queue(*this);
 
@@ -541,56 +755,56 @@ public:
         _groups.clear();
     }
 
-    virtual void add_point(int const x, int const y, color_t const& color, float const filling_degree, float const depth, float const radius, vector3d_t const& direction,
+    virtual void add_point(int const x, int const y, Data const& color, float const filling_degree, Gi_point_info const& point_info,
                            GiPoint const* node = NULL)
     {
-        int const serial_index = calc_serial_index(x, y);
+        int const serial_index = Abstract_frame_buffer<Data>::calc_serial_index(x, y);
 
-        assert(serial_index < _resolution * _resolution);
-
-        if (std::abs(depth - _last_added_pixel_depths[serial_index]) > _last_added_pixel_radius[serial_index] * 2.0f)
+        if (std::abs(point_info.depth - _last_added_pixel_depths[serial_index]) > _last_added_pixel_radius[serial_index] * 2.0f)
         {
             // new group
-            Color_weight_group cd;
+            Data_weight_group cd;
             cd.color  = color * filling_degree;
             cd.weight = filling_degree;
             _groups[serial_index].push_back(cd);
+
+
+            // TODO: this is new depth weight, old one would always change this after added node
+            _last_added_pixel_depths[serial_index] = point_info.depth;
+            _last_added_pixel_radius[serial_index] = point_info.radius;
         }
         else
         {
             assert(_groups[serial_index].size() > 0);
-            Color_weight_group & cd = _groups[serial_index].back();
+            Data_weight_group & cd = _groups[serial_index].back();
             cd.color  += color * filling_degree;
             cd.weight += filling_degree;
         }
 
         if (node)
         {
-            Node_weight_pair nwp(node, filling_degree, _groups[serial_index].size() - 1);
+            Node_weight_pair nwp(node, filling_degree, color, _groups[serial_index].size() - 1);
             _single_pixel_contributors[serial_index].push_back(nwp);
 
             // std::cout << serial_index << " " << depth << " " << _last_added_pixel_depths[serial_index] << " " << radius << std::endl;
             _debug_gi_points.insert(node);
         }
 
-        _last_added_pixel_depths[serial_index] = depth;
-        _last_added_pixel_radius[serial_index] = radius;
     }
 
-    virtual color_t get_color(int const x, int const y, Debug_info * debug_info = NULL)
+    virtual Data get_color(int const x, int const y, Debug_info * debug_info = NULL) const
     {
-        int const serial_index = calc_serial_index(x, y);
-        assert(serial_index < _resolution * _resolution && serial_index >= 0);
+        int const serial_index = Abstract_frame_buffer<Data>::calc_serial_index(x, y);
 
-        std::vector<Color_weight_group> const& pixel_groups = _groups[serial_index];
+        std::vector<Data_weight_group> const& pixel_groups = _groups[serial_index];
 
-        color_t accumulated_color(0.0f);
+        Data accumulated_color(0.0f);
 
         for (int i = pixel_groups.size() - 1; i >= 0; --i)
         {
             float weight = pixel_groups[i].weight;
 
-            color_t color = pixel_groups[i].color;
+            Data color = pixel_groups[i].color;
 
             if (weight > 1.0f)
             {
@@ -603,12 +817,12 @@ public:
 
         if (debug_info)
         {
-            for (std::tr1::unordered_set<yafaray::GiPoint const*>::iterator iter = _debug_gi_points.begin(); iter != _debug_gi_points.end(); ++iter)
+            for (std::tr1::unordered_set<yafaray::GiPoint const*>::const_iterator iter = _debug_gi_points.begin(); iter != _debug_gi_points.end(); ++iter)
             {
                 debug_info->gi_points.insert(*iter);
             }
 
-            bool const debug_pixel = debug_info->cube_plane == _debug_plane && debug_info->cube_x == x && debug_info->cube_y == y;
+            bool const debug_pixel = debug_info->cube_plane == Abstract_frame_buffer<Data>::_debug_plane && debug_info->cube_x == x && debug_info->cube_y == y;
 
             if (debug_pixel)
             {
@@ -631,251 +845,14 @@ public:
 protected:
     std::vector<float> _last_added_pixel_depths;
     std::vector<float> _last_added_pixel_radius;
-    std::vector< std::vector<Color_weight_group> > _groups;
+    std::vector< std::vector<Data_weight_group> > _groups;
 
     std::tr1::unordered_set<GiPoint const*> _debug_gi_points;
-    std::vector< std::vector<Node_weight_pair> > _single_pixel_contributors;
+    mutable std::vector< std::vector<Node_weight_pair> > _single_pixel_contributors;
 };
 
 
-
-// store a list of color values and corresponding depths and weights (for example filling) per pixel
-class Accumulating_frame_buffer : public Abstract_frame_buffer
-{
-public:
-    virtual ~Accumulating_frame_buffer() {}
-
-    Accumulating_frame_buffer(int size, int plane) : Abstract_frame_buffer(size, plane)
-    {
-        set_size(size);
-    }
-
-    static Abstract_frame_buffer* create(int resolution, int plane)
-    {
-        return new Accumulating_frame_buffer(resolution, plane);
-    }
-
-    virtual Abstract_frame_buffer* clone()
-    {
-        Accumulating_frame_buffer* afb = new Accumulating_frame_buffer(*this);
-
-        return afb;
-    }
-
-    virtual void set_size(int size)
-    {
-        _resolution = size;
-        _resolution_2 = _resolution / 2;
-
-        _data.clear();
-        _data.resize(size * size);
-    }
-
-    virtual void clear()
-    {
-        _data.clear();
-    }
-
-    virtual void add_point(int const x, int const y, color_t const& color, float const filling_degree, float const depth, float const radius, vector3d_t const& direction,
-                           GiPoint const* node = NULL)
-    {
-        int pixel = (x + _resolution / 2) + _resolution * (y + _resolution / 2);
-
-        assert(pixel < _resolution * _resolution);
-
-        Color_depth_pixel c;
-        c.color          = color;
-        c.depth          = depth;
-        c.filling_degree = filling_degree;
-        c.radius         = radius;
-        c.direction      = direction;
-        c.cone_angle     = std::atan2(radius, depth);
-        c.node           = node;
-
-        _data[pixel].push_back(c);
-    }
-
-    virtual color_t get_color(int const x, int const y, Debug_info * debug_info = NULL)
-    {
-        color_t accumulated_color;
-
-        int const pixel = (x + _resolution_2) + _resolution * (y + _resolution_2);
-
-        if (_data[pixel].size() == 0) return accumulated_color;
-
-        bool debug_pixel = false;
-
-        if (debug_info)
-        {
-            int cube_x = (pixel % _resolution) - _resolution_2;
-            int cube_y = (pixel / _resolution) - _resolution_2;
-
-            debug_pixel = debug_info->cube_plane == _debug_plane && debug_info->cube_x == cube_x && debug_info->cube_y == cube_y;
-        }
-
-        std::sort(_data[pixel].begin(), _data[pixel].end());
-
-        float acc_filling_degree = 0.0f;
-
-
-        if (debug_info)
-        {
-            for (unsigned int i = 0; i < _data[pixel].size(); ++i)
-            {
-                Color_depth_pixel const& c = _data[pixel][i];
-                // debug_info->gi_points.push_back(c.node);
-                debug_info->gi_points.insert(c.node);
-            }
-        }
-
-        unsigned int node_index = 0;
-        bool pixel_full = false;
-        bool const visibility_disabled = true;
-
-        while (!pixel_full && node_index < _data[pixel].size())
-        {
-            Color_depth_pixel const& c = _data[pixel][node_index];
-
-            float weight = c.filling_degree;
-
-            if (!visibility_disabled && acc_filling_degree + weight > 1.0f)
-            {
-                pixel_full = true;
-                weight = (1.0f - acc_filling_degree);
-            }
-
-            acc_filling_degree += weight;
-            accumulated_color += c.color * weight;
-
-            if (debug_pixel)
-            {
-                debug_info->single_pixel_contributors.push_back(Node_weight_pair(c.node, weight));
-            }
-
-            ++node_index;
-        }
-
-        if (debug_pixel)
-        {
-            for (unsigned int i = node_index; i < _data[pixel].size(); ++i)
-            {
-                Color_depth_pixel const& c = _data[pixel][i];
-                debug_info->single_pixel_contributors.push_back(Node_weight_pair(c.node, 0.0f));
-            }
-        }
-
-        if (acc_filling_degree > 1.0f)
-        {
-            accumulated_color *= 1.0f / acc_filling_degree;
-        }
-
-        return accumulated_color;
-    }
-
-
-protected:
-    std::vector< std::vector<Color_depth_pixel> > _data;
-};
-
-
-class Reweighting_frame_buffer : public Accumulating_frame_buffer
-{
-public:
-    Reweighting_frame_buffer(int size, int plane) : Accumulating_frame_buffer(size, plane)
-    {
-        set_size(size);
-    }
-
-    virtual Abstract_frame_buffer* clone()
-    {
-        Reweighting_frame_buffer* afb = new Reweighting_frame_buffer(*this);
-
-        return afb;
-    }
-
-    static Abstract_frame_buffer* create(int resolution, int plane)
-    {
-        return new Reweighting_frame_buffer(resolution, plane);
-    }
-
-    virtual color_t get_color(int const x, int const y, Debug_info * debug_info = NULL)
-    {
-        color_t accumulated_color;
-
-        int const pixel = (x + _resolution_2) + _resolution * (y + _resolution_2);
-
-        if (_data[pixel].size() == 0) return accumulated_color;
-
-        bool debug_pixel = false;
-
-        if (debug_info)
-        {
-            int cube_x = (pixel % _resolution) - _resolution_2;
-            int cube_y = (pixel / _resolution) - _resolution_2;
-
-            debug_pixel = debug_info->cube_plane == _debug_plane && debug_info->cube_x == cube_x && debug_info->cube_y == cube_y;
-        }
-
-        std::sort(_data[pixel].begin(), _data[pixel].end());
-
-        float acc_filling_degree = 0.0f;
-
-
-        if (debug_info)
-        {
-            for (unsigned int i = 0; i < _data[pixel].size(); ++i)
-            {
-                Color_depth_pixel const& c = _data[pixel][i];
-                // debug_info->gi_points.push_back(c.node);
-                debug_info->gi_points.insert(c.node);
-            }
-        }
-
-        unsigned int node_index = 0;
-        bool pixel_full = false;
-
-        while (!pixel_full && node_index < _data[pixel].size())
-        {
-            Color_depth_pixel const& c = _data[pixel][node_index];
-
-            float weight = c.filling_degree;
-
-            /*
-            if (acc_filling_degree + weight > 1.0f)
-            {
-                pixel_full = true;
-                weight = (1.0f - acc_filling_degree);
-            }
-            */
-
-            acc_filling_degree += weight;
-            accumulated_color += c.color * weight;
-
-            if (debug_pixel)
-            {
-                debug_info->single_pixel_contributors.push_back(Node_weight_pair(c.node, weight));
-            }
-
-            ++node_index;
-        }
-
-        acc_filling_degree = std::max(1.0f, acc_filling_degree);
-        accumulated_color *= 1.0f / float(acc_filling_degree);
-
-        if (debug_pixel)
-        {
-            for (unsigned int i = node_index; i < _data[pixel].size(); ++i)
-            {
-                Color_depth_pixel const& c = _data[pixel][i];
-                debug_info->single_pixel_contributors.push_back(Node_weight_pair(c.node, 0.0f));
-            }
-        }
-
-        return accumulated_color;
-    }
-};
-
-
+/*
 class Distance_weighted_frame_buffer : public Accumulating_frame_buffer
 {
 public:
@@ -945,38 +922,6 @@ public:
 
             float previous_depth = c.depth;
             float previous_radius = c.radius;
-
-            /*
-            while (i < pixel_colors.size())
-            {
-                Color_depth_pixel const& c2 = pixel_colors[i];
-
-                // if (std::abs(c2.depth - c.depth) > c.radius + c2.radius)
-                if (std::abs(c2.depth - previous_depth) > previous_radius + c2.radius)
-                {
-                    break;
-                }
-
-                float filling_degree = c2.filling_degree;
-                assert(c2.filling_degree <= 1.0f);
-
-                const float weight = filling_degree;
-                // locally_accumulated_color += c2.color * weight;
-                locally_accumulated_color += c2.color * weight;
-                locally_accumulated_filling_degree += filling_degree * weight;
-                weight_sum += weight;
-
-                previous_depth = c2.depth;
-                previous_radius = c2.radius;
-
-                ++i;
-            }
-
-//            weight_sum = std::min(1.0f, weight_sum);
-
-            locally_accumulated_color *= 1.0f / weight_sum;
-            locally_accumulated_filling_degree /= weight_sum;
-            */
 
             while (i < pixel_colors.size())
             {
@@ -1050,16 +995,6 @@ public:
             ++group_index;
         }
 
-        /*
-        if (debug_pixel)
-        {
-            for (unsigned int i = node_index; i < _data[pixel].size(); ++i)
-            {
-                Color_depth_pixel const& c = _data[pixel][i];
-                debug_info->single_pixel_contributors.push_back(Node_weight_pair(c.node, 0.0f));
-            }
-        }
-        */
 
         if (debug_pixel)
         {
@@ -1070,566 +1005,191 @@ public:
     }
 };
 
+*/
 
 
-
-class Forward_distance_weighted_frame_buffer : public Accumulating_frame_buffer
+template <class Data>
+void Parameter_frame_buffer<Data>::add_point(int const x, int const y, Data const& color, float const filling_degree, Gi_point_info const& point_info,
+                       GiPoint const* node)
 {
-public:
-    Forward_distance_weighted_frame_buffer(int size, int plane) : Accumulating_frame_buffer(size, plane)
+    int const serial_index = Abstract_frame_buffer<Data>::calc_serial_index(x, y);
+
+    Pixel & c = _data[serial_index];
+
+    Mises_Fisher_spherical_function<color_t> const* mf_sf = dynamic_cast< Mises_Fisher_spherical_function<color_t> *>(point_info.spherical_function->color);
+
+    assert(mf_sf);
+
+    if (mf_sf->get_lobes().size() == 0) return;
+
+    assert(mf_sf->get_lobes().size() > 0);
+
+    Mises_fisher_lobe<color_t> const& lobe = mf_sf->get_lobes()[0];
+
+    assert(!std::isnan(lobe.mean_dir.x));
+
+
+    bool const use_visibility = false;
+    bool const use_depth_modulation = true;
+
+    bool accepted = false;
+    float weight = filling_degree;
+
+    if (use_visibility)
     {
-        set_size(size);
-    }
-
-    static Abstract_frame_buffer* create(int resolution, int plane)
-    {
-        return new Forward_distance_weighted_frame_buffer(resolution, plane);
-    }
-
-    virtual Abstract_frame_buffer* clone()
-    {
-        Forward_distance_weighted_frame_buffer* afb = new Forward_distance_weighted_frame_buffer(*this);
-
-        return afb;
-    }
-
-
-    struct Color_distance_group
-    {
-        color_t color;
-        float weight;
-    };
-
-
-    virtual color_t get_color(int const x, int const y, Debug_info * debug_info = NULL)
-    {
-        int const pixel = (x + _resolution_2) + _resolution * (y + _resolution_2);
-        std::vector<Color_depth_pixel> & pixel_colors = _data[pixel];
-
-        if (pixel_colors.size() == 0) return color_t(0.0f);
-
-        color_t accumulated_color(0.0f);
-
-        bool debug_pixel = false;
-
-        if (debug_info)
+        if (c.filling_degree < 1.0f)
         {
-            int cube_x = (pixel % _resolution) - _resolution_2;
-            int cube_y = (pixel / _resolution) - _resolution_2;
-
-            debug_pixel = debug_info->cube_plane == _debug_plane && debug_info->cube_x == cube_x && debug_info->cube_y == cube_y;
-        }
-
-        std::sort(pixel_colors.begin(), pixel_colors.end());
-
-        if (debug_info)
-        {
-            for (unsigned int i = 0; i < pixel_colors.size(); ++i)
+            if (c.filling_degree + weight > 1.0f)
             {
-                Color_depth_pixel const& c = pixel_colors[i];
-                debug_info->gi_points.insert(c.node);
-            }
-        }
-
-
-        std::vector<Color_distance_group> color_distance_groups;
-
-        int group_index = 0;
-
-        bool finished = false;
-
-        for (unsigned int i = 0; i < pixel_colors.size() && !finished; )
-        {
-            Color_depth_pixel const& c = pixel_colors[i];
-
-            color_t locally_accumulated_color(0.0f);
-            float locally_accumulated_filling_degree(0.0f);
-            // float weight_sum = 0.0f;
-
-            int const group_start_index = i;
-
-            while (i < pixel_colors.size())
-            {
-                Color_depth_pixel const& c2 = pixel_colors[i];
-
-                if (std::abs(c.depth - c2.depth) > (c.radius) * 2.0f)
-                {
-                    break;
-                }
-
-                float const filling_degree = c2.filling_degree;
-                assert(filling_degree <= 1.0f);
-
-                // locally_accumulated_color += c2.color * weight;
-                locally_accumulated_color += c2.color * filling_degree;
-                locally_accumulated_filling_degree += filling_degree;
-
-                ++i;
+                weight = 1.0f - c.filling_degree;
             }
 
-            if (locally_accumulated_filling_degree >= 1.0f)
+            accepted = true;
+        }
+    }
+    else if (use_depth_modulation)
+    {
+        accepted = true;
+
+        if (c.depth > 1e5f) // first node being splat onto this pixel
+        {
+            c.depth  = point_info.depth;
+            c.radius = point_info.radius;
+        }
+        else
+        {
+            float const d_0 = c.depth;
+            float const max_dist = 2.0f * c.radius;
+            //float const depth_modulation = (depth - d_0) / (2.0f * d_0 - d_0);
+            // float const depth_modulation = (point_info.depth - d_0) / (1.1f * d_0 - d_0);
+            float const depth_modulation = (point_info.depth - d_0) / max_dist;
+
+            assert(d_0 <= point_info.depth && depth_modulation >= 0.0f);
+
+            if (depth_modulation < 1.0f)
             {
-                locally_accumulated_color *= 1.0f / locally_accumulated_filling_degree;
-                locally_accumulated_filling_degree = std::min(1.0f, locally_accumulated_filling_degree);
-                finished = true;
+                weight = weight * (std::pow(1.0f - depth_modulation, 3.0f) + (3.0f * depth_modulation + 1));
             }
-
-            Color_distance_group cd;
-            cd.color = locally_accumulated_color;
-            cd.weight = locally_accumulated_filling_degree;
-            color_distance_groups.push_back(cd);
-
-            ++group_index;
-
-            if (debug_pixel)
+            else
             {
-                for (unsigned int j = 0; j < debug_info->single_pixel_contributors.size(); ++j)
-                {
-                    debug_info->single_pixel_contributors[j].group_weight *= (1.0f - locally_accumulated_filling_degree);
-                    // debug_info->single_pixel_contributors[j].group_weight *= (1.0f - weight_sum);
-                }
-
-                std::cout << "Group: " << group_index << " fill: " << locally_accumulated_filling_degree << std::endl;
-
-                for (unsigned int j = group_start_index; j < i; ++j)
-                {
-                    debug_info->single_pixel_contributors.push_back(
-                                Node_weight_pair(pixel_colors[j].node, pixel_colors[j].filling_degree, group_index, locally_accumulated_filling_degree));
-                    // debug_info->single_pixel_contributors.push_back(Node_weight_pair(pixel_colors[j].node, pixel_colors[j].filling_degree, group_index, weight_sum));
-
-
-                    std::cout <<
-                                 "c.filling_degree: " << pixel_colors[j].filling_degree << " " <<
-                                 "c.depth: " << pixel_colors[j].depth << " " <<
-                                 "c.radius: " << pixel_colors[j].radius << " " <<
-                                 "c.color: " << pixel_colors[j].color << " " <<
-
-                                 std::endl;
-                }
-            }
-
-        }
-
-        std::reverse(color_distance_groups.begin(), color_distance_groups.end());
-
-        for (unsigned int i = 0; i < color_distance_groups.size(); ++i)
-        {
-            accumulated_color = accumulated_color * (1.0f - color_distance_groups[i].weight) + color_distance_groups[i].color;
-        }
-
-        if (debug_pixel)
-        {
-            std::cout << "Pixel acc color: " << accumulated_color << std::endl;
-        }
-
-        return accumulated_color;
-    }
-};
-
-
-
-
-class Distance_weighted_frame_buffer_XXX : public Accumulating_frame_buffer
-{
-public:
-    Distance_weighted_frame_buffer_XXX(int size, int plane) : Accumulating_frame_buffer(size, plane)
-    {
-        set_size(size);
-    }
-
-    virtual Abstract_frame_buffer* clone()
-    {
-        Distance_weighted_frame_buffer_XXX* afb = new Distance_weighted_frame_buffer_XXX(*this);
-
-        return afb;
-    }
-
-    static Abstract_frame_buffer* create(int resolution, int plane)
-    {
-        return new Distance_weighted_frame_buffer_XXX(resolution, plane);
-    }
-
-    virtual color_t get_color(int const x, int const y, Debug_info * debug_info = NULL)
-    {
-        int const pixel = (x + _resolution_2) + _resolution * (y + _resolution_2);
-        std::vector<Color_depth_pixel> & pixel_colors = _data[pixel];
-
-        if (pixel_colors.size() == 0) return color_t(0.0f);
-
-        color_t accumulated_color(0.0f);
-
-        bool debug_pixel = false;
-
-        if (debug_info)
-        {
-            int cube_x = (pixel % _resolution) - _resolution_2;
-            int cube_y = (pixel / _resolution) - _resolution_2;
-
-            debug_pixel = debug_info->cube_plane == _debug_plane && debug_info->cube_x == cube_x && debug_info->cube_y == cube_y;
-        }
-
-        std::sort(pixel_colors.begin(), pixel_colors.end());
-        std::reverse(pixel_colors.begin(), pixel_colors.end());
-
-        if (debug_info)
-        {
-            for (unsigned int i = 0; i < pixel_colors.size(); ++i)
-            {
-                Color_depth_pixel const& c = pixel_colors[i];
-                debug_info->gi_points.insert(c.node);
+                accepted = false;
             }
         }
-
-
-
-        // float const z_threshold = 0.1f;
-
-        int group_index = 0;
-
-        for (unsigned int i = 0; i < pixel_colors.size(); )
-        {
-            Color_depth_pixel const& c = pixel_colors[i];
-
-            color_t locally_accumulated_color(0.0f);
-            float locally_accumulated_filling_degree(0.0f);
-            // float weight_sum = 0.0f;
-
-            int const group_start_index = i;
-
-            float previous_depth = c.depth;
-            float previous_radius = c.radius;
-
-            /*
-            while (i < pixel_colors.size())
-            {
-                Color_depth_pixel const& c2 = pixel_colors[i];
-
-                // if (std::abs(c2.depth - c.depth) > c.radius + c2.radius)
-                if (std::abs(c2.depth - previous_depth) > previous_radius + c2.radius)
-                {
-                    break;
-                }
-
-                float filling_degree = c2.filling_degree;
-                assert(c2.filling_degree <= 1.0f);
-
-                const float weight = filling_degree;
-                // locally_accumulated_color += c2.color * weight;
-                locally_accumulated_color += c2.color * weight;
-                locally_accumulated_filling_degree += filling_degree * weight;
-                weight_sum += weight;
-
-                previous_depth = c2.depth;
-                previous_radius = c2.radius;
-
-                ++i;
-            }
-
-//            weight_sum = std::min(1.0f, weight_sum);
-
-            locally_accumulated_color *= 1.0f / weight_sum;
-            locally_accumulated_filling_degree /= weight_sum;
-            */
-
-            while (i < pixel_colors.size())
-            {
-                Color_depth_pixel const& c2 = pixel_colors[i];
-
-                // if (std::abs(c2.depth - c.depth) > (c.radius + c2.radius) * 4.0f)
-                // if (std::abs(c2.depth - c.depth) > (c.radius + c2.radius))
-                // if (std::abs(c2.depth - previous_depth) > previous_radius + c2.radius)
-                if (std::abs(c2.depth - previous_depth) > (previous_radius + c2.radius) * 1.0f)
-                {
-                    break;
-                }
-
-                float filling_degree = c2.filling_degree;
-                assert(c2.filling_degree <= 1.0f);
-
-                // locally_accumulated_color += c2.color * weight;
-                locally_accumulated_color += c2.color * filling_degree;
-                locally_accumulated_filling_degree += filling_degree;
-
-                previous_depth = c2.depth;
-                previous_radius = c2.radius;
-
-                ++i;
-            }
-
-            if (locally_accumulated_filling_degree > 1.0f)
-            {
-                locally_accumulated_color *= 1.0f / locally_accumulated_filling_degree;
-            }
-
-            locally_accumulated_filling_degree = std::min(1.0f, locally_accumulated_filling_degree);
-
-            // accumulated_color = accumulated_color * (1.0f - weight_sum) + locally_accumulated_color * weight_sum;
-            accumulated_color = accumulated_color * (1.0f - locally_accumulated_filling_degree) + locally_accumulated_color * locally_accumulated_filling_degree;
-
-            if (debug_pixel)
-            {
-                for (unsigned int j = 0; j < debug_info->single_pixel_contributors.size(); ++j)
-                {
-                    debug_info->single_pixel_contributors[j].group_weight *= (1.0f - locally_accumulated_filling_degree);
-                    // debug_info->single_pixel_contributors[j].group_weight *= (1.0f - weight_sum);
-                }
-
-                for (unsigned int j = group_start_index; j < i; ++j)
-                {
-                    debug_info->single_pixel_contributors.push_back(
-                                Node_weight_pair(pixel_colors[j].node, pixel_colors[j].filling_degree, group_index, locally_accumulated_filling_degree));
-                    // debug_info->single_pixel_contributors.push_back(Node_weight_pair(pixel_colors[j].node, pixel_colors[j].filling_degree, group_index, weight_sum));
-                }
-            }
-
-            ++group_index;
-        }
-
-        /*
-        if (debug_pixel)
-        {
-            for (unsigned int i = node_index; i < _data[pixel].size(); ++i)
-            {
-                Color_depth_pixel const& c = _data[pixel][i];
-                debug_info->single_pixel_contributors.push_back(Node_weight_pair(c.node, 0.0f));
-            }
-        }
-        */
-
-        return accumulated_color;
     }
-};
-
-
-
-class Directional_stacked_frame_buffer : public Accumulating_frame_buffer
-{
-public:
-    Directional_stacked_frame_buffer(int size, int plane) : Accumulating_frame_buffer(size, plane)
+    else
     {
-        set_size(size);
+        accepted = true;
     }
 
-    static Abstract_frame_buffer* create(int resolution, int plane)
+    if (accepted && weight > 0.0001f)
     {
-        return new Directional_stacked_frame_buffer(resolution, plane);
-    }
+        c.filling_degree += weight;
+        c.lobe.concentration += lobe.concentration * weight;
+        c.lobe.mean_dir += lobe.mean_dir * weight;
+        c.lobe.weight += lobe.weight * weight;
+        c.rp_to_node += point_info.direction * weight;
 
-    virtual Abstract_frame_buffer* clone()
-    {
-        Directional_stacked_frame_buffer* afb = new Directional_stacked_frame_buffer(*this);
-
-        return afb;
-    }
-
-    virtual color_t get_color(int const x, int const y, Debug_info * debug_info = NULL)
-    {
-        int const pixel = (x + _resolution_2) + _resolution * (y + _resolution_2);
-        std::vector<Color_depth_pixel> & pixel_colors = _data[pixel];
-
-        if (pixel_colors.size() == 0) return color_t(0.0f);
-
-        color_t accumulated_color(0.0f);
-
-        bool debug_pixel = false;
-
-        if (debug_info)
+        if (node)
         {
-            int cube_x = (pixel % _resolution) - _resolution_2;
-            int cube_y = (pixel / _resolution) - _resolution_2;
+            if (_single_pixel_contributors.size() == 0)
+            {
+                _single_pixel_contributors.resize(Abstract_frame_buffer<Data>::_resolution * Abstract_frame_buffer<Data>::_resolution);
+            }
 
-            debug_pixel = debug_info->cube_plane == _debug_plane && debug_info->cube_x == cube_x && debug_info->cube_y == cube_y;
+            if (_pixel_lobes.size() == 0)
+            {
+                _pixel_lobes.resize(Abstract_frame_buffer<Data>::_resolution * Abstract_frame_buffer<Data>::_resolution);
+            }
+
+            Node_weight_pair nwp(node, weight, color);
+            _single_pixel_contributors[serial_index].push_back(nwp);
+            _pixel_lobes[serial_index].push_back(lobe);
+            _debug_gi_points.insert(node);
         }
-
-        std::sort(pixel_colors.begin(), pixel_colors.end());
-
-        if (debug_info)
-        {
-            for (unsigned int i = 0; i < pixel_colors.size(); ++i)
-            {
-                Color_depth_pixel const& c = pixel_colors[i];
-                debug_info->gi_points.insert(c.node);
-            }
-        }
-
-        float accumulated_filling_degree = 0.0f;
-
-        for (unsigned int i = 0; i < pixel_colors.size() && accumulated_filling_degree < 1.0f; ++i)
-        {
-            Color_depth_pixel const& c = pixel_colors[i];
-
-            float stackedness = 0.0f;
-
-            for (unsigned int j = 0; j < i && stackedness < 1.0f; ++j)
-            {
-                Color_depth_pixel const& c_in_front = pixel_colors[j];
-
-                assert(c_in_front.depth <= c.depth);
-
-                float const angle_between_cones = std::acos(c.direction * c_in_front.direction);
-                float const angle_overlap       = std::max(0.0f, c.cone_angle + c_in_front.cone_angle - angle_between_cones);
-
-                float const stackedness_tmp = angle_overlap / (c.cone_angle + c_in_front.cone_angle);
-
-                if (stackedness_tmp > stackedness)
-                {
-                    stackedness = stackedness_tmp;
-                }
-
-                if (debug_pixel)
-                {
-                    std::cout << "Stacking, i: " << i << " " <<
-                                 "j: " << j << " " <<
-                                 "angle_between_cones: " << angle_between_cones << " " <<
-                                 "angle_overlap: " << angle_overlap << " " <<
-                                 "stackedness_tmp: " << stackedness_tmp << " " <<
-                                 std::endl;
-                }
-            }
-
-            float filling_degree = std::max(0.0f, 1.0f - stackedness) * c.filling_degree;
-
-            if (accumulated_filling_degree + filling_degree > 1.0f)
-            {
-                filling_degree = 1.0f - accumulated_filling_degree + 0.01f;
-            }
-
-            accumulated_color += c.color * filling_degree;
-            accumulated_filling_degree += filling_degree;
-
-            if (debug_pixel)
-            {
-                std::cout << "Directional_stacked_frame_buffer: " <<
-                             "stackedness: " << stackedness << " " <<
-                             "filling_degree: " << filling_degree << " " <<
-                             "c.filling_degree: " << c.filling_degree << " " <<
-                             "c.depth: " << c.depth << " " <<
-                             "c.radius: " << c.radius << " " <<
-                             std::endl;
-
-                debug_info->single_pixel_contributors.push_back(Node_weight_pair(c.node, filling_degree));
-            }
-        }
-
-        return accumulated_color;
     }
-};
-
-
-
-
-class Front_stacked_frame_buffer : public Accumulating_frame_buffer
-{
-public:
-    Front_stacked_frame_buffer(int size, int plane) : Accumulating_frame_buffer(size, plane)
-    {
-        set_size(size);
-    }
-
-    static Abstract_frame_buffer* create(int resolution, int plane)
-    {
-        return new Front_stacked_frame_buffer(resolution, plane);
-    }
-
-    virtual Abstract_frame_buffer* clone()
-    {
-        Front_stacked_frame_buffer* afb = new Front_stacked_frame_buffer(*this);
-
-        return afb;
-    }
-
-    virtual color_t get_color(int const x, int const y, Debug_info * debug_info = NULL)
-    {
-        int const pixel = (x + _resolution_2) + _resolution * (y + _resolution_2);
-        std::vector<Color_depth_pixel> & pixel_colors = _data[pixel];
-
-        if (pixel_colors.size() == 0) return color_t(0.0f);
-
-        color_t accumulated_color(0.0f);
-
-        bool debug_pixel = false;
-
-        if (debug_info)
-        {
-            int cube_x = (pixel % _resolution) - _resolution_2;
-            int cube_y = (pixel / _resolution) - _resolution_2;
-
-            debug_pixel = debug_info->cube_plane == _debug_plane && debug_info->cube_x == cube_x && debug_info->cube_y == cube_y;
-        }
-
-        std::sort(pixel_colors.begin(), pixel_colors.end());
-
-        if (debug_info)
-        {
-            for (unsigned int i = 0; i < pixel_colors.size(); ++i)
-            {
-                Color_depth_pixel const& c = pixel_colors[i];
-                debug_info->gi_points.insert(c.node);
-            }
-        }
-
-        float accumulated_filling_degree = 0.0f;
-
-        for (unsigned int i = 0; i < pixel_colors.size() && accumulated_filling_degree < 1.0f; ++i)
-        {
-            Color_depth_pixel const& c = pixel_colors[i];
-
-            float stackedness = 0.0f;
-
-            for (unsigned int j = 0; j < i; ++j)
-            {
-                Color_depth_pixel const& c2 = pixel_colors[j];
-
-                assert(c2.depth <= c.depth);
-
-                float const stackedness_tmp = std::abs(c2.depth - c.depth) / (2.0f * (c.radius + c2.radius) * 0.5f) * c2.filling_degree / c.filling_degree;
-
-                if (stackedness_tmp > stackedness)
-                {
-                    stackedness = stackedness_tmp;
-                }
-            }
-
-            float filling_degree = std::max(0.0f, 1.0f - stackedness) * c.filling_degree;
-
-            if (accumulated_filling_degree  + filling_degree > 1.0f)
-            {
-                filling_degree = 1.0f - accumulated_filling_degree + 0.01f;
-            }
-
-            accumulated_color += c.color * filling_degree;
-            accumulated_filling_degree += filling_degree;
-
-            if (debug_pixel)
-            {
-                std::cout << "Front_stacked_frame_buffer: " <<
-                             "stackedness: " << stackedness << " " <<
-                             "filling_degree: " << filling_degree << " " <<
-                             "c.filling_degree: " << c.filling_degree << " " <<
-                             "c.depth: " << c.depth << " " <<
-                             "c.radius: " << c.radius << " " <<
-                             std::endl;
-
-                debug_info->single_pixel_contributors.push_back(Node_weight_pair(c.node, filling_degree));
-            }
-        }
-
-        return accumulated_color;
-    }
-};
-
-
-
-
-static void test_directional_fb()
-{
-    yafaray::Directional_stacked_frame_buffer fb(8, 0);
-
-    fb.add_point(0, 0, yafaray::color_t(1.0f), 0.5f, 1.0f, 0.5f, yafaray::vector3d_t(1.0f, 0.0f, 0.0f));
-    fb.add_point(0, 0, yafaray::color_t(1.0f), 0.5f, 1.0f, 0.5f, yafaray::vector3d_t(1.0f, 1.0f, 0.0f).normalize());
-
-    fb.get_color(0, 0);
 }
+
+
+template <class Data>
+Data Parameter_frame_buffer<Data>::get_color(int const x, int const y, Debug_info * debug_info) const
+{
+    int const serial_index = Abstract_frame_buffer<Data>::calc_serial_index(x, y);
+
+    Pixel const& c = _data[serial_index];
+
+    if (c.filling_degree < 0.001f) return Data(0.0f);
+
+    Mises_fisher_lobe<color_t> lobe = c.lobe;
+
+     // needs to be normalized even when buffer not completely filled
+    lobe.weight *= (1.0f / c.filling_degree);
+    lobe.concentration /= c.filling_degree;
+    lobe.mean_dir.normalize();
+
+    vector3d_t rp_to_node = c.rp_to_node;
+    rp_to_node.normalize();
+
+
+    int pixel_serial_index_cube =
+            (y + Abstract_frame_buffer<Data>::_resolution_2) +
+            (x + Abstract_frame_buffer<Data>::_resolution_2) * Abstract_frame_buffer<Data>::_resolution +
+            Abstract_frame_buffer<Data>::_debug_plane * Abstract_frame_buffer<Data>::_resolution * Abstract_frame_buffer<Data>::_resolution;
+
+    vector3d_t pixel_direction = Cube_static_data::cell_centers_luts[Abstract_frame_buffer<Data>::_resolution][pixel_serial_index_cube];
+    pixel_direction.normalize();
+
+
+
+    // std::cout << "x, y: " << x << ", " << y << " pixel_dir: " << pixel_direction << " color: " << lobe.evaluate(-pixel_direction) << " rp_to_node " << rp_to_node << " color: " << lobe.evaluate(-rp_to_node) << std::endl;
+
+    // return lobe.evaluate(-rp_to_node) * c.filling_degree;
+    // return lobe.evaluate(-pixel_direction) * c.filling_degree;
+    color_t result_color = lobe.evaluate(-pixel_direction);
+
+    if (debug_info)
+    {
+        for (std::tr1::unordered_set<yafaray::GiPoint const*>::const_iterator iter = _debug_gi_points.begin(); iter != _debug_gi_points.end(); ++iter)
+        {
+            debug_info->gi_points.insert(*iter);
+        }
+
+        bool const debug_pixel = debug_info->cube_plane == Abstract_frame_buffer<Data>::_debug_plane && debug_info->cube_x == x && debug_info->cube_y == y;
+
+        if (debug_pixel && _single_pixel_contributors.size() > 0)
+        {
+            debug_info->single_pixel_contributors = _single_pixel_contributors[serial_index];
+
+            std::cout << "Parameter_frame_buffer::get_color(): lobe " << lobe << " -rp to node dir: " << -rp_to_node <<
+                         " -pixel_direction: " << -pixel_direction << " color: " << result_color << std::endl;
+        }
+
+        if (debug_pixel && _pixel_lobes.size() > 0)
+        {
+            for (std::size_t i = 0; i < _pixel_lobes[serial_index].size(); ++i)
+            {
+                std::cout << "Parameter_frame_buffer::get_color(): lobe " << i << " " << _pixel_lobes[serial_index][i] << std::endl;
+            }
+        }
+
+        // std::cout << "debug_gi_points: " << debug_gi_points.size() << std::endl;
+
+        // std::cout << "Parameter_frame_buffer::get_color(): debug_type: " << debug_info->debug_return_type << std::endl;
+
+        if (debug_info->debug_return_type == std::string("mean_dir"))
+        {
+            result_color.R = lobe.mean_dir.x * 0.5f + 0.5f;
+            result_color.G = lobe.mean_dir.y * 0.5f + 0.5f;
+            result_color.B = lobe.mean_dir.z * 0.5f + 0.5f;
+        }
+        else if (debug_info->debug_return_type == std::string("filling_degree"))
+        {
+            result_color = color_t(c.filling_degree);
+        }
+    }
+
+    return result_color;
+}
+
 
 
 __END_YAFRAY

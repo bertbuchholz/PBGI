@@ -75,7 +75,11 @@ class YAFRAYCORE_EXPORT triangleObject_t: public object3d_t
 		virtual int getPrimitives(const triangle_t **prims);
 		
 		triangle_t* addTriangle(const triangle_t &t);
-		
+                int add_triangle_with_uv_indices(const triangle_t &t, int const uv0, int const uv1, int const uv2);
+
+                int add_point(point3d_t p) { points.push_back(p); return (points.size() - 1); }
+                // int add_normal(point3d_t p) { points.push_back(p); return (points.size() - 1); }
+
 		virtual void finish();
 
         inline virtual vector3d_t getVertexNormal(int index) const
@@ -93,6 +97,40 @@ class YAFRAYCORE_EXPORT triangleObject_t: public object3d_t
             return triangles;
         }
 
+        inline void setTriangles(std::vector<triangle_t> const& new_triangles)
+        {
+            triangles = new_triangles;
+        }
+
+        void set_use_for_pbgi(bool use_pbgi)
+        {
+            use_for_pbgi = use_pbgi;
+        }
+
+        bool do_use_for_pbgi() const
+        {
+            return use_for_pbgi;
+        }
+
+        triangleObject_t(triangleObject_t const& obj)
+        {
+            triangles = obj.triangles;
+            points = obj.points;
+            normals = obj.normals;
+            uv_offsets = obj.uv_offsets;
+            uv_values = obj.uv_values;
+            has_orco = obj.has_orco;
+            has_uv = obj.has_uv;
+            is_smooth = obj.is_smooth;
+            normals_exported = obj.normals_exported;
+            use_for_pbgi = obj.use_for_pbgi;
+
+            for (std::size_t i = 0; i < triangles.size(); ++i)
+            {
+                triangles[i].setObject(this);
+            }
+        }
+
 
 	private:
         std::vector<triangle_t> triangles;
@@ -105,6 +143,7 @@ class YAFRAYCORE_EXPORT triangleObject_t: public object3d_t
 		bool has_uv;
 		bool is_smooth;
 		bool normals_exported;
+                bool use_for_pbgi;
 };
 
 class YAFRAYCORE_EXPORT triangleObjectInstance_t: public triangleObject_t

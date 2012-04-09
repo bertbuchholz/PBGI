@@ -1,6 +1,9 @@
 #ifndef POINTBASED_GI_H
 #define POINTBASED_GI_H
 
+#include <tr1/unordered_map>
+#include <fstream>
+
 #include <yafray_config.h>
 #include <core_api/environment.h>
 #include <core_api/material.h>
@@ -18,14 +21,17 @@
 #include <utilities/SerializationHelper.h>
 
 #include <integrators/Dictionary_converter.h>
+#include <utilities/Dictionary_generator.h>
+
 
 #include "distance.hpp"
 
 __BEGIN_YAFRAY
 
+
 struct GiPoint
 {
-    GiPoint(Spherical_function_factory const* sf_factory) :
+    GiPoint(Spherical_function_factory<color_t> const* sf_color_factory, Spherical_function_factory<float> const* sf_area_factory) :
         pos(0.0f),
         normal(0.0f),
         color(0.0f),
@@ -35,9 +41,14 @@ struct GiPoint
         bounding_box(point3d_t(0.0f), point3d_t(0.0f)),
         is_surfel(true)
     {
-        if (sf_factory)
+        if (sf_color_factory)
         {
-            sh_representation = sf_factory->create();
+            sf_representation.color = sf_color_factory->create();
+        }
+
+        if (sf_area_factory)
+        {
+            sf_representation.area = sf_area_factory->create();
         }
     }
 
@@ -50,8 +61,9 @@ struct GiPoint
 
     bool is_surfel;
     mutable float debug_radius;
+    mutable float debug_mix_amount;
 
-    Spherical_function * sh_representation;
+    Spherical_node_representation sf_representation;
 
     /*
     friend class boost::serialization::access;
@@ -71,19 +83,19 @@ struct GiPoint
     */
 };
 
-
 class Gi_point_averager
 {
     public:
-    Gi_point_averager(Spherical_function_factory const* spherical_function_factory) :
-        _spherical_function_factory(spherical_function_factory)
+    Gi_point_averager(Spherical_function_factory<color_t> const* sf_color_factory, Spherical_function_factory<float> const* sf_area_factory) :
+        _sf_color_factory(sf_color_factory),
+        _sf_area_factory(sf_area_factory)
     { }
 
     GiPoint * average(std::vector<GiPoint*> const& points)
     {
         assert(points.size() == 2 || points.size() == 1);
 
-        GiPoint * result = new GiPoint(_spherical_function_factory);
+        GiPoint * result = new GiPoint(_sf_color_factory, _sf_area_factory);
 
         if (points.size() == 0) return result;
 
@@ -92,10 +104,11 @@ class Gi_point_averager
         {
             GiPoint const& p = *points[i];
 
-            result->sh_representation->add(p.sh_representation);
+            result->sf_representation.area->add(p.sf_representation.area);
+            result->sf_representation.color->add(p.sf_representation.color);
         }
 
-        result->sh_representation->normalize(1.0f / float(points.size()));
+        result->sf_representation.color->normalize(1.0f / float(points.size()));
 
         // -------------------- test
 
@@ -108,12 +121,12 @@ class Gi_point_averager
         {
             GiPoint const& p = *points[i];
 
-            area_sum += p.sh_representation->get_area(dir);
+            area_sum += p.sf_representation.area->get_value(dir);
         }
 
-        if (!is_in_range(0.9f, 1.1f, result->sh_representation->get_area(dir) / area_sum))
+        if (result->sf_representation.area->get_value(dir) > 0.0f && !is_in_range(0.9f, 1.1f, result->sf_representation.area->get_value(dir) / area_sum))
         {
-            std::cout << "surfel?: " << points[0]->is_surfel << ", not in range: " << area_sum << " " << result->sh_representation->get_area(dir) << std::endl;
+            std::cout << "Gi_point_averager::average(): surfel?: " << points[0]->is_surfel << ", not in range: " << area_sum << " " << result->sf_representation.area->get_value(dir) << std::endl;
         }
         /*
         else
@@ -131,7 +144,7 @@ class Gi_point_averager
             result->pos    += p->pos;
             result->normal += p->normal;
             result->color  += p->color;
-            // result->energy += p->energy;
+            result->area   += p->area;
         }
 
         if (points.size() == 2)
@@ -158,119 +171,31 @@ class Gi_point_averager
             result->bounding_box = points[0]->bounding_box;
         }
 
-
         result->pos    *= 1.0f / float(points.size());
         result->color  *= 1.0f / float(points.size());
-        // result->energy *= 1.0f / float(points.size());
-
 
         result->normal.normalize();
 
-        result->is_surfel = false;
-
-        return result;
-    }
-
-    private:
-    Spherical_function_factory const* _spherical_function_factory;
-};
-
-
-
-class Indexed_gi_point_averager
-{
-    public:
-    Indexed_gi_point_averager(Spherical_function_factory const* spherical_function_factory, Dictionary_converter const* converter) :
-        _spherical_function_factory(spherical_function_factory),
-        _converter(converter)
-    { }
-
-    GiPoint * average(std::vector<GiPoint*> const& points)
-    {
-        //    assert(points.size() > 0);
-
-        GiPoint * result = new GiPoint(_spherical_function_factory);
-
-        if (points.size() == 0) return result;
-
-        // convert the point sfs from indexed to cube sf
-        std::vector<Spherical_function*> converted_functions;
-
-        for (unsigned int i = 0; i < points.size(); ++i)
-        {
-            GiPoint const& p = *points[i];
-
-            Spherical_function * csf = _converter->reconvert(p.sh_representation);
-            converted_functions.push_back(csf);
-        }
-
-        // SH summation
-        for (unsigned int i = 0; i < converted_functions.size(); ++i)
-        {
-            result->sh_representation->add(converted_functions[i]);
-        }
-
-        result->sh_representation->normalize(1.0f / float(points.size()));
-
-        Spherical_function * tmp = result->sh_representation;
-        result->sh_representation = _converter->convert(result->sh_representation);
-        delete tmp;
-
-        for (unsigned int i = 0; i < converted_functions.size(); ++i)
-        {
-            delete converted_functions[i];
-        }
-
-        // -------------------- test
-
-        vector3d_t dir(0.4f, 0.3f, 0.5f);
-        dir.normalize();
-
-        float area_sum = 0;
-
-        for (unsigned int i = 0; i < points.size(); ++i)
-        {
-            GiPoint const& p = *points[i];
-
-            area_sum += p.sh_representation->get_area(dir);
-        }
-
-        if (!is_in_range(0.9f, 1.1f, result->sh_representation->get_area(dir) / area_sum))
-        {
-            std::cout << "Indexed_gi_point_averager::average(): is surfel: " << points[0]->is_surfel << ", not in range: " << area_sum << " " << result->sh_representation->get_area(dir) << std::endl;
-        }
-        else
-        {
-            // std::cout << "in range: " << area_sum << " " << result->sh_representation->get_area(dir) << std::endl;
-        }
-
-        // -------------------------
-
-        for (unsigned int i = 0; i < points.size(); ++i)
-        {
-            GiPoint const* p = points[i];
-
-            result->pos    += p->pos;
-            result->normal += p->normal;
-            result->color  += p->color;
-            // result->energy += p->energy;
-        }
-
-        result->pos    *= 1.0f / float(points.size());
-        result->color  *= 1.0f / float(points.size());
-        // result->energy *= 1.0f / float(points.size());
-
-        result->normal.normalize();
-
-        result->is_surfel = false;
+        result->is_surfel = (points.size() == 1);
 
         return result;
     }
 
 private:
-    Spherical_function_factory const* _spherical_function_factory;
-    Dictionary_converter const* _converter;
+    Spherical_function_factory<color_t> const* _sf_color_factory;
+    Spherical_function_factory<float> const* _sf_area_factory;
 };
+
+
+struct pbgi_sample_t
+{
+    triangle_t const* tri_pointer;
+    point3d_t position;
+    float area;
+    intersectData_t intersect_data;
+};
+
+
 
 
 class YAFRAYPLUGIN_EXPORT pbLighting_t: public mcIntegrator_t
@@ -295,31 +220,42 @@ public:
     color_t doPointBasedGiTreeSH_leafs_only(renderState_t & state, surfacePoint_t const& sp, vector3d_t const& wo) const;
 
     void generate_spherical_function(renderState_t & state, GiPoint * gi_point, surfacePoint_t const& sp, std::vector<light_t*> const& lights);
-    void generate_gi_points         (renderState_t & state, MyTree * tree, int const number_of_samples, Spherical_function_converter const* converter = NULL);
+    void generate_gi_points         (renderState_t & state, MyTree * tree, int const number_of_samples);
     void generate_gi_points_data    (renderState_t & state,
                                      std::vector<MyTree*> const& nodes,
-                                     std::map<GiPoint*, surfacePoint_t> const& point_to_surface_point_map,
-                                     Spherical_function_converter const* converter = NULL,
+                                     std::tr1::unordered_map<GiPoint*, surfacePoint_t> const& point_to_surface_point_map,
                                      int const treat_depth_as_leaf = -1);
+    void generate_gi_points_data_2(std::vector<MyTree*> const& nodes,
+                                   std::tr1::unordered_map<GiPoint*, pbgi_sample_t*> const& point_to_sampling_point_map,
+                                   float const area,
+                                   float const radius,
+                                   int const treat_depth_as_leaf = -1);
 
-    float get_max_solid_angle() { return maxSolidAngle; }
+    void add_bounce(renderState_t & state, pbLighting_t::MyTree * tree);
+
+    float get_max_solid_angle() { return solid_angle_factor; }
     int get_raster_buffer_resolution() const { return raster_buffer_resolution; }
-    Cube_raster_buffer::Type get_raster_buffer_type() const { return raster_buffer_type; }
+    Splat_cube_raster_buffer::Buffer_type get_raster_buffer_type() const { return raster_buffer_type; }
 
     float get_surfel_near_threshold() const { return surfel_near_threshold; }
-    Cube_raster_buffer::Splat_type get_node_splat_type() const { return node_splat_type; }
-    Cube_raster_buffer::Splat_type get_surfel_far_splat_type() const { return surfel_far_splat_type; }
-    Cube_raster_buffer::Splat_type get_surfel_near_splat_type() const { return surfel_near_splat_type; }
+    Splat_cube_raster_buffer::Splat_type get_node_splat_type() const { return node_splat_type; }
+    Splat_cube_raster_buffer::Splat_type get_surfel_far_splat_type() const { return surfel_far_splat_type; }
+    Splat_cube_raster_buffer::Splat_type get_surfel_near_splat_type() const { return surfel_near_splat_type; }
 
     MyTree* get_tree() { return _bspTree; }
 
-    Dictionary_type get_dictionary_type() { return _dictionary_type; }
+    std::vector<Spherical_function<color_t> *> const& get_dictionary_color() { return _color_dictionary; }
 
-    std::vector<Spherical_function*> const& get_dictionary() { return _dictionary; }
+    Dictionary_generator const* get_color_dictionary_generator() { return _color_dictionary_generator; }
 
     void set_load_gi_points(bool const b) { do_load_gi_points = b; }
 
     int get_sf_resolution() const { return _sf_resolution; }
+
+    bool get_variational() const { return variational; }
+
+
+    std::vector<vector3d_t> _debug_new_triangles;
 
 private:
     enum Debug_type { NoTree, Tree, Tree_sh, Tree_sh_fb, Tree_sh_leafs };
@@ -338,30 +274,41 @@ private:
 
     bool do_load_gi_points;
 
-    float maxSolidAngle;
+    float solid_angle_factor;
     int raster_buffer_resolution;
-    Cube_raster_buffer::Type raster_buffer_type;
+    Splat_cube_raster_buffer::Buffer_type raster_buffer_type;
 
     float surfel_near_threshold;
-    Cube_raster_buffer::Splat_type node_splat_type;
-    Cube_raster_buffer::Splat_type surfel_far_splat_type;
-    Cube_raster_buffer::Splat_type surfel_near_splat_type;
+    Splat_cube_raster_buffer::Splat_type node_splat_type;
+    Splat_cube_raster_buffer::Splat_type surfel_far_splat_type;
+    Splat_cube_raster_buffer::Splat_type surfel_near_splat_type;
 
-    Spherical_function_factory const* _spherical_function_factory;
+    Spherical_function_factory<color_t> const* _spherical_function_color_factory;
+    Spherical_function_factory<float>   const* _spherical_function_area_factory;
+
+    Spherical_function_converter<color_t> const* _color_converter;
+    Spherical_function_converter<float>   const* _area_converter;
 
     bool variational;
 
     MyTree* _bspTree;
 
-    std::vector<Spherical_function*> _dictionary;
+    Dictionary_generator * _color_dictionary_generator;
 
-    Dictionary_type _dictionary_type;
+    std::vector< Spherical_function<color_t> *> _color_dictionary;
+    std::vector< Spherical_function<float>   *> _area_dictionary;
+
+    bool _do_dictionary_stats;
     int _dict_num_centers;
     float _dictionary_sample_fraction; // fraction of samples to generate the dictionary from the scene samples
 
     int _sf_resolution; // spherical function resolution, for cube buffer, used for debug
 
     bool _use_sf_files;
+
+    float _disc_scale_factor;
+
+    std::ofstream _log_file;
 };
 
 
@@ -372,43 +319,45 @@ color_t doPointBasedGiTree_sh_fb(
         pbLighting_t::MyTree const* tree,
         renderState_t & state,
         surfacePoint_t const& sp,
-        float const maxSolidAngle,
+        float const solid_angle_factor,
+        background_t * background,
         vector3d_t const& wo,
         int const raster_buffer_resolution,
-        Cube_raster_buffer::Type const raster_buffer_type,
-        Cube_raster_buffer::Splat_type const node_splat_type,
-        Cube_raster_buffer::Splat_type const surfel_far_splat_type,
-        Cube_raster_buffer::Splat_type const surfel_near_splat_type,
+        Splat_cube_raster_buffer::Buffer_type const raster_buffer_type,
+        Splat_cube_raster_buffer::Splat_type const node_splat_type,
+        Splat_cube_raster_buffer::Splat_type const surfel_far_splat_type,
+        Splat_cube_raster_buffer::Splat_type const surfel_near_splat_type,
         float const surfel_near_threshold,
+        bool const variational,
+        float const disc_scale_factor,
+        Parameter_list const* parameters = NULL,
         Debug_info * debug_info = NULL);
-
-color_t doPointBasedGiTree_sh_fb_variational(
-        pbLighting_t::MyTree const* tree,
-        renderState_t & state,
-        surfacePoint_t const& receiving_point,
-        float const solid_angle_threshold,
-        vector3d_t const& wo,
-        int const raster_buffer_resolution,
-        Cube_raster_buffer::Type const raster_buffer_type,
-        Cube_raster_buffer::Splat_type const node_splat_type,
-        Cube_raster_buffer::Splat_type const surfel_far_splat_type,
-        Cube_raster_buffer::Splat_type const surfel_near_splat_type,
-        float const surfel_near_threshold,
-        Debug_info * debug_info = NULL
-        );
 
 void process_surfel(
         GiPoint const& gi_point,
         surfacePoint_t const& sp,
-        Cube_raster_buffer & frame_buffer,
+        Cube_raster_buffer<color_t> & frame_buffer,
         float const surfel_near_threshold,
         float const mix_amount_node_points,
+        float const disc_scale_factor,
+        bool const handle_rp_as_surface,
         std::vector<Gi_point_info> & point_infos,
         std::vector<GiPoint*> & debug_points,
         Debug_info * debug_info = NULL);
 
+Splat_cube_raster_buffer gather_light_at_point(
+        pbLighting_t::MyTree const* tree,
+        vector3d_t const& receiving_point,
+        float const solid_angle_factor,
+        float const disc_scale_factor,
+        int const raster_buffer_resolution,
+        Splat_cube_raster_buffer::Buffer_type const raster_buffer_type,
+        Splat_cube_raster_buffer::Splat_type const node_splat_type,
+        Splat_cube_raster_buffer::Splat_type const surfel_far_splat_type,
+        Splat_cube_raster_buffer::Splat_type const surfel_near_splat_type,
+        float const surfel_near_threshold);
 
-std::vector<Spherical_function*> generate_dictionary_from_gi_points_kmeans(std::vector<GiPoint const*> const& gi_points, Spherical_function_factory const* spherical_function_factory, const int dict_num_centers);
+std::vector<Spherical_function<color_t>*> generate_dictionary_from_gi_points_kmeans(std::vector<GiPoint const*> const& gi_points, Spherical_function_factory<color_t> const* spherical_function_factory, const int dict_num_centers);
 
 __END_YAFRAY
 

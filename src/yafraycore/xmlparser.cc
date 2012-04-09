@@ -327,6 +327,7 @@ void startEl_scene(xmlParser_t &parser, const char *element, const char **attrs)
 	else if(el == "mesh")
 	{
 		mesh_dat_t *md = new mesh_dat_t();
+                bool use_for_pbgi = true;
 		int vertices=0, triangles=0, type=0;
 		for(int n=0; attrs[n]; ++n)
 		{
@@ -336,6 +337,7 @@ void startEl_scene(xmlParser_t &parser, const char *element, const char **attrs)
 			else if(name == "vertices") vertices = atoi(attrs[n+1]);
 			else if(name == "faces") triangles = atoi(attrs[n+1]);
 			else if(name == "type")	type = atoi(attrs[n+1]);
+                        else if(name == "use_for_pbgi")	use_for_pbgi = str2bool(attrs[n+1]);
 		}
 		parser.pushState(startEl_mesh, endEl_mesh, md);
 		if(!parser.scene->startGeometry()) Y_ERROR << "XMLParser: Invalid scene state on startGeometry()!" << yendl;
@@ -343,7 +345,7 @@ void startEl_scene(xmlParser_t &parser, const char *element, const char **attrs)
 		// Get a new object ID
 		md->ID = parser.scene->getNextFreeID();
 
-		if(!parser.scene->startTriMesh(md->ID, vertices, triangles, md->has_orco, md->has_uv, type))
+                if(!parser.scene->startTriMesh(md->ID, vertices, triangles, md->has_orco, md->has_uv, type, use_for_pbgi))
 		{
 			Y_ERROR << "XMLParser: Invalid scene state on startTriMesh()!" << yendl;
 		}

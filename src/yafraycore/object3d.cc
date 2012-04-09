@@ -38,6 +38,19 @@ triangle_t* triangleObject_t::addTriangle(const triangle_t &t)
 	return &(triangles.back());
 }
 
+int triangleObject_t::add_triangle_with_uv_indices(const triangle_t &t, int const uv0, int const uv1, int const uv2)
+{
+        triangles.push_back(t);
+        triangles.back().selfIndex = triangles.size() - 1;
+
+        uv_offsets.push_back(uv0);
+        uv_offsets.push_back(uv1);
+        uv_offsets.push_back(uv2);
+
+        return triangles.size() - 1;
+}
+
+
 void triangleObject_t::finish()
 {
 	for(std::vector<triangle_t>::iterator i=triangles.begin(); i!= triangles.end(); ++i)

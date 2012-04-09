@@ -84,7 +84,11 @@ unsigned int yafrayInterface_t::getNextFreeID() {
 
 bool yafrayInterface_t::startTriMesh(unsigned int id, int vertices, int triangles, bool hasOrco, bool hasUV, int type)
 {
-	bool success = scene->startTriMesh(id, vertices, triangles, hasOrco, hasUV, type);
+    bool use_for_pbgi = false;
+    cparams->getParam("use_for_pbgi", use_for_pbgi);
+    std::cout << "yafrayInterface_t::startTriMesh: use_for_pbgi: " << use_for_pbgi << std::endl;
+
+        bool success = scene->startTriMesh(id, vertices, triangles, hasOrco, hasUV, type, use_for_pbgi);
 	return success;
 }
 

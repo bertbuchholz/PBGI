@@ -5,6 +5,7 @@
 #include <vector>
 #include <cmath>
 #include <queue>
+#include <list>
 
 #include <yafray_constants.h>
 
@@ -107,6 +108,11 @@ public:
         return _cellMax;
     }
 
+    Point_kd_tree * get_parent() const
+    {
+        return _parent;
+    }
+
     std::vector<Point_kd_tree> const& getChildren() const
     {
         return _children;
@@ -118,6 +124,11 @@ public:
     }
 
     std::vector<Point> const& getPoints() const
+    {
+        return _points;
+    }
+
+    std::vector<Point> & getPoints()
     {
         return _points;
     }
@@ -152,7 +163,12 @@ public:
         return (_cellMax + _cellMin) * 0.5f;
     }
 
-    void get_points_bounding_box(Point & min, Point & max)
+    Point get_points_extent() const
+    {
+        return (_points_max - _points_min);
+    }
+
+    void get_points_bounding_box(Point & min, Point & max) const
     {
         min = Point( 1e10f);
         max = Point(-1e10f);
@@ -169,6 +185,11 @@ public:
         }
 
         assert(min[0] <= max[0] && min[1] <= max[1] && min[2] <= max[2]);
+    }
+
+    void calc_points_bounding_box()
+    {
+        get_points_bounding_box(_points_min, _points_max);
     }
 
     bool isNodeBehindPlane(Point const& pos, Point const& normal) const
@@ -257,6 +278,19 @@ public:
         _points.push_back(point);
         _data.push_back(data);
     }
+
+    void prepare_containers(std::size_t const size)
+    {
+        _points.resize(size);
+        _data.resize(size);
+    }
+
+    void add_point_prepared(int const index, Point const& point, Data const& data = Data())
+    {
+        _points[index] = point;
+        _data[index] = data;
+    }
+
 
     inline int get_longest_axis_2d(Point const& cell) const
     {
@@ -413,6 +447,115 @@ public:
         }
     }
 
+
+
+    void split()
+    {
+        assert(_isLeaf && _points.size() == _data.size());
+
+        _children.resize(2, Point_kd_tree(_cellMin, _cellMax, _maxDepth, _maxPoints));
+
+        calc_points_bounding_box();
+        Point cell_extent = get_points_extent();
+
+        assert(dim == 3 || dim == 2);
+
+        int split_axis;
+
+        if (dim == 3)
+        {
+            split_axis = get_longest_axis_3d(cell_extent);
+        }
+        else if (dim == 2)
+        {
+            split_axis = get_longest_axis_2d(cell_extent);
+        }
+
+        //std::vector<Point_data> points_sorted_by_axis(_points.size());
+        std::vector<Point_data> points_sorted_by_axis;
+
+        for (unsigned int i = 0; i < _points.size(); ++i)
+        {
+            points_sorted_by_axis.push_back(Point_data(&_points[i], &_data[i]));
+        }
+
+        std::sort(points_sorted_by_axis.begin(), points_sorted_by_axis.end(), Compare_by_axis(split_axis));
+
+        int const median_index = int(points_sorted_by_axis.size() / 2.0f);
+
+        for (int i = 0; i < median_index; ++i)
+        {
+            _children[0].addPoint(*points_sorted_by_axis[i].point, *points_sorted_by_axis[i].data);
+        }
+
+        for (unsigned int i = median_index; i < points_sorted_by_axis.size(); ++i)
+        {
+            _children[1].addPoint(*points_sorted_by_axis[i].point, *points_sorted_by_axis[i].data);
+        }
+
+
+        float split_position =
+                0.5f * (*points_sorted_by_axis[median_index - 1].point)[split_axis] +
+                0.5f * (*points_sorted_by_axis[median_index    ].point)[split_axis];
+
+        // _points.clear();
+        std::vector<Point>().swap(_points);
+
+        // _data.clear();
+        std::vector<Data>().swap(_data);
+
+        _isLeaf = false;
+
+        _children[0]._cellMax[split_axis] = split_position;
+        _children[1]._cellMin[split_axis] = split_position;
+
+        _children[0]._parent = this;
+        _children[1]._parent = this;
+
+        _children[0].setDepth(_depth + 1);
+        _children[1].setDepth(_depth + 1);
+    }
+
+
+    // actually build the tree from the previously added points
+    static void finalize_points_iterative(Point_kd_tree * root)
+    {
+        // std::cout << "Depth: " << _depth << " adding point: " << point << std::endl;
+
+        std::queue<Point_kd_tree*> queue;
+        queue.push(root);
+
+        while (!queue.empty())
+        {
+            Point_kd_tree * node = queue.front();
+            queue.pop();
+
+            if (node->getIsLeaf())
+            {
+                assert(node->getChildren().size() == 0);
+
+                // add point into cell directly or if full, split the cell
+                // and add then
+                if (int(node->getPoints().size()) > node->get_tree_max_points_per_node() && node->getDepth() < node->get_tree_max_depth())
+                {
+                    node->split();
+
+                    std::vector<Point_kd_tree> & children = node->getChildren();
+                    queue.push(&children[0]);
+                    queue.push(&children[1]);
+                }
+            }
+            else
+            {
+                // don't handle points that are inserted after the first initialization
+                assert(false);
+            }
+        }
+    }
+
+
+
+
     bool isPointIn(Point const& point) const
     {
         // return (point >= _cellMin && point <= _cellMax);
@@ -466,16 +609,6 @@ public:
         return *this;
     }
 
-    static void getPostOrderQueue(std::vector< Point_kd_tree* > & list, Point_kd_tree* node)
-    {
-        for (unsigned int i = 0; i < node->_children.size(); ++i)
-        {
-            getPostOrderQueue(list, &(node->_children[i]));
-        }
-
-        list.push_back(node);
-    }
-
     void get_post_order_queue(std::vector<Point_kd_tree*> & list, int const max_depth = -1)
     {
         if (max_depth == -1 || (max_depth != -1 && _depth < max_depth))
@@ -487,6 +620,19 @@ public:
         }
 
         list.push_back(this);
+    }
+
+    void get_pre_order_queue(std::vector<Point_kd_tree*> & list, int const max_depth = -1)
+    {
+        list.push_back(this);
+
+        if (max_depth == -1 || (max_depth != -1 && _depth < max_depth))
+        {
+            for (unsigned int i = 0; i < _children.size(); ++i)
+            {
+                _children[i].get_pre_order_queue(list, max_depth);
+            }
+        }
     }
 
     void printAveraged() const
@@ -764,6 +910,16 @@ public:
         return height_0 < height_1 ? height_0 : height_1;
     }
 
+    int get_tree_max_depth() const
+    {
+        return _maxDepth;
+    }
+
+    int get_tree_max_points_per_node() const
+    {
+        return _maxPoints;
+    }
+
 
     static void test()
     {
@@ -816,7 +972,7 @@ private:
     std::vector<Point> _points;
     std::vector<Data> _data;
 
-    Point _points_min;
+    Point _points_min; // extent of the actual points data
     Point _points_max;
 
     Data _clusteredData;

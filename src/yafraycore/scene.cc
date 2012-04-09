@@ -259,7 +259,7 @@ bool scene_t::endCurveMesh(const material_t *mat, float strandStart, float stran
 	return true;
 }
 
-bool scene_t::startTriMesh(objID_t id, int vertices, int triangles, bool hasOrco, bool hasUV, int type)
+bool scene_t::startTriMesh(objID_t id, int vertices, int triangles, bool hasOrco, bool hasUV, int type, bool const use_for_pbgi)
 {
 	if(state.stack.front() != GEOMETRY) return false;
 	int ptype = type & 0xFF;
@@ -271,6 +271,7 @@ bool scene_t::startTriMesh(objID_t id, int vertices, int triangles, bool hasOrco
 		case TRIM:	nObj.obj = new triangleObject_t(triangles, hasUV, hasOrco); 
 					nObj.obj->setVisibility( !(type & INVISIBLEM) );
 					nObj.obj->useAsBaseObject( (type & BASEMESH) );
+                                        nObj.obj->set_use_for_pbgi(use_for_pbgi);
 					break;
 		case VTRIM:
 		case MTRIM:	nObj.mobj = new meshObject_t(triangles, hasUV, hasOrco);

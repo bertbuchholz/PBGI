@@ -65,7 +65,9 @@ bool pointLight_t::illuminate(const surfacePoint_t &sp, color_t &col, ray_t &wi)
 	wi.tmax = dist;
 	wi.dir = ldir;
 	
-	col = color * (CFLOAT)idist_sqr;
+        // FIXME: attenuation linearized, correct: sqr!
+        // col = color * (CFLOAT)std::sqrt(idist_sqr);
+        col = color * (CFLOAT)idist_sqr; // correct version
 	return true;
 }
 
