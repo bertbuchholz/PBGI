@@ -53,7 +53,7 @@ public:
 
     virtual void set_parameters(Parameter_list const& parameters)
     {
-        _resolution = parameters["Abstract_frame_buffer/resolution"]->get_value<int>();
+        _resolution = parameters["resolution"]->get_value<int>();
         _resolution += _resolution % 2;
         _resolution_2 = _resolution / 2;
     }
@@ -95,7 +95,7 @@ public:
     {
         Parameter_list parameters;
 
-        parameters.add_parameter(new Parameter("Abstract_frame_buffer/resolution", 8, 2, 128));
+        parameters.add_parameter(new Parameter("resolution", 8, 2, 128));
 
         return parameters;
     }
@@ -349,8 +349,15 @@ public:
     {
         Abstract_frame_buffer<color_t>::set_parameters(parameters);
 
-        _use_visibility = parameters["Accumulating_frame_buffer_without_queue/use_visibility"]->get_value<bool>();
-        _use_depth_modulation = parameters["Accumulating_frame_buffer_without_queue/use_depth_modulation"]->get_value<bool>();
+        _use_visibility = false;
+        _use_corrected_epsilon_z_buffer = false;
+        _use_epsilon_z_buffer = false;
+        _use_depth_dependant = false;
+        _use_depth_modulation = false;
+        _use_stochastic_visibility = false;
+
+        _use_visibility = parameters["use_visibility"]->get_value<bool>();
+        _use_depth_modulation = parameters["use_depth_modulation"]->get_value<bool>();
 
         set_size(this->_resolution);
     }
@@ -582,6 +589,11 @@ public:
     }
 
 
+    static std::string name()
+    {
+        return "Accumulating_frame_buffer_without_queue";
+    }
+
     static Accumulating_frame_buffer_without_queue * create()
     {
         return new Accumulating_frame_buffer_without_queue;
@@ -589,10 +601,10 @@ public:
 
     static Parameter_list get_parameters()
     {
-        Parameter_list parameters = Abstract_frame_buffer<color_t>::get_parameters();
+        Parameter_list parameters;
 
-        parameters.add_parameter(new Parameter("Accumulating_frame_buffer_without_queue/use_visibility",       true));
-        parameters.add_parameter(new Parameter("Accumulating_frame_buffer_without_queue/use_depth_modulation", false));
+        parameters.add_parameter(new Parameter("use_visibility",       true));
+        parameters.add_parameter(new Parameter("use_depth_modulation", false));
 
 
 //        bool const use_visibility = false;
@@ -621,9 +633,9 @@ protected:
 
 
 
-static Class_parameter_registration< Abstract_frame_buffer<color_t> > Accumulating_frame_buffer_without_queue_float("Accumulating_frame_buffer_without_queue",
-                                                                                                                  &Accumulating_frame_buffer_without_queue<color_t>::create,
-                                                                                                                   Accumulating_frame_buffer_without_queue<color_t>::get_parameters());
+static Class_parameter_registration< Abstract_frame_buffer<color_t>, Accumulating_frame_buffer_without_queue<color_t> > Accumulating_frame_buffer_without_queue_float(
+        &Accumulating_frame_buffer_without_queue<color_t>::create,
+        Accumulating_frame_buffer_without_queue<color_t>::get_parameters());
 
 
 // REGISTER_CLASS_WITH_PARAMETERS("Accumulating_frame_buffer_without_queue", Abstract_frame_buffer<float>, Accumulating_frame_buffer_without_queue<float>);

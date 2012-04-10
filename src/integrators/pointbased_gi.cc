@@ -7,6 +7,7 @@
 
 
 #include <omp.h>
+#include <valgrind/callgrind.h>
 
 #include <bert/shared/Parameter.h>
 
@@ -1892,11 +1893,6 @@ Splat_cube_raster_buffer gather_light_at_point(
 
 colorA_t pbLighting_t::integrate(renderState_t &state, diffRay_t &ray) const
 {
-    if (render_single_pixel && (pixel_x != state.pixel_x || pixel_y != state.pixel_y))
-    {
-        return color_t(0.0);
-    }
-
     color_t col(0.0);
     float alpha = 0.0;
     surfacePoint_t sp;
@@ -1929,6 +1925,7 @@ colorA_t pbLighting_t::integrate(renderState_t &state, diffRay_t &ray) const
 
             if (debug_type == Tree_sh_fb)
             {
+                CALLGRIND_START_INSTRUMENTATION;
 
                 col += doPointBasedGiTree_sh_fb(_bspTree,
                                                 state,
@@ -1945,6 +1942,8 @@ colorA_t pbLighting_t::integrate(renderState_t &state, diffRay_t &ray) const
                                                 variational,
                                                 _disc_scale_factor
                                                 );
+
+                CALLGRIND_STOP_INSTRUMENTATION;
             }
             else
             {

@@ -336,18 +336,17 @@ void Splat_cube_raster_buffer::setup_empty()
 
 void Splat_cube_raster_buffer::setup(Parameter_list const& parameters)
 {
-    _resolution = parameters["Abstract_frame_buffer/resolution"]->get_value<int>();
-    _resolution += _resolution % 2;
-    _resolution_2 = _resolution / 2;
-
     for (int i = 0; i < 6; ++i)
     {
-        buffers[i] = Parameter_registry< Abstract_frame_buffer<color_t> >::get()->create(parameters["fb_type"]->get_value<std::string>());
-        buffers[i]->set_parameters(parameters);
+        buffers[i] = Parameter_registry< Abstract_frame_buffer<color_t> >::get_class_from_single_select_instance("receiving_fb_type", parameters);
+        //buffers[i] = Parameter_registry< Abstract_frame_buffer<color_t> >::get()->create(parameters["receiving_fb_type"]->get_value<std::string>());
+        //buffers[i]->set_parameters(parameters);
         buffers[i]->set_plane(i);
     }
 
-
+    _resolution = buffers[0]->get_resolution();
+    _resolution += _resolution % 2;
+    _resolution_2 = _resolution / 2;
 
     std::map<Splat_type, Add_point_function_ptr> splat_type_to_function_map;
     splat_type_to_function_map[Single_pixel]           = &Splat_cube_raster_buffer::add_point_single_pixel;

@@ -51,7 +51,7 @@ public:
 
         std::vector<int> num_samples_per_dimension(27, 1);
 
-        for (std::size_t i = 0; i < num_axis_with_2_samples; )
+        for (int i = 0; i < num_axis_with_2_samples; )
         {
             int const r = my_random() * dimensions;
 
