@@ -1,7 +1,11 @@
 #ifndef DICTIONARY_CONVERTER_H
 #define DICTIONARY_CONVERTER_H
 
+#include <ANN/ANN.h>
+#include <utilities/ANN_wrapper_functions.h>
+
 #include <utilities/spherical_harmonics.h>
+
 
 __BEGIN_YAFRAY
 
@@ -79,19 +83,44 @@ template <class Data>
 class Spherical_function_indexed_converter : public Spherical_function_converter<Data>
 {
 public:
-    Spherical_function_indexed_converter(std::vector<Spherical_function<Data> *> const* dictionary, bool const keep_original) :
+    Spherical_function_indexed_converter(std::vector<Spherical_function<Data> *> const* dictionary, bool const use_ann, bool const keep_original) :
         _dictionary(dictionary),
-        _keep_original(keep_original)
+        _keep_original(keep_original),
+        _ann_tree(NULL)
     {
         for (unsigned int i = 0; i < _dictionary->size(); ++i)
         {
             _unpacked_dictionary.push_back((*_dictionary)[i]->to_vector());
         }
+
+        if (use_ann)
+        {
+            _ann_tree = generate_kd_tree_from_centers(_unpacked_dictionary);
+        }
     }
+
+
 
     Spherical_function<Data> * convert(Spherical_function<Data> const* sf) const
     {
-        Indexed_spherical_function<Data> * indexed_sf = new Indexed_spherical_function<Data>(_unpacked_dictionary, _dictionary, sf, _keep_original);
+        Indexed_spherical_function<Data> * indexed_sf;
+
+        if (_ann_tree)
+        {
+            int index;
+
+            #pragma omp critical
+            {
+                index = find_closest_center_ann(sf->to_vector(), _ann_tree);
+            }
+
+            indexed_sf = new Indexed_spherical_function<Data>(index, _dictionary, _keep_original ? sf->clone() : NULL);
+        }
+        else
+        {
+            indexed_sf = new Indexed_spherical_function<Data>(_unpacked_dictionary, _dictionary, sf, _keep_original);
+        }
+
         return indexed_sf;
     }
 
@@ -168,8 +197,9 @@ public:
 
 private:
     std::vector< Spherical_function<Data> *> const* _dictionary;
-    std::vector< std::vector<float> > _unpacked_dictionary;
+    std::vector< Word > _unpacked_dictionary;
     bool _keep_original;
+    ANNkd_tree * _ann_tree;
 };
 
 

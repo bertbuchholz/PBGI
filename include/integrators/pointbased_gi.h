@@ -301,6 +301,7 @@ private:
     bool _do_dictionary_stats;
     int _dict_num_centers;
     float _dictionary_sample_fraction; // fraction of samples to generate the dictionary from the scene samples
+    bool _use_ann; // use ann to accelerate the closest cluster search
 
     int _sf_resolution; // spherical function resolution, for cube buffer, used for debug
 

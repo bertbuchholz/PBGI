@@ -32,10 +32,9 @@ target_link_libraries(SkyIntegrator yafaraycore)
 add_library(sppm SHARED sppm.cc)
 target_link_libraries(sppm yafaraycore)
 
-#add_library(pbgi SHARED pointbased_gi.cc KMeans.cpp KmTree.cpp KmUtils.cpp)
 add_library(pbgi SHARED pointbased_gi.cc Scene_sampler.cpp)
 target_link_libraries(pbgi yafaraycore boost_serialization boost_thread)
 
 install (TARGETS directlight photonmap pathtrace bidirpath sppm pbgi
-		EmissionIntegrator SingleScatterIntegrator EmptyVolumeIntegrator DebugIntegrator SkyIntegrator
+                EmissionIntegrator SingleScatterIntegrator EmptyVolumeIntegrator DebugIntegrator SkyIntegrator
 		${YAF_TARGET_TYPE} DESTINATION ${YAF_PLUGIN_DIR})

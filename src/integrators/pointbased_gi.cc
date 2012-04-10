@@ -759,7 +759,7 @@ void pbLighting_t::generate_gi_points(renderState_t & state, MyTree * tree, int 
     timer.addEvent("node_data_creation");
     timer.start("node_data_creation");
 
-    bool use_parallel_averaging = true;
+    bool const use_parallel_averaging = true;
 
     if (use_parallel_averaging)
     {
@@ -1187,7 +1187,7 @@ bool pbLighting_t::preprocess()
 
         _log_file << "Dictionary creation time: " << my_timer.getTime("Dictionary_creation");
 
-        _color_converter = new Spherical_function_indexed_converter<color_t>(&_color_dictionary, _do_dictionary_stats);
+        _color_converter = new Spherical_function_indexed_converter<color_t>(&_color_dictionary, _use_ann, _do_dictionary_stats);
 
         _bspTree = new MyTree(vector3d_t(sceneBound.a), vector3d_t(sceneBound.g), 100, 1);
         generate_gi_points(state, _bspTree, surfel_samples);
@@ -2126,6 +2126,7 @@ integrator_t* pbLighting_t::factory(paraMap_t &params, renderEnvironment_t &rend
     inte->_dict_num_centers           = dict_num_centers;
     inte->_dictionary_sample_fraction = dictionary_sample_fraction;
     inte->_do_dictionary_stats        = do_dictionary_stats;
+    inte->_use_ann                    = false;
 
     if (dictionary_type_str == "No_dict")
     {
@@ -2137,7 +2138,7 @@ integrator_t* pbLighting_t::factory(paraMap_t &params, renderEnvironment_t &rend
     }
     else if (dictionary_type_str == "Kmeans_dict")
     {
-        inte->_color_dictionary_generator = new Kmeans_dictionary_generator(true);
+        inte->_color_dictionary_generator = new Kmeans_dictionary_generator(inte->_use_ann, true);
     }
 
 

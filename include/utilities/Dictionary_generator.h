@@ -1,8 +1,10 @@
 #ifndef DICTIONARY_GENERATOR_H
 #define DICTIONARY_GENERATOR_H
 
+#include <ANN/ANN.h>
 
 #include <utilities/spherical_harmonics.h>
+#include <utilities/ANN_wrapper_functions.h>
 
 __BEGIN_YAFRAY
 
@@ -156,8 +158,62 @@ public:
 class Kmeans_dictionary_generator : public Dictionary_generator
 {
 public:
-    Kmeans_dictionary_generator(bool const do_stats) : _do_stats(do_stats)
+    Kmeans_dictionary_generator(bool const use_ann, bool const do_stats) : _use_ann(use_ann), _do_stats(do_stats)
     { }
+
+
+    int find_closest_center_linear(Word const& word, std::vector<Word> const& centers, Distance_function const& dist_fnc) const
+    {
+        float closest_distance = 1e10f;
+        int closest_center = -1;
+
+        for (std::size_t i = 0; i < centers.size(); ++i)
+        {
+            float distance = dist_fnc(word, centers[i]);
+            if (distance < closest_distance)
+            {
+                closest_center = i;
+                closest_distance = distance;
+            }
+        }
+
+        return closest_center;
+    }
+
+
+    Word calc_new_center(std::vector<Word> const& words, std::vector<int> const& cluster_assignment, random_t & my_random) const
+    {
+        Word new_center;
+
+        if (cluster_assignment.empty())
+        {
+            int const random_word_index = my_random() * words.size();
+            new_center = words[random_word_index];
+        }
+        else
+        {
+            new_center = words[cluster_assignment[0]];
+
+            for (std::size_t j = 1; j < cluster_assignment.size(); ++j)
+            {
+                Word const& word = words[cluster_assignment[j]];
+
+                for (std::size_t k = 0; k < new_center.size(); ++k)
+                {
+                    new_center[k] += word[k];
+                }
+            }
+
+            for (std::size_t k = 0; k < new_center.size(); ++k)
+            {
+                new_center[k] /= cluster_assignment.size();
+            }
+        }
+
+        return new_center;
+    }
+
+
 
 
     std::vector<Word> brute_kmeans(std::vector<Word> const& words_all,
@@ -203,61 +259,44 @@ public:
         {
             std::cout << "Iteration: " << iteration << std::endl;
 
+            ANNkd_tree* ann_tree = NULL;
+
+            if (_use_ann)
+            {
+                ann_tree = generate_kd_tree_from_centers(centers);
+            }
+
             std::vector< std::vector<int> > assignment = std::vector< std::vector<int> >(dict_num_centers);
 
             for (std::size_t i = 0; i < words.size(); ++i)
             {
                 Word const& word = words[i];
 
-                float closest_distance = 1e10f;
-                int closest_center = -1;
+                int closest_center;
 
-                for (std::size_t j = 0; j < centers.size(); ++j)
+                if (_use_ann)
                 {
-                    float distance = dist_fnc(word, centers[j]);
-                    if (distance < closest_distance)
-                    {
-                        closest_center = j;
-                        closest_distance = distance;
-                    }
+                    closest_center = find_closest_center_ann(word, ann_tree);
+                }
+                else
+                {
+                    closest_center = find_closest_center_linear(word, centers, dist_fnc);
                 }
 
                 assignment[closest_center].push_back(i);
             }
 
+            delete ann_tree;
+
             assert(assignment.size() == centers.size());
 
-            for (std::size_t i = 0; i < assignment.size(); ++i)
+            // find new centers as the assigned points' average
+            for (std::size_t cluster_index = 0; cluster_index < assignment.size(); ++cluster_index)
             {
-                std::vector<int> const& cluster_assignment = assignment[i];
-
-                if (cluster_assignment.empty())
-                {
-                    int const random_word_index = my_random() * words.size();
-                    centers[i] = words[random_word_index];
-                }
-                else
-                {
-                    Word new_center = words[cluster_assignment[0]];
-
-                    for (std::size_t j = 1; j < cluster_assignment.size(); ++j)
-                    {
-                        Word const& word = words[cluster_assignment[j]];
-
-                        for (std::size_t k = 0; k < new_center.size(); ++k)
-                        {
-                            new_center[k] += word[k];
-                        }
-                    }
-
-                    for (std::size_t k = 0; k < new_center.size(); ++k)
-                    {
-                        new_center[k] /= cluster_assignment.size();
-                    }
-
-                    centers[i] = new_center;
-                }
+                std::vector<int> const& cluster_assignment = assignment[cluster_index];
+                centers[cluster_index] = calc_new_center(words, cluster_assignment, my_random);
             }
+
         }
 
         centers.push_back(zero_word);
@@ -438,6 +477,7 @@ private:
         return variance;
     }
 
+    bool _use_ann;
     bool _do_stats;
     mutable std::string _stat_results;
 };

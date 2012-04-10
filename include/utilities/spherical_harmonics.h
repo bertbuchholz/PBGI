@@ -1302,6 +1302,14 @@ public:
         }
     }
 
+    Indexed_spherical_function(int const index,
+                               std::vector<Spherical_function<Data> *> const* dictionary,
+                               Spherical_function<Data> * sf = NULL) :
+        _dictionary(dictionary),
+        _original_sf(sf),
+        _index(index)
+    { }
+
     virtual ~Indexed_spherical_function() {}
 
     void calc_coefficients_random(Abstract_spherical_function_estimator<Data> const* estimator)
