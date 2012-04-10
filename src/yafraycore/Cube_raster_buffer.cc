@@ -339,8 +339,6 @@ void Splat_cube_raster_buffer::setup(Parameter_list const& parameters)
     for (int i = 0; i < 6; ++i)
     {
         buffers[i] = Parameter_registry< Abstract_frame_buffer<color_t> >::get_class_from_single_select_instance("receiving_fb_type", parameters);
-        //buffers[i] = Parameter_registry< Abstract_frame_buffer<color_t> >::get()->create(parameters["receiving_fb_type"]->get_value<std::string>());
-        //buffers[i]->set_parameters(parameters);
         buffers[i]->set_plane(i);
     }
 
@@ -348,19 +346,10 @@ void Splat_cube_raster_buffer::setup(Parameter_list const& parameters)
     _resolution += _resolution % 2;
     _resolution_2 = _resolution / 2;
 
-    std::map<Splat_type, Add_point_function_ptr> splat_type_to_function_map;
-    splat_type_to_function_map[Single_pixel]           = &Splat_cube_raster_buffer::add_point_single_pixel;
-    splat_type_to_function_map[Disc_tracing]           = &Splat_cube_raster_buffer::add_point_disc_tracing;
-    splat_type_to_function_map[AA_square]              = &Splat_cube_raster_buffer::add_point_aa_square;
-    splat_type_to_function_map[Gaussian_splat]         = &Splat_cube_raster_buffer::add_point_gaussian_splat;
-    splat_type_to_function_map[SA_tracing]             = &Splat_cube_raster_buffer::add_point_solid_angle_rays;
-    splat_type_to_function_map[Stocastic_tracing]      = &Splat_cube_raster_buffer::add_point_stochastic_disc_tracing;
-    splat_type_to_function_map[Stocastic_node_tracing] = &Splat_cube_raster_buffer::add_point_stochastic_node_tracing;
-
     add_point_function_map.resize(3);
-    add_point_function_map[Gi_point_info::Node]        = splat_type_to_function_map[enum_splat_type_map[parameters["node_splat_type"]->get_value<std::string>()]];
-    add_point_function_map[Gi_point_info::Far_surfel]  = splat_type_to_function_map[enum_splat_type_map[parameters["surfel_far_splat_type"]->get_value<std::string>()]];
-    add_point_function_map[Gi_point_info::Near_surfel] = splat_type_to_function_map[enum_splat_type_map[parameters["surfel_near_splat_type"]->get_value<std::string>()]];
+    add_point_function_map[Gi_point_info::Node] =        Parameter_registry<Splat_strategy>::get_class_from_single_select_instance("node_splat_type", parameters);
+    add_point_function_map[Gi_point_info::Far_surfel] =  Parameter_registry<Splat_strategy>::get_class_from_single_select_instance("surfel_far_splat_type", parameters);
+    add_point_function_map[Gi_point_info::Near_surfel] = Parameter_registry<Splat_strategy>::get_class_from_single_select_instance("surfel_near_splat_type", parameters);
 }
 
 
@@ -375,7 +364,17 @@ void Splat_cube_raster_buffer::setup(
     _resolution = resolution;
     _resolution_2 = _resolution / 2;
 
-    std::map<Splat_type, Add_point_function_ptr> splat_type_to_function_map;
+    // std::map<Splat_type, Add_point_function_ptr> splat_type_to_function_map;
+    std::map<Splat_type, std::tr1::function<Splat_strategy*(void)> > splat_type_to_function_map;
+    splat_type_to_function_map[Single_pixel]           = NULL;
+    splat_type_to_function_map[Disc_tracing]           = &Disc_splat_strategy::create;
+    splat_type_to_function_map[AA_square]              = &Square_splat_strategy::create;
+    splat_type_to_function_map[Gaussian_splat]         = &Gaussian_splat_strategy::create;
+    splat_type_to_function_map[SA_tracing]             = NULL;
+    splat_type_to_function_map[Stocastic_tracing]      = NULL;
+    splat_type_to_function_map[Stocastic_node_tracing] = NULL;
+
+    /*
     splat_type_to_function_map[Single_pixel]           = &Splat_cube_raster_buffer::add_point_single_pixel;
     splat_type_to_function_map[Disc_tracing]           = &Splat_cube_raster_buffer::add_point_disc_tracing;
     splat_type_to_function_map[AA_square]              = &Splat_cube_raster_buffer::add_point_aa_square;
@@ -388,6 +387,13 @@ void Splat_cube_raster_buffer::setup(
     add_point_function_map[Gi_point_info::Node]        = splat_type_to_function_map[node_splat_type];
     add_point_function_map[Gi_point_info::Far_surfel]  = splat_type_to_function_map[surfel_far_splat_type];
     add_point_function_map[Gi_point_info::Near_surfel] = splat_type_to_function_map[surfel_near_splat_type];
+    */
+
+    add_point_function_map.resize(3);
+    add_point_function_map[Gi_point_info::Node]        = splat_type_to_function_map[node_splat_type]();
+    add_point_function_map[Gi_point_info::Far_surfel]  = splat_type_to_function_map[surfel_far_splat_type]();
+    add_point_function_map[Gi_point_info::Near_surfel] = splat_type_to_function_map[surfel_near_splat_type]();
+
 
     for (int i = 0; i < 6; ++i)
     {
@@ -456,100 +462,6 @@ void Splat_cube_raster_buffer::add_point_single_pixel(Gi_point_info const& point
     buffers[c.plane]->add_point(c.pos[0], c.pos[1], color, 1.0f, point_info, node);
 }
 
-
-// raytrace a disc through every pixel, assumes receiving point is in the origin and the disc's center relative to it
-void Splat_cube_raster_buffer::add_point_disc_tracing(Gi_point_info const& point_info, GiPoint const* node)
-{
-    // Color const& color       = point_info.color;
-    Point const& disc_normal = point_info.disc_normal;
-    // Point const& dir         = point_info.direction;
-    Point disc_center        = point_info.position - point_info.receiver_position; // -> make receiving point the origin as seen from the disc's center
-    float const disc_radius  = point_info.radius;
-    // float const depth = point_info.depth;
-
-    Cube_cell c;
-
-    float disc_radius_sqr = disc_radius * disc_radius;
-    // float cell_radius_sqr = 1.0f / float(_resolution * _resolution);
-
-    for (int plane_index = 0; plane_index < 6; ++plane_index)
-    {
-        c.plane = plane_index;
-
-        for (int u = -_resolution_2; u < _resolution_2; ++u)
-        {
-            c.pos[0] = u;
-
-            for (int v = -_resolution_2; v < _resolution_2; ++v)
-            {
-                c.pos[1] = v;
-
-                Point cell_center = get_cell_center(c);
-
-
-                cell_center.normalize();
-
-
-                float alpha = -1.0f;
-                linePlaneIntersection(Point(0.0f), cell_center, disc_center, disc_normal, alpha);
-
-                if (alpha > 0.0f)
-                {
-                    Point hit_point = alpha * cell_center;
-
-                    Point const relative_hitpoint = hit_point - disc_center;
-                    float dist_sqr = relative_hitpoint.lengthSqr();
-
-                    if (dist_sqr < disc_radius_sqr)
-                    {
-                        //float const relative_dist = dist_sqr / disc_radius_sqr;
-                        //float const gauss_weight = std::exp(-3.0f * relative_dist);
-                        float const gauss_weight = 1.0f;
-
-                        if (gauss_weight > 0.05f)
-                        {
-                            // float const filling_degree = std::min(1.0f, point_info.solid_angle / _pixel_solid_angle);
-                            float const filling_degree = 1.0f;
-
-                            Point dir = point_info.receiver_position - (relative_hitpoint + point_info.position);
-                            dir.normalize();
-
-                            // FIXME: put this back in
-                            Color color = point_info.spherical_function->color->get_value(dir) * gauss_weight;
-                            // Color color(0.0f);
-
-                            buffers[plane_index]->add_point(u, v, color, filling_degree, point_info, node);
-                        }
-                    }
-                }
-
-                /*
-
-                    float alpha = -1.0f;
-                    linePlaneIntersection(Point(0.0f), disc_center, cell_center, -cube_plane_normals[plane_index], alpha);
-
-                    if (alpha > 0.0f)
-                    {
-                        Point hit_point = alpha * disc_center;
-
-                        // float dist_sqr = (hit_point - cell_center).lengthSqr();
-
-                        Point vec_hp_cell_center_abs = (hit_point - cell_center);
-                        vec_hp_cell_center_abs.abs();
-
-                        if (vec_hp_cell_center_abs.x < _resolution_2 && vec_hp_cell_center_abs.y < _resolution_2 && vec_hp_cell_center_abs.z < _resolution_2)
-                        // if (dist_sqr < cell_radius_sqr)
-                        {
-                            float const filling_degree = std::min(1.0f, point_info.solid_angle / _pixel_solid_angle);
-
-                            buffers[plane_index]->add_point(u, v, color, filling_degree, alpha, disc_radius, dir, node);
-                        }
-                    }
-                    */
-            }
-        }
-    }
-}
 
 
 void Splat_cube_raster_buffer::add_point_stochastic_disc_tracing(Gi_point_info const& point_info, GiPoint const* node)
@@ -695,8 +607,243 @@ float calc_angular_corrected_square_width(float const dir_x, float const dir_y, 
 
 
 
-void Splat_cube_raster_buffer::add_point_gaussian_splat(Gi_point_info const& point_info, GiPoint const* node)
+
+void Splat_cube_raster_buffer::add_point_solid_angle_rays(Gi_point_info const& point_info, GiPoint const* node)
 {
+    Color const& color       = point_info.color;
+    Point const& disc_normal = (point_info.receiver_position - point_info.position).normalize();
+    Point disc_center        = point_info.position - point_info.receiver_position; // -> make receiving point the origin as seen from the disc's center
+    float const disc_radius  = std::sqrt(point_info.solid_angle * point_info.depth * point_info.depth / M_PI);
+    // float const depth = point_info.depth;
+
+    Cube_cell c;
+
+    float disc_radius_sqr = disc_radius * disc_radius;
+
+    for (int plane_index = 0; plane_index < 6; ++plane_index)
+    {
+        c.plane = plane_index;
+
+        for (int u = -_resolution_2; u < _resolution_2; ++u)
+        {
+            c.pos[0] = u;
+
+            for (int v = -_resolution_2; v < _resolution_2; ++v)
+            {
+                c.pos[1] = v;
+
+                Point cell_center = get_cell_center(c);
+                cell_center.normalize();
+
+                float alpha = -1.0f;
+
+                linePlaneIntersection(Point(0.0f), cell_center, disc_center, disc_normal, alpha);
+
+                if (alpha > 0.0f)
+                {
+                    Point hit_point = alpha * cell_center;
+
+                    float dist_sqr = (hit_point - disc_center).lengthSqr();
+
+                    if (dist_sqr < disc_radius_sqr)
+                    {
+                        buffers[plane_index]->add_point(u, v, color, 1.0f, point_info, node);
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+void Splat_cube_raster_buffer::add_point(Gi_point_info const& point_info, GiPoint const* gi_point)
+{
+    // (this->*add_point_function_map[point_info.type])(point_info, gi_point);
+    add_point_function_map[point_info.type]->splat(*this, point_info, gi_point);
+}
+
+
+void Splat_cube_raster_buffer::add_background(background_t * background)
+{
+    Cube_cell c;
+
+    Gi_point_info point_info;
+    point_info.depth = 1e5;
+
+    for (int plane_index = 0; plane_index < 6; ++plane_index)
+    {
+        c.plane = plane_index;
+
+        for (int u = -_resolution_2; u < _resolution_2; ++u)
+        {
+            c.pos[0] = u;
+
+            for (int v = -_resolution_2; v < _resolution_2; ++v)
+            {
+                c.pos[1] = v;
+
+                ray_t ray(point3d_t(0.0f), get_cell_direction(c));
+                buffers[plane_index]->add_point(u, v, background->eval(ray) * (1.0f / (2.0f * M_PI)), 1.0f, point_info, NULL); // FIXME: 2pi factor, due to not normalizing in the integration function
+            }
+        }
+    }
+}
+
+
+Color Splat_cube_raster_buffer::get_brdf_response(renderState_t & state, surfacePoint_t const& receiving_point, vector3d_t const& wo) const
+{
+    assert(!_get_color_done);
+    _get_color_done = true;
+
+    Color outgoing_color(0.0f);
+    Color total(0.0f);
+
+    _non_zero_area = 0;
+
+    Cube_cell c;
+
+    float debug_weight_sum = 0.0f;
+
+    for (int i = 0; i < 6; ++i)
+    {
+        c.plane = i;
+
+        for (int x = -_resolution_2; x < _resolution_2; ++x)
+        {
+            c.pos[0] = x;
+
+            for (int y = -_resolution_2; y < _resolution_2; ++y)
+            {
+                c.pos[1] = y;
+
+                int const serial_index = get_serial_index(c);
+                Point const cell_dir = get_cell_direction(serial_index);
+
+                float const cos_sp_normal_cell_dir = cell_dir * receiving_point.N; // assumes the receiver is a lambertian reflector
+                assert(cos_sp_normal_cell_dir <= 1.0001f);
+                if (cos_sp_normal_cell_dir < 0.001f) continue;
+
+                float const solid_angle = get_solid_angle(serial_index);
+                float const weight = solid_angle; // normalization not to 1 but the hemisphere area (2.0f * M_PI) which it already is, FIXME: still not sure about the norm.
+                assert(weight >= 0.0f);
+
+                Color const incoming_color = get_data(c);
+
+                vector3d_t const& light_dir = cell_dir;
+
+                Color const surf_col = receiving_point.material->eval(state, receiving_point, wo, light_dir, BSDF_ALL);
+                // Color const surf_col(1.0f);
+                // float const pdf = receiving_point.material->pdf(state, receiving_point, wo, light_dir, BSDF_ALL);
+                float const pdf = 1.0f;
+                outgoing_color += surf_col * incoming_color * cos_sp_normal_cell_dir * weight * pdf;
+
+//                total += color; // * weight;
+
+//                if (color.energy() > 0.0000001f)
+//                {
+//                    // std::cout << "non_zero:" << solid_angle << std::endl;
+//                    _non_zero_area += solid_angle;
+//                }
+
+
+                debug_weight_sum += weight;
+
+                // outgoing_color += color * cos_sp_normal_cell_dir * weight;
+            }
+        }
+    }
+
+    // not sure about the normalization, the solid angle weights sum up to 2 pi (over the hemisphere)
+    // so it seems reasonable to take the factor out again
+//    diffuse *= 1.0f / (2.0f * M_PI);
+
+    // std::cout << "get_diffuse(): " << debug_weight_sum << std::endl;
+
+    _total_energy = total.energy();
+
+    return outgoing_color;
+}
+
+
+int Cube_static_data::get_corresponding_axis(int const axis, int const plane)
+{
+    assert(axis == 0 || axis == 1);
+
+    if (axis == 0)
+    {
+        return corresponding_axis_0[plane];
+    }
+
+    return corresponding_axis_1[plane];
+}
+
+
+
+
+Splat_cube_raster_buffer Splat_cube_raster_buffer::blur() const
+{
+    Splat_cube_raster_buffer tmp_buffer;
+    tmp_buffer.setup_surfel_buffer(_resolution);
+
+    Cube_cell c;
+
+    int const blur_size = 2;
+
+    for (int i = 0; i < 6; ++i)
+    {
+        c.plane = i;
+
+        for (int x = -_resolution_2; x < _resolution_2; ++x)
+        {
+            c.pos[0] = x;
+
+            for (int y = -_resolution_2; y < _resolution_2; ++y)
+            {
+                c.pos[1] = y;
+
+                Color d(0.0f);
+
+                for (int u = -blur_size; u <= blur_size; ++u)
+                {
+                    for (int v = -blur_size; v <= blur_size; ++v)
+                    {
+                        Cube_cell c_tmp;
+                        c_tmp.plane = i;
+                        c_tmp.pos[0] = x + u;
+                        c_tmp.pos[1] = y + v;
+
+                        Point new_center = calc_cell_center(c_tmp);
+                        new_center.normalize();
+
+                        c_tmp = get_cell(new_center);
+                        d += get_data(c_tmp);
+                    }
+                }
+
+                d *= 1.0f / ((blur_size * 2 + 1) * (blur_size * 2 +1));
+                tmp_buffer.set_data(c, d);
+            }
+        }
+    }
+
+    /*
+    std::vector<Cube_cell> const& cells = get_cube_cells();
+
+    for (unsigned int i = 0; i < cells.size(); ++i)
+    {
+        // set_data(cells[i], tmp_buffer.get_data(cells[i]));
+        set_data(cells[i], Data(0.0f));
+    }
+    */
+
+    return tmp_buffer;
+}
+
+
+void Gaussian_splat_strategy::splat(Splat_cube_raster_buffer & cube_buffer, Gi_point_info const& point_info, GiPoint const* node)
+{
+    int const _resolution = cube_buffer.get_resolution();
+    int const _resolution_2 = _resolution / 2;
     color_t const& color        = point_info.color;
     float const solid_angle     = point_info.solid_angle;
     float const distance        = point_info.depth;
@@ -705,7 +852,7 @@ void Splat_cube_raster_buffer::add_point_gaussian_splat(Gi_point_info const& poi
     // --- new square projection ---
 
     float const radius = distance * std::sqrt(solid_angle / M_PI);
-    float const sigma = std::sqrt(solid_angle) / std::sqrt(2.0f * M_PI); // wikipedia, value of integral under gaussian function
+    // float const sigma = std::sqrt(solid_angle) / std::sqrt(2.0f * M_PI); // wikipedia, value of integral under gaussian function
 
     // find intersection point on plane
     for (int i = 0; i < 3; ++i)
@@ -790,18 +937,34 @@ void Splat_cube_raster_buffer::add_point_gaussian_splat(Gi_point_info const& poi
 
                 float const dist_from_center = (q - eye_space_disc_center).length();
 
-                float const r = dist_from_center / radius;
-
-                if (r < 1.0f)
+                if (!_wendland_integral)
                 {
-//                    float const gauss = std::min(1.0f, fExp(-(dist_from_center_squared) / (2.0f * sigma * sigma)));
-//                    fill_ratio = gauss;
-                    // float const wendland = std::pow(1.0f - r, 2.0f);
-                    // float const wendland = std::pow(1.0f - r, 3.0f);
-                    float const wendland = std::pow(1.0f - r, 3.0f) * (3.0f * r + 1.0f);
-                    fill_ratio = wendland;
+                    float const r = dist_from_center / radius;
 
-//                    fill_ratio = 1.0f;
+                    if (r < 1.0f)
+                    {
+                        //                    float const gauss = std::min(1.0f, fExp(-(dist_from_center_squared) / (2.0f * sigma * sigma)));
+                        //                    fill_ratio = gauss;
+                        // float const wendland = std::pow(1.0f - r, 2.0f);
+                        // float const wendland = std::pow(1.0f - r, 3.0f);
+                        float const wendland = std::pow(1.0f - r, 3.0f) * (3.0f * r + 1.0f);
+                        fill_ratio = wendland;
+
+                        //                    fill_ratio = 1.0f;
+                    }
+                }
+                else
+                {
+                    // FIXME: not working right
+                    float const r_0 = std::abs((dist_from_center - (1.0f / float(_resolution))) / radius);
+                    float const r_1 = std::max(1.0f, (dist_from_center + (1.0f / float(_resolution))) / radius);
+
+                    if (r_0 < 1.0f)
+                    {
+                        float const wendland_0 = std::pow(1.0f - r_0, 3.0f) * (3.0f * r_0 + 1.0f);
+                        float const wendland_1 = std::pow(1.0f - r_1, 3.0f) * (3.0f * r_1 + 1.0f);
+                        fill_ratio = 0.5f * (wendland_0 + wendland_1);
+                    }
                 }
 
                 fill_ratio *= point_info.weight;
@@ -812,7 +975,7 @@ void Splat_cube_raster_buffer::add_point_gaussian_splat(Gi_point_info const& poi
 
                 if (fill_ratio > 0.01f)
                 {
-                    buffers[plane_index]->add_point(cell_u, cell_v, color, fill_ratio, changed_point_info, node);
+                    cube_buffer.get_buffer(plane_index)->add_point(cell_u, cell_v, color, fill_ratio, changed_point_info, node);
                 }
 
                 v = next_v;
@@ -824,8 +987,10 @@ void Splat_cube_raster_buffer::add_point_gaussian_splat(Gi_point_info const& poi
 }
 
 
-void Splat_cube_raster_buffer::add_point_aa_square(Gi_point_info const& point_info, GiPoint const* node)
+void Square_splat_strategy::splat(Splat_cube_raster_buffer & cube_buffer, Gi_point_info const& point_info, GiPoint const* node)
 {
+    int const _resolution_2 = cube_buffer.get_resolution() / 2;
+
     color_t const& color        = point_info.color;
     float const solid_angle     = point_info.solid_angle;
     float const distance        = point_info.depth;
@@ -1010,7 +1175,7 @@ void Splat_cube_raster_buffer::add_point_aa_square(Gi_point_info const& point_in
 
                 // if (fill_ratio > 0.01f)
                 {
-                    buffers[plane_index]->add_point(cell_u, cell_v, color, fill_ratio, point_info, node);
+                    cube_buffer.get_buffer(plane_index)->add_point(cell_u, cell_v, color, fill_ratio, point_info, node);
                 }
 
                 v = next_v;
@@ -1021,18 +1186,21 @@ void Splat_cube_raster_buffer::add_point_aa_square(Gi_point_info const& point_in
     }
 }
 
-
-void Splat_cube_raster_buffer::add_point_solid_angle_rays(Gi_point_info const& point_info, GiPoint const* node)
+void Disc_splat_strategy::splat(Splat_cube_raster_buffer & cube_buffer, Gi_point_info const& point_info, GiPoint const* node)
 {
-    Color const& color       = point_info.color;
-    Point const& disc_normal = (point_info.receiver_position - point_info.position).normalize();
+    int const _resolution_2 = cube_buffer.get_resolution() / 2;
+
+    // Color const& color       = point_info.color;
+    Point const& disc_normal = point_info.disc_normal;
+    // Point const& dir         = point_info.direction;
     Point disc_center        = point_info.position - point_info.receiver_position; // -> make receiving point the origin as seen from the disc's center
-    float const disc_radius  = std::sqrt(point_info.solid_angle * point_info.depth * point_info.depth / M_PI);
+    float const disc_radius  = point_info.radius;
     // float const depth = point_info.depth;
 
     Cube_cell c;
 
     float disc_radius_sqr = disc_radius * disc_radius;
+    // float cell_radius_sqr = 1.0f / float(_resolution * _resolution);
 
     for (int plane_index = 0; plane_index < 6; ++plane_index)
     {
@@ -1046,212 +1214,71 @@ void Splat_cube_raster_buffer::add_point_solid_angle_rays(Gi_point_info const& p
             {
                 c.pos[1] = v;
 
-                Point cell_center = get_cell_center(c);
+                Point cell_center = cube_buffer.get_cell_center(c);
+
+
                 cell_center.normalize();
 
-                float alpha = -1.0f;
 
+                float alpha = -1.0f;
                 linePlaneIntersection(Point(0.0f), cell_center, disc_center, disc_normal, alpha);
 
                 if (alpha > 0.0f)
                 {
                     Point hit_point = alpha * cell_center;
 
-                    float dist_sqr = (hit_point - disc_center).lengthSqr();
+                    Point const relative_hitpoint = hit_point - disc_center;
+                    float dist_sqr = relative_hitpoint.lengthSqr();
 
                     if (dist_sqr < disc_radius_sqr)
                     {
-                        buffers[plane_index]->add_point(u, v, color, 1.0f, point_info, node);
+                        //float const relative_dist = dist_sqr / disc_radius_sqr;
+                        //float const gauss_weight = std::exp(-3.0f * relative_dist);
+                        float const gauss_weight = 1.0f;
+
+                        if (gauss_weight > 0.05f)
+                        {
+                            // float const filling_degree = std::min(1.0f, point_info.solid_angle / _pixel_solid_angle);
+                            float const filling_degree = 1.0f;
+
+                            Point dir = point_info.receiver_position - (relative_hitpoint + point_info.position);
+                            dir.normalize();
+
+                            // FIXME: put this back in
+                            Color color = point_info.spherical_function->color->get_value(dir) * gauss_weight;
+                            // Color color(0.0f);
+
+                            cube_buffer.get_buffer(plane_index)->add_point(u, v, color, filling_degree, point_info, node);
+                        }
                     }
                 }
-            }
-        }
-    }
-}
 
+                /*
 
-void Splat_cube_raster_buffer::add_point(Gi_point_info const& point_info, GiPoint const* gi_point)
-{
-    (this->*add_point_function_map[point_info.type])(point_info, gi_point);
-}
+                    float alpha = -1.0f;
+                    linePlaneIntersection(Point(0.0f), disc_center, cell_center, -cube_plane_normals[plane_index], alpha);
 
-
-void Splat_cube_raster_buffer::add_background(background_t * background)
-{
-    Cube_cell c;
-
-    Gi_point_info point_info;
-    point_info.depth = 1e5;
-
-    for (int plane_index = 0; plane_index < 6; ++plane_index)
-    {
-        c.plane = plane_index;
-
-        for (int u = -_resolution_2; u < _resolution_2; ++u)
-        {
-            c.pos[0] = u;
-
-            for (int v = -_resolution_2; v < _resolution_2; ++v)
-            {
-                c.pos[1] = v;
-
-                ray_t ray(point3d_t(0.0f), get_cell_direction(c));
-                buffers[plane_index]->add_point(u, v, background->eval(ray) * (1.0f / (2.0f * M_PI)), 1.0f, point_info, NULL); // FIXME: 2pi factor, due to not normalizing in the integration function
-            }
-        }
-    }
-}
-
-
-Color Splat_cube_raster_buffer::get_brdf_response(renderState_t & state, surfacePoint_t const& receiving_point, vector3d_t const& wo) const
-{
-    assert(!_get_color_done);
-    _get_color_done = true;
-
-    Color outgoing_color(0.0f);
-    Color total(0.0f);
-
-    _non_zero_area = 0;
-
-    Cube_cell c;
-
-    float debug_weight_sum = 0.0f;
-
-    for (int i = 0; i < 6; ++i)
-    {
-        c.plane = i;
-
-        for (int x = -_resolution_2; x < _resolution_2; ++x)
-        {
-            c.pos[0] = x;
-
-            for (int y = -_resolution_2; y < _resolution_2; ++y)
-            {
-                c.pos[1] = y;
-
-                int const serial_index = get_serial_index(c);
-                Point const cell_dir = get_cell_direction(serial_index);
-
-                float const cos_sp_normal_cell_dir = cell_dir * receiving_point.N; // assumes the receiver is a lambertian reflector
-                assert(cos_sp_normal_cell_dir <= 1.0001f);
-                if (cos_sp_normal_cell_dir < 0.001f) continue;
-
-                float const solid_angle = get_solid_angle(serial_index);
-                float const weight = solid_angle; // normalization not to 1 but the hemisphere area (2.0f * M_PI) which it already is, FIXME: still not sure about the norm.
-                assert(weight >= 0.0f);
-
-                Color const incoming_color = get_data(c);
-
-                vector3d_t const& light_dir = cell_dir;
-
-                Color const surf_col = receiving_point.material->eval(state, receiving_point, wo, light_dir, BSDF_ALL);
-                // Color const surf_col(1.0f);
-                // float const pdf = receiving_point.material->pdf(state, receiving_point, wo, light_dir, BSDF_ALL);
-                float const pdf = 1.0f;
-                outgoing_color += surf_col * incoming_color * cos_sp_normal_cell_dir * weight * pdf;
-
-//                total += color; // * weight;
-
-//                if (color.energy() > 0.0000001f)
-//                {
-//                    // std::cout << "non_zero:" << solid_angle << std::endl;
-//                    _non_zero_area += solid_angle;
-//                }
-
-
-                debug_weight_sum += weight;
-
-                // outgoing_color += color * cos_sp_normal_cell_dir * weight;
-            }
-        }
-    }
-
-    // not sure about the normalization, the solid angle weights sum up to 2 pi (over the hemisphere)
-    // so it seems reasonable to take the factor out again
-//    diffuse *= 1.0f / (2.0f * M_PI);
-
-    // std::cout << "get_diffuse(): " << debug_weight_sum << std::endl;
-
-    _total_energy = total.energy();
-
-    return outgoing_color;
-}
-
-
-int Cube_static_data::get_corresponding_axis(int const axis, int const plane)
-{
-    assert(axis == 0 || axis == 1);
-
-    if (axis == 0)
-    {
-        return corresponding_axis_0[plane];
-    }
-
-    return corresponding_axis_1[plane];
-}
-
-
-
-
-Splat_cube_raster_buffer Splat_cube_raster_buffer::blur() const
-{
-    Splat_cube_raster_buffer tmp_buffer;
-    tmp_buffer.setup_surfel_buffer(_resolution);
-
-    Cube_cell c;
-
-    int const blur_size = 2;
-
-    for (int i = 0; i < 6; ++i)
-    {
-        c.plane = i;
-
-        for (int x = -_resolution_2; x < _resolution_2; ++x)
-        {
-            c.pos[0] = x;
-
-            for (int y = -_resolution_2; y < _resolution_2; ++y)
-            {
-                c.pos[1] = y;
-
-                Color d(0.0f);
-
-                for (int u = -blur_size; u <= blur_size; ++u)
-                {
-                    for (int v = -blur_size; v <= blur_size; ++v)
+                    if (alpha > 0.0f)
                     {
-                        Cube_cell c_tmp;
-                        c_tmp.plane = i;
-                        c_tmp.pos[0] = x + u;
-                        c_tmp.pos[1] = y + v;
+                        Point hit_point = alpha * disc_center;
 
-                        Point new_center = calc_cell_center(c_tmp);
-                        new_center.normalize();
+                        // float dist_sqr = (hit_point - cell_center).lengthSqr();
 
-                        c_tmp = get_cell(new_center);
-                        d += get_data(c_tmp);
+                        Point vec_hp_cell_center_abs = (hit_point - cell_center);
+                        vec_hp_cell_center_abs.abs();
+
+                        if (vec_hp_cell_center_abs.x < _resolution_2 && vec_hp_cell_center_abs.y < _resolution_2 && vec_hp_cell_center_abs.z < _resolution_2)
+                        // if (dist_sqr < cell_radius_sqr)
+                        {
+                            float const filling_degree = std::min(1.0f, point_info.solid_angle / _pixel_solid_angle);
+
+                            buffers[plane_index]->add_point(u, v, color, filling_degree, alpha, disc_radius, dir, node);
+                        }
                     }
-                }
-
-                d *= 1.0f / ((blur_size * 2 + 1) * (blur_size * 2 +1));
-                tmp_buffer.set_data(c, d);
+                    */
             }
         }
     }
-
-    /*
-    std::vector<Cube_cell> const& cells = get_cube_cells();
-
-    for (unsigned int i = 0; i < cells.size(); ++i)
-    {
-        // set_data(cells[i], tmp_buffer.get_data(cells[i]));
-        set_data(cells[i], Data(0.0f));
-    }
-    */
-
-    return tmp_buffer;
 }
-
-
 
 __END_YAFRAY

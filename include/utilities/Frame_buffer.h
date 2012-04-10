@@ -535,24 +535,30 @@ public:
 
         Color result_color = c.color;
 
-//        if (c.filling_degree > 0.01f)
-//        {
-//            result_color *= 1.0f / c.filling_degree;
-//        }
-
-        if (c.filling_degree > 0.1f)
+        /*
+        if (c.filling_degree > 0.001f)
         {
             result_color *= 1.0f / c.filling_degree;
-        }
-        else if (c.filling_degree > 0.0001f)
-        {
-            result_color *= 1.0f / c.filling_degree;
-            result_color *= c.filling_degree / 0.1f;
         }
         else
         {
             result_color = color_t(0.0f);
         }
+        */
+
+//        if (c.filling_degree > 0.1f)
+//        {
+//            result_color *= 1.0f / c.filling_degree;
+//        }
+//        else if (c.filling_degree > 0.0001f)
+//        {
+//            result_color *= 1.0f / c.filling_degree;
+//            result_color *= c.filling_degree / 0.1f;
+//        }
+//        else
+//        {
+//            result_color = color_t(0.0f);
+//        }
 
 
 

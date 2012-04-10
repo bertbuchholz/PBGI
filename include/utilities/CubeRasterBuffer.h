@@ -17,6 +17,9 @@
 #include <utilities/mcqmc.h>
 #include <integrators/Gi_point_info.h>
 
+#include <bert/shared/Registry_parameters.h>
+#include <bert/shared/Parameter.h>
+
 __BEGIN_YAFRAY
 
 template <class Data>
@@ -270,6 +273,8 @@ public:
     Data integrate() const;
     Data integrate(Cube_raster_buffer<Data> const& weights) const;
 
+    Abstract_frame_buffer<Data>* get_buffer(int const i) { return buffers[i]; }
+
 protected:
     Abstract_frame_buffer<Data>* buffers[6];
     mutable float _total_energy;
@@ -280,6 +285,7 @@ protected:
     mutable bool _get_color_done;
 };
 
+class Splat_strategy;
 
 class Splat_cube_raster_buffer : public Cube_raster_buffer<color_t>
 {
@@ -323,7 +329,8 @@ public:
 private:
     typedef void (Splat_cube_raster_buffer::*Add_point_function_ptr)(Gi_point_info const& point_info, GiPoint const* gi_point);
 
-    std::vector<Add_point_function_ptr> add_point_function_map;
+    // std::vector<Add_point_function_ptr> add_point_function_map;
+    std::vector<Splat_strategy*> add_point_function_map;
 };
 
 
@@ -1274,6 +1281,116 @@ Cube_raster_buffer<Data> Cube_raster_buffer<Data>::blur()
     return tmp_buffer;
 }
 
+
+
+
+class Splat_strategy
+{
+public:
+    virtual ~Splat_strategy() {}
+
+    virtual void set_parameters(Parameter_list const& parameters)
+    { }
+
+    virtual void splat(Splat_cube_raster_buffer & cube_buffer, Gi_point_info const& point_info, GiPoint const* node) = 0;
+
+    static Parameter_list get_parameters()
+    {
+        Parameter_list parameters;
+        return parameters;
+    }
+};
+
+
+
+class Gaussian_splat_strategy : Splat_strategy
+{
+public:
+    void set_parameters(Parameter_list const& parameters)
+    {
+        Splat_strategy::set_parameters(parameters);
+
+        _wendland_integral = parameters["wendland_integral"]->get_value<bool>();
+
+    }
+
+    void splat(Splat_cube_raster_buffer & cube_buffer, Gi_point_info const& point_info, GiPoint const* node);
+
+    static std::string name()
+    {
+        return "Gaussian_splat_strategy";
+    }
+
+    static Splat_strategy * create()
+    {
+        return new Gaussian_splat_strategy;
+    }
+
+    static Parameter_list get_parameters()
+    {
+        Parameter_list parameters;
+
+        parameters.add_parameter(new Parameter("wendland_integral", true));
+
+        return parameters;
+    }
+
+protected:
+    bool _wendland_integral;
+};
+
+REGISTER_CLASS_WITH_PARAMETERS(Splat_strategy, Gaussian_splat_strategy);
+
+
+
+class Disc_splat_strategy : Splat_strategy
+{
+public:
+    void splat(Splat_cube_raster_buffer & cube_buffer, Gi_point_info const& point_info, GiPoint const* node);
+
+    static std::string name()
+    {
+        return "Disc_splat_strategy";
+    }
+
+    static Splat_strategy * create()
+    {
+        return new Disc_splat_strategy;
+    }
+
+    static Parameter_list get_parameters()
+    {
+        Parameter_list parameters;
+        return parameters;
+    }
+};
+
+REGISTER_CLASS_WITH_PARAMETERS(Splat_strategy, Disc_splat_strategy);
+
+
+class Square_splat_strategy : Splat_strategy
+{
+public:
+    void splat(Splat_cube_raster_buffer & cube_buffer, Gi_point_info const& point_info, GiPoint const* node);
+
+    static std::string name()
+    {
+        return "Square_splat_strategy";
+    }
+
+    static Splat_strategy * create()
+    {
+        return new Square_splat_strategy;
+    }
+
+    static Parameter_list get_parameters()
+    {
+        Parameter_list parameters;
+        return parameters;
+    }
+};
+
+REGISTER_CLASS_WITH_PARAMETERS(Splat_strategy, Square_splat_strategy);
 
 
 
