@@ -207,6 +207,8 @@ typedef vector3d_t Point;
 typedef color_t Color;
 
 class Splat_cube_raster_buffer;
+template <class Data>
+class Cube_raster_buffer;
 
 template <class Data>
 class GiSphericalHarmonics;
@@ -268,6 +270,11 @@ public:
     virtual std::vector< float > to_vector() const { return std::vector<float>(); }
     virtual void from_vector(std::vector< float > const& /* data */) {}
 
+    virtual void get_precalculated_coefficients(Cube_raster_buffer<Spherical_function<float> *> const& normal_map,
+                                                vector3d_t const& surface_normal,
+                                                color_t const& surface_color,
+                                                vector3d_t const& light_dir,
+                                                color_t const& light_color) {}
 
     virtual std::vector< std::vector<float> > components_to_vectors() const { return std::vector< std::vector<float> >(); }
     virtual void from_component_vectors(std::vector< std::vector<float> > const& /* data */) {}
@@ -403,6 +410,12 @@ public:
     }
 
     virtual void add_light(Splat_cube_raster_buffer const& fb_in);
+
+    virtual void get_precalculated_coefficients(Cube_raster_buffer<Spherical_function<float> *> const& normal_map,
+                                                vector3d_t const& surface_normal,
+                                                color_t const& surface_color,
+                                                vector3d_t const& light_dir,
+                                                color_t const& light_color);
 
     void test(Point const& normal, float const area)
     {
@@ -595,6 +608,10 @@ public:
     }
 
 
+    Data const& get_coefficient(int index) const
+    {
+        return sh_coefficients[index];
+    }
 
 private:
     Data get_value(float const theta, float const phi) const
@@ -619,10 +636,6 @@ private:
         return result;
     }
 
-    Data const& get_coefficient(int index) const
-    {
-        return sh_coefficients[index];
-    }
 
     float factorial(int num) const
     {
@@ -1836,6 +1849,9 @@ void GiSphericalHarmonics<Data>::add_light(Splat_cube_raster_buffer const& fb_in
         sh_coefficients[sh_index] += new_sh_coefficients[sh_index]; //  * inv;
     }
 }
+
+
+
 
 //Spherical_node_representation::~Spherical_node_representation()
 //{

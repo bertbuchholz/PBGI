@@ -358,6 +358,7 @@ public:
 
         _use_visibility = parameters["use_visibility"]->get_value<bool>();
         _use_depth_modulation = parameters["use_depth_modulation"]->get_value<bool>();
+        _normalize = parameters["normalize"]->get_value<bool>();
 
         set_size(this->_resolution);
     }
@@ -546,19 +547,22 @@ public:
         }
         */
 
-//        if (c.filling_degree > 0.1f)
-//        {
-//            result_color *= 1.0f / c.filling_degree;
-//        }
-//        else if (c.filling_degree > 0.0001f)
-//        {
-//            result_color *= 1.0f / c.filling_degree;
-//            result_color *= c.filling_degree / 0.1f;
-//        }
-//        else
-//        {
-//            result_color = color_t(0.0f);
-//        }
+        if (_normalize)
+        {
+            if (c.filling_degree > 0.1f)
+            {
+                result_color *= 1.0f / c.filling_degree;
+            }
+            else if (c.filling_degree > 0.0001f)
+            {
+                result_color *= 1.0f / c.filling_degree;
+                result_color *= c.filling_degree / 0.1f;
+            }
+            else
+            {
+                result_color = color_t(0.0f);
+            }
+        }
 
 
 
@@ -611,14 +615,7 @@ public:
 
         parameters.add_parameter(new Parameter("use_visibility",       true));
         parameters.add_parameter(new Parameter("use_depth_modulation", false));
-
-
-//        bool const use_visibility = false;
-//        bool const use_corrected_epsilon_z_buffer = false;
-//        bool const use_epsilon_z_buffer = false;
-//        bool const use_depth_dependant = false;
-//        bool const use_depth_modulation = false;
-//        bool const use_stochastic_visibility = false;
+        parameters.add_parameter(new Parameter("normalize",            true));
 
         return parameters;
     }
@@ -628,6 +625,8 @@ protected:
 
     std::tr1::unordered_set<GiPoint const*> _debug_gi_points;
     std::vector< std::vector<Node_weight_pair> > _single_pixel_contributors;
+
+    bool _normalize;
 
     bool _use_visibility;
     bool _use_corrected_epsilon_z_buffer;

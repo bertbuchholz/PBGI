@@ -233,7 +233,7 @@ public:
 
     void add_bounce(renderState_t & state, pbLighting_t::MyTree * tree);
 
-    float get_max_solid_angle() { return solid_angle_factor; }
+    float get_max_solid_angle() { return _solid_angle_factor; }
     int get_raster_buffer_resolution() const { return raster_buffer_resolution; }
     Splat_cube_raster_buffer::Buffer_type get_raster_buffer_type() const { return raster_buffer_type; }
 
@@ -252,8 +252,9 @@ public:
 
     int get_sf_resolution() const { return _sf_resolution; }
 
-    bool get_variational() const { return variational; }
+    bool get_variational() const { return _variational; }
 
+    Parameter_list const& get_parameters() const { return _parameters; }
 
     std::vector<vector3d_t> _debug_new_triangles;
 
@@ -274,7 +275,7 @@ private:
 
     bool do_load_gi_points;
 
-    float solid_angle_factor;
+    float _solid_angle_factor;
     int raster_buffer_resolution;
     Splat_cube_raster_buffer::Buffer_type raster_buffer_type;
 
@@ -289,9 +290,11 @@ private:
     Spherical_function_converter<color_t> const* _color_converter;
     Spherical_function_converter<float>   const* _area_converter;
 
-    bool variational;
+    bool _variational;
 
     MyTree* _bspTree;
+
+    Cube_raster_buffer<Spherical_function<float> *> _precalculated_sf;
 
     Dictionary_generator * _color_dictionary_generator;
 
@@ -310,6 +313,8 @@ private:
     float _disc_scale_factor;
 
     std::ofstream _log_file;
+
+    Parameter_list _parameters;
 };
 
 

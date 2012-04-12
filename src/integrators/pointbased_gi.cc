@@ -60,7 +60,7 @@ const color_t colors[] = {
 std::vector<color_t> pbLighting_t::debug_colors(colors, colors + sizeof(colors)/sizeof(*colors));
 
 
-pbLighting_t::pbLighting_t(bool transpShad, int shadowDepth, int rayDepth) : solid_angle_factor(0.5f), _bspTree(NULL)
+pbLighting_t::pbLighting_t(bool transpShad, int shadowDepth, int rayDepth) : _solid_angle_factor(0.5f), _bspTree(NULL)
 {
     type = SURFACE;
     causRadius = 0.25;
@@ -231,7 +231,32 @@ color_t pbLighting_t::estimateIncomingLight(renderState_t & state, light_t *ligh
   */
 
 
+Cube_raster_buffer<Spherical_function<float> *> precalculate_spherical_harmonics()
+{
+    std::cout << "precalculate_spherical_harmonics()" << std::endl;
 
+    int const resolution = 8;
+
+    Cube_raster_buffer<Spherical_function<float> *> normal_cube;
+    normal_cube.setup_surfel_buffer(resolution);
+
+    std::vector<Cube_cell> const& cells = normal_cube.get_cube_cells();
+
+    for (size_t i = 0; i < cells.size(); ++i)
+    {
+        vector3d_t normal = normal_cube.get_cell_direction(cells[i]);
+        Abstract_spherical_function_estimator<float> * area_estimator = new Spherical_function_area_estimator<float>(normal, 1.0f);
+
+        Spherical_function<float> * sf = new GiSphericalHarmonics<float>(true, 3);
+        sf->calc_coefficients_random(area_estimator);
+
+        normal_cube.set_data(cells[i], sf);
+
+        delete area_estimator;
+    }
+
+    return normal_cube;
+}
 
 
 void pbLighting_t::generate_spherical_function(renderState_t & state, GiPoint * gi_point, surfacePoint_t const& sp, std::vector<light_t*> const& lights)
@@ -240,6 +265,8 @@ void pbLighting_t::generate_spherical_function(renderState_t & state, GiPoint * 
     lightRay.from = gi_point->pos;
 
     color_t lcol(0.f);
+
+    bool const use_precalculated_sf = true;
 
     for (std::vector<light_t *>::const_iterator light = lights.begin(); light != lights.end(); ++light)
     {
@@ -267,8 +294,16 @@ void pbLighting_t::generate_spherical_function(renderState_t & state, GiPoint * 
 
             if (!shadowed)
             {
-                Abstract_spherical_function_estimator<color_t> * color_estimator = new Spherical_function_light_color_estimator<color_t>(state, sp, lightRay, lcol);
-                gi_point->sf_representation.color->calc_coefficients_random(color_estimator);
+                if (use_precalculated_sf)
+                {
+                    gi_point->sf_representation.color->get_precalculated_coefficients(_precalculated_sf, sp.N, sp.material->getDiffuseAtPoint(state, sp), lightRay.dir, lcol);
+                }
+                else
+                {
+                    Abstract_spherical_function_estimator<color_t> * color_estimator = new Spherical_function_light_color_estimator<color_t>(state, sp, lightRay, lcol);
+                    gi_point->sf_representation.color->calc_coefficients_random(color_estimator);
+                    delete color_estimator;
+                }
             }
         }
     }
@@ -277,10 +312,12 @@ void pbLighting_t::generate_spherical_function(renderState_t & state, GiPoint * 
     {
         Abstract_spherical_function_estimator<color_t> * emit_estimator = new Spherical_function_emit_color_estimator<color_t>(state, sp);
         gi_point->sf_representation.color->calc_coefficients_random(emit_estimator);
+        delete emit_estimator;
     }
 
     Abstract_spherical_function_estimator<float> * area_estimator = new Spherical_function_area_estimator<float>(sp.N, gi_point->area);
     gi_point->sf_representation.area->calc_coefficients_random(area_estimator);
+    delete area_estimator;
 }
 
 
@@ -1121,14 +1158,14 @@ bool pbLighting_t::preprocess()
     ss << "#s: "    << surfel_samples <<
           " | rr: " << raster_buffer_resolution;
 
-    if (variational) ss << " (V)";
+    if (_variational) ss << " (V)";
 
     ss << ", "      << extract_initials(get_string_from_type_map(raster_buffer_type, Splat_cube_raster_buffer::enum_type_map)) <<
           ", "      << extract_initials(get_string_from_type_map(node_splat_type, Splat_cube_raster_buffer::enum_splat_type_map)) <<
           ", "      << extract_initials(get_string_from_type_map(surfel_far_splat_type, Splat_cube_raster_buffer::enum_splat_type_map)) <<
           ", "      << extract_initials(get_string_from_type_map(surfel_near_splat_type, Splat_cube_raster_buffer::enum_splat_type_map)) <<
           " | ds: " << _disc_scale_factor <<
-          " | sa: " << solid_angle_factor <<
+          " | sa: " << _solid_angle_factor <<
           " | sfc: " << _spherical_function_color_factory->get_name();
 
     if (_color_converter) ss << ", " << _color_converter->get_name();
@@ -1150,7 +1187,7 @@ bool pbLighting_t::preprocess()
                  "surfel threshold: " << surfel_near_threshold << std::endl;
 
     _log_file << "Disc scale factor: " << _disc_scale_factor << std::endl;
-    _log_file << "Solid angle factor: " << solid_angle_factor << std::endl;
+    _log_file << "Solid angle factor: " << _solid_angle_factor << std::endl;
     _log_file << "SF color: " << _spherical_function_color_factory->get_name() << ", " << _spherical_function_color_factory->get_settings() << std::endl;
     _log_file << "SF area: " << _spherical_function_area_factory->get_name() << ", " << _spherical_function_area_factory->get_settings() << std::endl;
 
@@ -1170,6 +1207,7 @@ bool pbLighting_t::preprocess()
 
     bound_t const& sceneBound = scene->getSceneBound();
 
+    _precalculated_sf = precalculate_spherical_harmonics();
 
     if (_color_dictionary_generator)
     {
@@ -1254,7 +1292,7 @@ bool pbLighting_t::preprocess()
     // Y_INFO << "PBGI: BSP: " << *_bspTree << std::endl;
 
     Y_INFO << "PBGI: solid angle: "
-           << solid_angle_factor << " "
+           << _solid_angle_factor << " "
            << debugTreeDepth << " "
            << "max depth: " << _bspTree->getMaxDepth() << " "
            << "min leaf depth: " << _bspTree->getMinLeafDepth() << " "
@@ -1930,7 +1968,7 @@ colorA_t pbLighting_t::integrate(renderState_t &state, diffRay_t &ray) const
                 col += doPointBasedGiTree_sh_fb(_bspTree,
                                                 state,
                                                 sp,
-                                                solid_angle_factor,
+                                                _solid_angle_factor,
                                                 background,
                                                 wo,
                                                 raster_buffer_resolution,
@@ -1939,8 +1977,9 @@ colorA_t pbLighting_t::integrate(renderState_t &state, diffRay_t &ray) const
                                                 surfel_far_splat_type,
                                                 surfel_near_splat_type,
                                                 surfel_near_threshold,
-                                                variational,
-                                                _disc_scale_factor
+                                                _variational,
+                                                _disc_scale_factor,
+                                                &_parameters
                                                 );
 
                 CALLGRIND_STOP_INSTRUMENTATION;
@@ -2085,9 +2124,30 @@ integrator_t* pbLighting_t::factory(paraMap_t &params, renderEnvironment_t &rend
     inte->render_single_pixel = render_single_pixel;
     inte->pixel_x             = pixel_x;
     inte->pixel_y             = pixel_y;
-    inte->variational         = variational;
 
     inte->do_load_gi_points = do_load_gi_points;
+
+    inte->_variational         = variational;
+    inte->_parameters.add_parameter(new Parameter("variational", variational));
+
+    inte->_solid_angle_factor = maxSolidAngle;
+    inte->_parameters.add_parameter(new Parameter("solid_angle_factor", maxSolidAngle, 0.0f, 256.0f));
+
+    inte->_disc_scale_factor = disc_scale_factor;
+    inte->_parameters.add_parameter(new Parameter("disc_scale_factor", disc_scale_factor, 0.01f, 20.0f));
+
+    // Parameter_list parameters;
+    inte->_parameters += Parameter_registry< Abstract_frame_buffer<color_t> >::create_single_select_instance("receiving_fb_type");
+    inte->_parameters += Parameter_registry<Splat_strategy>::create_single_select_instance("node_splat_type");
+    inte->_parameters += Parameter_registry<Splat_strategy>::create_single_select_instance("surfel_far_splat_type");
+    inte->_parameters += Parameter_registry<Splat_strategy>::create_single_select_instance("surfel_near_splat_type");
+
+    inte->_parameters["receiving_fb_type"]->set_value(fb_type);
+    inte->_parameters.set_value_for_instance("receiving_fb_type", "resolution", fb_resolution);
+
+    inte->_parameters["node_splat_type"]->set_value(node_splat_type);
+    inte->_parameters["surfel_far_splat_type"]->set_value(surfel_far_splat_type);
+    inte->_parameters["surfel_near_splat_type"]->set_value(surfel_near_splat_type);
 
     inte->raster_buffer_resolution = fb_resolution;
     inte->raster_buffer_type       = Splat_cube_raster_buffer::enum_type_map[fb_type];
@@ -2096,7 +2156,6 @@ integrator_t* pbLighting_t::factory(paraMap_t &params, renderEnvironment_t &rend
     inte->surfel_near_splat_type   = Splat_cube_raster_buffer::enum_splat_type_map[surfel_near_splat_type];
     inte->surfel_near_threshold    = surfel_near_threshold;
 
-    inte->solid_angle_factor = maxSolidAngle;
 
     std::string spherical_function_factory_type = "SH";
     params.getParam("spherical_function_type", spherical_function_factory_type);
@@ -2121,7 +2180,6 @@ integrator_t* pbLighting_t::factory(paraMap_t &params, renderEnvironment_t &rend
     }
 
     inte->_sf_resolution              = sf_resolution;
-    inte->_disc_scale_factor          = disc_scale_factor;
     inte->_use_sf_files               = use_sf_files;
     inte->_dict_num_centers           = dict_num_centers;
     inte->_dictionary_sample_fraction = dictionary_sample_fraction;
@@ -2143,7 +2201,7 @@ integrator_t* pbLighting_t::factory(paraMap_t &params, renderEnvironment_t &rend
 
 
     Y_INFO <<
-              "maxSolidAngle: " << inte->solid_angle_factor << " " <<
+              "maxSolidAngle: " << inte->_solid_angle_factor << " " <<
               "raster_buffer_type: " << inte->raster_buffer_type << " " <<
               "fb_resolution: " << inte->raster_buffer_resolution << " " <<
               "node_splat_type: " << inte->node_splat_type << " " <<

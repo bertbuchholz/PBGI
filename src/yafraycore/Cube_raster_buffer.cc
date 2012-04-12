@@ -16,9 +16,9 @@ std::map<std::string, Splat_cube_raster_buffer::Splat_type> create_splat_type_ma
 {
     std::map<std::string, Splat_cube_raster_buffer::Splat_type> m;
     m["Single_pixel"] = Splat_cube_raster_buffer::Single_pixel;
-    m["Disc_tracing"] = Splat_cube_raster_buffer::Disc_tracing;
-    m["AA_square"] = Splat_cube_raster_buffer::AA_square;
-    m["Gaussian_splat"] = Splat_cube_raster_buffer::Gaussian_splat;
+    m["Disc_splat_strategy"] = Splat_cube_raster_buffer::Disc_tracing;
+    m["Square_splat_strategy"] = Splat_cube_raster_buffer::AA_square;
+    m["Gaussian_splat_strategy"] = Splat_cube_raster_buffer::Gaussian_splat;
     m["SA_tracing"] = Splat_cube_raster_buffer::SA_tracing;
     m["Stocastic_tracing"] = Splat_cube_raster_buffer::Stocastic_tracing;
     m["Stocastic_node_tracing"] = Splat_cube_raster_buffer::Stocastic_node_tracing;
@@ -31,7 +31,7 @@ std::map<std::string, Splat_cube_raster_buffer::Buffer_type> create_type_map()
 {
     std::map<std::string, Splat_cube_raster_buffer::Buffer_type> m;
     m["Simple"] = Splat_cube_raster_buffer::Simple;
-    m["Accumulating"] = Splat_cube_raster_buffer::Accumulating;
+    m["Accumulating_frame_buffer_without_queue"] = Splat_cube_raster_buffer::Accumulating;
     //m["Reweighting"] = Splat_cube_raster_buffer::Reweighting;
     m["Distance_weighted"] = Splat_cube_raster_buffer::Distance_weighted;
     //m["Front_stacked"] = Splat_cube_raster_buffer::Front_stacked;
@@ -840,6 +840,12 @@ Splat_cube_raster_buffer Splat_cube_raster_buffer::blur() const
 }
 
 
+float wendland_integral(const float x)
+{
+    return -0.6f * std::pow(x, 5) + 2.0f * std::pow(x, 4) - 2.0f * std::pow(x, 3) + x;
+}
+
+
 void Gaussian_splat_strategy::splat(Splat_cube_raster_buffer & cube_buffer, Gi_point_info const& point_info, GiPoint const* node)
 {
     int const _resolution = cube_buffer.get_resolution();
@@ -957,13 +963,13 @@ void Gaussian_splat_strategy::splat(Splat_cube_raster_buffer & cube_buffer, Gi_p
                 {
                     // FIXME: not working right
                     float const r_0 = std::abs((dist_from_center - (1.0f / float(_resolution))) / radius);
-                    float const r_1 = std::max(1.0f, (dist_from_center + (1.0f / float(_resolution))) / radius);
+                    float const r_1 = std::min(1.0f, (dist_from_center + (1.0f / float(_resolution))) / radius);
 
                     if (r_0 < 1.0f)
                     {
-                        float const wendland_0 = std::pow(1.0f - r_0, 3.0f) * (3.0f * r_0 + 1.0f);
-                        float const wendland_1 = std::pow(1.0f - r_1, 3.0f) * (3.0f * r_1 + 1.0f);
-                        fill_ratio = 0.5f * (wendland_0 + wendland_1);
+                        float const wendland_0 = wendland_integral(r_0);
+                        float const wendland_1 = wendland_integral(r_1);
+                        fill_ratio = wendland_1 - wendland_0;
                     }
                 }
 

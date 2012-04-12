@@ -1311,7 +1311,6 @@ public:
         Splat_strategy::set_parameters(parameters);
 
         _wendland_integral = parameters["wendland_integral"]->get_value<bool>();
-
     }
 
     void splat(Splat_cube_raster_buffer & cube_buffer, Gi_point_info const& point_info, GiPoint const* node);
