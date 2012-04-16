@@ -294,6 +294,7 @@ private:
 
     MyTree* _bspTree;
 
+    bool _use_precalculated_sf;
     Cube_raster_buffer<Spherical_function<float> *> _precalculated_sf;
 
     Dictionary_generator * _color_dictionary_generator;

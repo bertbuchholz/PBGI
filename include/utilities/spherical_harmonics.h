@@ -211,7 +211,7 @@ template <class Data>
 class Cube_raster_buffer;
 
 template <class Data>
-class GiSphericalHarmonics;
+class Spherical_harmonics;
 
 template <class Data>
 class Spherical_function;
@@ -232,7 +232,7 @@ template <class Data>
 class Spherical_function_visitor
 {
 public:
-    virtual void visit(GiSphericalHarmonics<Data> * sf) = 0;
+    virtual void visit(Spherical_harmonics<Data> * sf) = 0;
     virtual void visit(Cube_spherical_function<Data> * sf) = 0;
     virtual void visit(Mises_Fisher_spherical_function<Data> * sf) = 0;
     virtual void visit(Indexed_spherical_function<Data> * sf) = 0;
@@ -271,10 +271,8 @@ public:
     virtual void from_vector(std::vector< float > const& /* data */) {}
 
     virtual void get_precalculated_coefficients(Cube_raster_buffer<Spherical_function<float> *> const& normal_map,
-                                                vector3d_t const& surface_normal,
-                                                color_t const& surface_color,
-                                                vector3d_t const& light_dir,
-                                                color_t const& light_color) {}
+                                                Data const& scale,
+                                                vector3d_t const& surface_normal) {}
 
     virtual std::vector< std::vector<float> > components_to_vectors() const { return std::vector< std::vector<float> >(); }
     virtual void from_component_vectors(std::vector< std::vector<float> > const& /* data */) {}
@@ -294,20 +292,20 @@ public:
 inline float square(float x) { return x * x; }
 
 template <class Data>
-class GiSphericalHarmonics : public Spherical_function<Data>
+class Spherical_harmonics : public Spherical_function<Data>
 {
 public:
     // typedef float (GiSphericalHarmonics::*Sh_coefficient_func)(Point const& dir) const; // sh_coefficient_func;
     typedef std::tr1::function<float(Point const&)> Sh_coefficient_func;
 
-    GiSphericalHarmonics() :
+    Spherical_harmonics() :
         bands(3),
         exact(false)
     {
         init();
     }
 
-    GiSphericalHarmonics(bool exact, int b)
+    Spherical_harmonics(bool exact, int b)
     {
         this->exact = exact;
 
@@ -412,10 +410,8 @@ public:
     virtual void add_light(Splat_cube_raster_buffer const& fb_in);
 
     virtual void get_precalculated_coefficients(Cube_raster_buffer<Spherical_function<float> *> const& normal_map,
-                                                vector3d_t const& surface_normal,
-                                                color_t const& surface_color,
-                                                vector3d_t const& light_dir,
-                                                color_t const& light_color);
+                                                Data const& scale,
+                                                vector3d_t const& surface_normal);
 
     void test(Point const& normal, float const area)
     {
@@ -486,7 +482,7 @@ public:
 
     virtual void add(Spherical_function<Data> const* s)
     {
-        GiSphericalHarmonics const* sph_harmonics = dynamic_cast<GiSphericalHarmonics const*>(s);
+        Spherical_harmonics const* sph_harmonics = dynamic_cast<Spherical_harmonics const*>(s);
 
         *this = *this + *sph_harmonics;
     }
@@ -502,14 +498,14 @@ public:
 
     Spherical_function<Data> * clone() const
     {
-        return new GiSphericalHarmonics(*this);
+        return new Spherical_harmonics(*this);
     }
 
-    friend GiSphericalHarmonics operator+(GiSphericalHarmonics const& lhs, GiSphericalHarmonics const& rhs)
+    friend Spherical_harmonics operator+(Spherical_harmonics const& lhs, Spherical_harmonics const& rhs)
     {
         assert(lhs.bands == rhs.bands && lhs.exact == rhs.exact);
 
-        GiSphericalHarmonics result(lhs.exact, lhs.bands);
+        Spherical_harmonics result(lhs.exact, lhs.bands);
 
         for (int j = 0; j < lhs.bands * lhs.bands; ++j)
         {
@@ -594,15 +590,15 @@ public:
         // 2   1   7
         // 2   2   8
 
-        sh_functions[0] = &GiSphericalHarmonics::SH_precomputed_0;
-        sh_functions[1] = &GiSphericalHarmonics::SH_precomputed_1;
-        sh_functions[2] = &GiSphericalHarmonics::SH_precomputed_2;
-        sh_functions[3] = &GiSphericalHarmonics::SH_precomputed_3;
-        sh_functions[4] = &GiSphericalHarmonics::SH_precomputed_4;
-        sh_functions[5] = &GiSphericalHarmonics::SH_precomputed_5;
-        sh_functions[6] = &GiSphericalHarmonics::SH_precomputed_6;
-        sh_functions[7] = &GiSphericalHarmonics::SH_precomputed_7;
-        sh_functions[8] = &GiSphericalHarmonics::SH_precomputed_8;
+        sh_functions[0] = &Spherical_harmonics::SH_precomputed_0;
+        sh_functions[1] = &Spherical_harmonics::SH_precomputed_1;
+        sh_functions[2] = &Spherical_harmonics::SH_precomputed_2;
+        sh_functions[3] = &Spherical_harmonics::SH_precomputed_3;
+        sh_functions[4] = &Spherical_harmonics::SH_precomputed_4;
+        sh_functions[5] = &Spherical_harmonics::SH_precomputed_5;
+        sh_functions[6] = &Spherical_harmonics::SH_precomputed_6;
+        sh_functions[7] = &Spherical_harmonics::SH_precomputed_7;
+        sh_functions[8] = &Spherical_harmonics::SH_precomputed_8;
 
         return sh_functions;
     }
@@ -1528,7 +1524,7 @@ public:
 
     Spherical_function<Data> * create() const
     {
-        return new GiSphericalHarmonics<Data>(_exact, _bands);
+        return new Spherical_harmonics<Data>(_exact, _bands);
     }
 
     std::string get_name() const
@@ -1797,7 +1793,7 @@ Mises_Fisher_spherical_function<Data> * Mises_Fisher_spherical_function<Data>::t
 
 
 template <class Data>
-void GiSphericalHarmonics<Data>::add_light(Splat_cube_raster_buffer const& fb_in)
+void Spherical_harmonics<Data>::add_light(Splat_cube_raster_buffer const& fb_in)
 {
     std::vector<Cube_cell> const& cells = fb_in.get_cube_cells();
 
@@ -1850,6 +1846,22 @@ void GiSphericalHarmonics<Data>::add_light(Splat_cube_raster_buffer const& fb_in
     }
 }
 
+template <class Data>
+void Spherical_harmonics<Data>::get_precalculated_coefficients(Cube_raster_buffer<Spherical_function<float> *> const& normal_map,
+                                            Data const& scale,
+                                            vector3d_t const& surface_normal)
+{
+    Cube_cell normal_cell = normal_map.get_cell(surface_normal);
+
+    Spherical_function<float> * sf = normal_map.get_data(normal_cell);
+
+    Spherical_harmonics<float> const* sph_harmonics = dynamic_cast<Spherical_harmonics<float> const*>(sf);
+
+    for (size_t i = 0; i < sh_coefficients.size(); ++i)
+    {
+        sh_coefficients[i] = scale * sph_harmonics->get_coefficient(i);
+    }
+}
 
 
 

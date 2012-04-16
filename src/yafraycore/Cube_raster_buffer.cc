@@ -1,11 +1,9 @@
 #include <map>
 
 #include <utilities/CubeRasterBuffer.h>
-
+#include <utilities/math_utils.h>
 #include <utilities/Frame_buffer.h>
-
 #include <utilities/interpolation.h>
-
 #include <utilities/spherical_harmonics.h>
 
 #include <bert/shared/Parameter.h>
@@ -953,7 +951,7 @@ void Gaussian_splat_strategy::splat(Splat_cube_raster_buffer & cube_buffer, Gi_p
                         //                    fill_ratio = gauss;
                         // float const wendland = std::pow(1.0f - r, 2.0f);
                         // float const wendland = std::pow(1.0f - r, 3.0f);
-                        float const wendland = std::pow(1.0f - r, 3.0f) * (3.0f * r + 1.0f);
+                        float const wendland = wendland_2_1(r);
                         fill_ratio = wendland;
 
                         //                    fill_ratio = 1.0f;
@@ -961,15 +959,24 @@ void Gaussian_splat_strategy::splat(Splat_cube_raster_buffer & cube_buffer, Gi_p
                 }
                 else
                 {
-                    // FIXME: not working right
-                    float const r_0 = std::abs((dist_from_center - (1.0f / float(_resolution))) / radius);
-                    float const r_1 = std::min(1.0f, (dist_from_center + (1.0f / float(_resolution))) / radius);
+                    float const res_inv = 1.0f / float(_resolution);
 
-                    if (r_0 < 1.0f)
+                    // FIXME: not working right
+                    // float const r_0 = std::abs((dist_from_center - (1.0f / float(_resolution))) / radius);
+                    float const r_0 =                (dist_from_center - res_inv) / radius;
+                    float const r_1 = std::min(1.0f, (dist_from_center + res_inv) / radius);
+
+                    if (r_0 < 0.0f)
+                    {
+                        float const wendland_1 = wendland_integral(r_1);
+                        float const wendland_0 = wendland_integral(std::abs(r_0));
+                        fill_ratio = (wendland_1 + wendland_0) / res_inv;
+                    }
+                    else if (r_0 < 1.0f)
                     {
                         float const wendland_0 = wendland_integral(r_0);
                         float const wendland_1 = wendland_integral(r_1);
-                        fill_ratio = wendland_1 - wendland_0;
+                        fill_ratio = (wendland_1 - wendland_0) / res_inv;
                     }
                 }
 
@@ -1174,7 +1181,7 @@ void Square_splat_strategy::splat(Splat_cube_raster_buffer & cube_buffer, Gi_poi
                 else
                 {
                     float const covered_pixel_area = (next_u - u) * (next_v - v);
-                    fill_ratio = covered_pixel_area;
+                    fill_ratio = std::min(1.0f, covered_pixel_area);
                 }
 
                 fill_ratio *= point_info.weight;

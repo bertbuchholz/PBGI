@@ -235,7 +235,7 @@ Cube_raster_buffer<Spherical_function<float> *> precalculate_spherical_harmonics
 {
     std::cout << "precalculate_spherical_harmonics()" << std::endl;
 
-    int const resolution = 8;
+    int const resolution = 32;
 
     Cube_raster_buffer<Spherical_function<float> *> normal_cube;
     normal_cube.setup_surfel_buffer(resolution);
@@ -247,7 +247,7 @@ Cube_raster_buffer<Spherical_function<float> *> precalculate_spherical_harmonics
         vector3d_t normal = normal_cube.get_cell_direction(cells[i]);
         Abstract_spherical_function_estimator<float> * area_estimator = new Spherical_function_area_estimator<float>(normal, 1.0f);
 
-        Spherical_function<float> * sf = new GiSphericalHarmonics<float>(true, 3);
+        Spherical_function<float> * sf = new Spherical_harmonics<float>(true, 3);
         sf->calc_coefficients_random(area_estimator);
 
         normal_cube.set_data(cells[i], sf);
@@ -264,9 +264,7 @@ void pbLighting_t::generate_spherical_function(renderState_t & state, GiPoint * 
     ray_t lightRay;
     lightRay.from = gi_point->pos;
 
-    color_t lcol(0.f);
-
-    bool const use_precalculated_sf = true;
+    color_t light_color(0.f);
 
     for (std::vector<light_t *>::const_iterator light = lights.begin(); light != lights.end(); ++light)
     {
@@ -274,7 +272,7 @@ void pbLighting_t::generate_spherical_function(renderState_t & state, GiPoint * 
         {
             bool shadowed = true;
 
-            if ((*light)->illuminate(sp, lcol, lightRay))
+            if ((*light)->illuminate(sp, light_color, lightRay))
             {
                 // ...shadowed...
                 lightRay.tmin = YAF_SHADOW_BIAS; // < better add some _smart_ self-bias value...this is bad.
@@ -282,25 +280,27 @@ void pbLighting_t::generate_spherical_function(renderState_t & state, GiPoint * 
                 float const cos_sp_N_lightray_dir = sp.N * lightRay.dir;
                 if (!shadowed && cos_sp_N_lightray_dir > 0.0f)
                 {
-                    color_t const incoming_light = lcol;
+                    color_t const incoming_light = light_color;
                     // color_t const reflected_light = lcol * std::max(0.0f, cos_sp_N_lightray_dir);
                     gi_point->color += incoming_light;
                 }
                 else
                 {
-                    lcol = color_t(0.0f);
+                    light_color = color_t(0.0f);
                 }
             }
 
             if (!shadowed)
             {
-                if (use_precalculated_sf)
+                if (_use_precalculated_sf)
                 {
-                    gi_point->sf_representation.color->get_precalculated_coefficients(_precalculated_sf, sp.N, sp.material->getDiffuseAtPoint(state, sp), lightRay.dir, lcol);
+                    float const lambert_scale = lightRay.dir * sp.N;
+                    color_t scale = sp.material->getDiffuseAtPoint(state, sp) * light_color * lambert_scale;
+                    gi_point->sf_representation.color->get_precalculated_coefficients(_precalculated_sf, scale, sp.N);
                 }
                 else
                 {
-                    Abstract_spherical_function_estimator<color_t> * color_estimator = new Spherical_function_light_color_estimator<color_t>(state, sp, lightRay, lcol);
+                    Abstract_spherical_function_estimator<color_t> * color_estimator = new Spherical_function_light_color_estimator<color_t>(state, sp, lightRay, light_color);
                     gi_point->sf_representation.color->calc_coefficients_random(color_estimator);
                     delete color_estimator;
                 }
@@ -315,9 +315,16 @@ void pbLighting_t::generate_spherical_function(renderState_t & state, GiPoint * 
         delete emit_estimator;
     }
 
-    Abstract_spherical_function_estimator<float> * area_estimator = new Spherical_function_area_estimator<float>(sp.N, gi_point->area);
-    gi_point->sf_representation.area->calc_coefficients_random(area_estimator);
-    delete area_estimator;
+    if (_use_precalculated_sf)
+    {
+        gi_point->sf_representation.area->get_precalculated_coefficients(_precalculated_sf, gi_point->area, sp.N);
+    }
+    else
+    {
+        Abstract_spherical_function_estimator<float> * area_estimator = new Spherical_function_area_estimator<float>(sp.N, gi_point->area);
+        gi_point->sf_representation.area->calc_coefficients_random(area_estimator);
+        delete area_estimator;
+    }
 }
 
 
@@ -661,8 +668,8 @@ void pbLighting_t::generate_gi_points(renderState_t & state, MyTree * tree, int 
     timer.addEvent("t1");
     timer.start("t1");
 
-    bool use_cdf_sampler = true;
-    bool do_find_widest_gap = false;
+    bool const use_cdf_sampler = true;
+    bool const do_find_widest_gap = false;
 
     Scene_sampler * sampler = NULL;
 
@@ -796,7 +803,7 @@ void pbLighting_t::generate_gi_points(renderState_t & state, MyTree * tree, int 
     timer.addEvent("node_data_creation");
     timer.start("node_data_creation");
 
-    bool const use_parallel_averaging = true;
+    bool const use_parallel_averaging = false;
 
     if (use_parallel_averaging)
     {
@@ -1096,7 +1103,7 @@ template <class Data>
 class Spherical_function_print_visitor : public Spherical_function_visitor<Data>
 {
 public:
-    virtual void visit(GiSphericalHarmonics<Data> * sf) {}
+    virtual void visit(Spherical_harmonics<Data> * sf) {}
     virtual void visit(Cube_spherical_function<Data> * sf) {}
     virtual void visit(Mises_Fisher_spherical_function<Data> * sf)
     {
@@ -1207,7 +1214,10 @@ bool pbLighting_t::preprocess()
 
     bound_t const& sceneBound = scene->getSceneBound();
 
-    _precalculated_sf = precalculate_spherical_harmonics();
+    if (_use_precalculated_sf)
+    {
+        _precalculated_sf = precalculate_spherical_harmonics();
+    }
 
     if (_color_dictionary_generator)
     {
@@ -1381,7 +1391,7 @@ void process_surfel(
     point_info.depth = distance;
     point_info.position = gi_point.pos;
     point_info.receiver_position = vector3d_t(rp.P);
-    point_info.solid_angle = solid_angle_real * disc_scale_factor;
+    point_info.solid_angle = solid_angle_real * disc_scale_factor * disc_scale_factor;
     point_info.weight             = mix_amount;
     // point_info.spherical_function = gi_point.sf_representation;
     point_info.spherical_function = &gi_point.sf_representation;
@@ -1400,7 +1410,7 @@ void process_surfel(
         yafaray::GiPoint * debug_point = new GiPoint(gi_point);
 
         //debug_point->area = max_area;
-        debug_point->area = visible_area * disc_scale_factor;
+        debug_point->area = visible_area * disc_scale_factor * disc_scale_factor;
         // debug_point->area = gi_point.area;
         debug_point->color = contribution;
         debug_point->depth = debug_info->node_depth;
@@ -1474,7 +1484,7 @@ void process_node(
     point_info.position           = position;
     point_info.receiver_position  = vector3d_t(receiving_point.P);
     // point_info.solid_angle        = real_solid_angle * 2.0f;
-    point_info.solid_angle        = real_solid_angle * disc_scale_factor;
+    point_info.solid_angle        = real_solid_angle * disc_scale_factor * disc_scale_factor;
     point_info.radius             = node_radius * disc_scale_factor;
     point_info.weight             = mix_amount;
     // point_info.radius             = std::sqrt(visible_area / M_PI);
@@ -2141,9 +2151,15 @@ integrator_t* pbLighting_t::factory(paraMap_t &params, renderEnvironment_t &rend
     inte->_parameters += Parameter_registry<Splat_strategy>::create_single_select_instance("node_splat_type");
     inte->_parameters += Parameter_registry<Splat_strategy>::create_single_select_instance("surfel_far_splat_type");
     inte->_parameters += Parameter_registry<Splat_strategy>::create_single_select_instance("surfel_near_splat_type");
+    inte->_parameters.set_value_for_instance_and_class("node_splat_type",       "Gaussian_splat_strategy", "wendland_integral", true);
+    inte->_parameters.set_value_for_instance_and_class("surfel_far_splat_type", "Gaussian_splat_strategy", "wendland_integral", true);
 
     inte->_parameters["receiving_fb_type"]->set_value(fb_type);
     inte->_parameters.set_value_for_instance("receiving_fb_type", "resolution", fb_resolution);
+    inte->_parameters.set_value_for_instance_and_class("receiving_fb_type", "Accumulating_frame_buffer_without_queue", "use_visibility", false);
+    inte->_parameters.set_value_for_instance_and_class("receiving_fb_type", "Accumulating_frame_buffer_without_queue", "use_depth_modulation", true);
+    inte->_parameters.set_value_for_instance_and_class("receiving_fb_type", "Accumulating_frame_buffer_without_queue", "normalize", true);
+
 
     inte->_parameters["node_splat_type"]->set_value(node_splat_type);
     inte->_parameters["surfel_far_splat_type"]->set_value(surfel_far_splat_type);
@@ -2181,10 +2197,14 @@ integrator_t* pbLighting_t::factory(paraMap_t &params, renderEnvironment_t &rend
 
     inte->_sf_resolution              = sf_resolution;
     inte->_use_sf_files               = use_sf_files;
+
+    // dictionary settings
     inte->_dict_num_centers           = dict_num_centers;
     inte->_dictionary_sample_fraction = dictionary_sample_fraction;
     inte->_do_dictionary_stats        = do_dictionary_stats;
     inte->_use_ann                    = false;
+
+    inte->_use_precalculated_sf       = true;
 
     if (dictionary_type_str == "No_dict")
     {

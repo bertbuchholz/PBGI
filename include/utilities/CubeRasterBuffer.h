@@ -1329,7 +1329,7 @@ public:
     {
         Parameter_list parameters;
 
-        parameters.add_parameter(new Parameter("wendland_integral", true));
+        parameters.add_parameter(new Parameter("wendland_integral", false));
 
         return parameters;
     }

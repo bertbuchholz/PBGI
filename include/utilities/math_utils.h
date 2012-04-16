@@ -50,4 +50,13 @@ inline int Ceil2Int(double val) {
 	#endif
 }
 
+inline float wendland_2_1(const float x)
+{
+    #ifdef FAST_INT
+        return fPow(1.0f - x, 3.0f) * (3.0f * x + 1.0f);
+    #else
+        return std::pow(1.0f - x, 3.0f) * (3.0f * x + 1.0f);
+    #endif
+}
+
 #endif // Y_MATHUTIL_H

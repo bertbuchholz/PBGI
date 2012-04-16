@@ -7,7 +7,7 @@
 #include <core_api/color.h>
 #include <core_api/vector3d.h>
 #include <utilities/Debug_info.h>
-
+#include <utilities/math_utils.h>
 #include <utilities/spherical_harmonics.h>
 #include <utilities/Mises_fisher.h>
 
@@ -336,6 +336,9 @@ public:
         _use_depth_dependant = false;
         _use_depth_modulation = false;
         _use_stochastic_visibility = false;
+
+        _depth_modulation_max_depth_factor = 2.0f;
+        _normalize = true;
     }
 
     virtual Abstract_frame_buffer<Data>* clone()
@@ -349,16 +352,20 @@ public:
     {
         Abstract_frame_buffer<color_t>::set_parameters(parameters);
 
-        _use_visibility = false;
         _use_corrected_epsilon_z_buffer = false;
         _use_epsilon_z_buffer = false;
-        _use_depth_dependant = false;
-        _use_depth_modulation = false;
         _use_stochastic_visibility = false;
 
         _use_visibility = parameters["use_visibility"]->get_value<bool>();
         _use_depth_modulation = parameters["use_depth_modulation"]->get_value<bool>();
+        _use_depth_dependant = parameters["use_depth_dependant"]->get_value<bool>();
         _normalize = parameters["normalize"]->get_value<bool>();
+        _depth_modulation_max_depth_factor = parameters["depth_modulation_max_depth_factor"]->get_value<float>();
+
+
+//        _use_visibility = true;
+//        _use_depth_modulation = false;
+//        _normalize = true;
 
         set_size(this->_resolution);
     }
@@ -459,11 +466,18 @@ public:
                 else
                 {
                     float const d_0 = c.depth;
-                    float const distance_threshold = c.radius / 10.0f;
+                    float const max_dist = _depth_modulation_max_depth_factor * c.radius;
+                    float const depth_modulation = (point_info.depth - d_0) / max_dist;
 
-                    if (point_info.depth > d_0 + distance_threshold)
+                    assert(d_0 <= point_info.depth && depth_modulation >= 0.0f);
+
+                    if (depth_modulation < 1.0f)
                     {
-                        weight = 0.0f;
+                        weight *= wendland_2_1(depth_modulation);
+                    }
+                    else
+                    {
+                        accepted = false;
                     }
                 }
             }
@@ -474,31 +488,28 @@ public:
         {
             accepted = true;
 
-            // if (c.filling_degree + weight > 1.0f)
+            if (c.depth > 1e5f) // first node being splat onto this pixel
             {
-                if (c.depth > 1e5f) // first node being splat onto this pixel
+                c.depth  = point_info.depth;
+                c.radius = point_info.radius;
+            }
+            else
+            {
+                float const d_0 = c.depth;
+                float const max_dist = _depth_modulation_max_depth_factor * c.radius;
+                //float const depth_modulation = (depth - d_0) / (2.0f * d_0 - d_0);
+                // float const depth_modulation = (point_info.depth - d_0) / (1.1f * d_0 - d_0);
+                float const depth_modulation = (point_info.depth - d_0) / max_dist;
+
+                assert(d_0 <= point_info.depth && depth_modulation >= 0.0f);
+
+                if (depth_modulation < 1.0f)
                 {
-                    c.depth  = point_info.depth;
-                    c.radius = point_info.radius;
+                    weight = weight * wendland_2_1(depth_modulation);
                 }
                 else
                 {
-                    float const d_0 = c.depth;
-                    float const max_dist = 2.0f * c.radius;
-                    //float const depth_modulation = (depth - d_0) / (2.0f * d_0 - d_0);
-                    // float const depth_modulation = (point_info.depth - d_0) / (1.1f * d_0 - d_0);
-                    float const depth_modulation = (point_info.depth - d_0) / max_dist;
-
-                    assert(d_0 <= point_info.depth && depth_modulation >= 0.0f);
-
-                    if (depth_modulation < 1.0f)
-                    {
-                        weight = weight * (std::pow(1.0f - depth_modulation, 3.0f) + (3.0f * depth_modulation + 1));
-                    }
-                    else
-                    {
-                        accepted = false;
-                    }
+                    accepted = false;
                 }
             }
         }
@@ -615,7 +626,9 @@ public:
 
         parameters.add_parameter(new Parameter("use_visibility",       true));
         parameters.add_parameter(new Parameter("use_depth_modulation", false));
+        parameters.add_parameter(new Parameter("use_depth_dependant",  false));
         parameters.add_parameter(new Parameter("normalize",            true));
+        parameters.add_parameter(new Parameter("depth_modulation_max_depth_factor", 2.0f, 0.0f, 4.0f));
 
         return parameters;
     }
@@ -627,6 +640,7 @@ protected:
     std::vector< std::vector<Node_weight_pair> > _single_pixel_contributors;
 
     bool _normalize;
+    float _depth_modulation_max_depth_factor;
 
     bool _use_visibility;
     bool _use_corrected_epsilon_z_buffer;
@@ -1085,7 +1099,7 @@ void Parameter_frame_buffer<Data>::add_point(int const x, int const y, Data cons
 
             if (depth_modulation < 1.0f)
             {
-                weight = weight * (std::pow(1.0f - depth_modulation, 3.0f) + (3.0f * depth_modulation + 1));
+                weight = weight * wendland_2_1(depth_modulation);
             }
             else
             {
