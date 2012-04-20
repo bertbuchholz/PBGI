@@ -14,7 +14,6 @@
 
 __BEGIN_YAFRAY
 
-
 unsigned int hash_function(point3d_t const& sample, const int n, const float cell_size)
 {
     /*

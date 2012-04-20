@@ -60,10 +60,10 @@ public:
 
 //    virtual void add_point(int const x, int const y, Data const& color, float const filling_degree, float const depth, float const radius, vector3d_t const& direction,
 //                           Spherical_node_representation const* sf_representation,
-//                           GiPoint const* node = NULL) = 0;
+//                           Gi_point_base const* node = NULL) = 0;
 
     virtual void add_point(int const x, int const y, Data const& color, float const filling_degree, Gi_point_info const& point_info,
-                           GiPoint const* node = NULL) = 0;
+                           Gi_point_base const* node = NULL) = 0;
 
     virtual void set_color(int const /* x */, int const /* y */, Data const& /* color */) {}
 
@@ -135,8 +135,8 @@ public:
         return sfb;
     }
 
-    virtual void add_point(int const x, int const y, Data const& color, float const filling_degree, Gi_point_info const& point_info,
-                           GiPoint const* node = NULL)
+    virtual void add_point(int const /* x */, int const /* y */, Data const& /* color */, float const /* filling_degree */, Gi_point_info const& /* point_info */,
+                           Gi_point_base const* /* node = NULL */)
     {
         assert(false);
     }
@@ -229,7 +229,7 @@ public:
     }
 
     virtual void add_point(int const x, int const y, Data const& color, float const filling_degree, Gi_point_info const& point_info,
-                           GiPoint const* node = NULL)
+                           Gi_point_base const* node = NULL)
     {
         int const serial_index = Abstract_frame_buffer<Data>::calc_serial_index(x, y);
 
@@ -250,7 +250,10 @@ public:
 
                 _debug_gi_points.insert(node);
             }
+
+            point_info.splatted = true;
         }
+
     }
 
     virtual Data get_color(int const x, int const y, Debug_info * debug_info = NULL) const
@@ -261,10 +264,10 @@ public:
         {
             bool debug_pixel = debug_info->cube_plane == Abstract_frame_buffer<Data>::_debug_plane && debug_info->cube_x == x && debug_info->cube_y == y;
 
-            for (std::tr1::unordered_set<yafaray::GiPoint const*>::const_iterator iter = _debug_gi_points.begin(); iter != _debug_gi_points.end(); ++iter)
-            {
-                debug_info->gi_points.insert(*iter);
-            }
+//            for (std::tr1::unordered_set<yafaray::Gi_point_base const*>::const_iterator iter = _debug_gi_points.begin(); iter != _debug_gi_points.end(); ++iter)
+//            {
+//                debug_info->gi_points.insert(*iter);
+//            }
 
             if (debug_pixel && _single_pixel_contributors[serial_index].size() > 0)
             {
@@ -280,7 +283,7 @@ public:
 protected:
     std::vector<Color_filled> _data;
 
-    std::tr1::unordered_set<GiPoint const*> _debug_gi_points;
+    std::tr1::unordered_set<Gi_point_base const*> _debug_gi_points;
     mutable std::vector< std::vector<Node_weight_pair> > _single_pixel_contributors;
 };
 
@@ -311,7 +314,7 @@ class Accumulating_frame_buffer_without_queue : public Abstract_frame_buffer<Dat
         float cone_angle;
         vector3d_t direction;
         bool is_full;
-        GiPoint const* node;
+        Gi_point_base const* node;
         float debug_depth;
 
         friend bool operator<(Data_depth_pixel const& lhs, Data_depth_pixel const& rhs)
@@ -387,7 +390,7 @@ public:
     }
 
     virtual void add_point(int const x, int const y, Data const& color, float const filling_degree, Gi_point_info const& point_info,
-                           GiPoint const* node = NULL)
+                           Gi_point_base const* node = NULL)
     {
         int const serial_index = Abstract_frame_buffer<Data>::calc_serial_index(x, y);
 
@@ -421,20 +424,20 @@ public:
                 accepted = true;
             }
         }
-        else if (_use_corrected_epsilon_z_buffer)
-        {
-            if (c.depth > 1e5f)
-            {
-                c.depth = point_info.depth - apply_z_correction(point_info.radius, point_info.distance_from_center) + point_info.radius;
-                // c.depth = point_info.depth + 0.01f;
-            }
+//        else if (_use_corrected_epsilon_z_buffer)
+//        {
+//            if (c.depth > 1e5f)
+//            {
+//                c.depth = point_info.depth - apply_z_correction(point_info.radius, point_info.distance_from_center) + point_info.radius;
+//                // c.depth = point_info.depth + 0.01f;
+//            }
 
-            if (point_info.depth - apply_z_correction(point_info.radius, point_info.distance_from_center) < c.depth)
-            {
-                accepted = true;
-                c.debug_depth = point_info.distance_from_center / point_info.radius;
-            }
-        }
+//            if (point_info.depth - apply_z_correction(point_info.radius, point_info.distance_from_center) < c.depth)
+//            {
+//                accepted = true;
+//                c.debug_depth = point_info.distance_from_center / point_info.radius;
+//            }
+//        }
         else if (_use_stochastic_visibility)
         {
             if (!c.is_full && c.filling_degree + weight > 1.0f)
@@ -536,6 +539,8 @@ public:
                 _single_pixel_contributors[serial_index].push_back(nwp);
                 _debug_gi_points.insert(node);
             }
+
+            point_info.splatted = true;
         }
     }
 
@@ -579,10 +584,10 @@ public:
 
         if (debug_info)
         {
-            for (std::tr1::unordered_set<yafaray::GiPoint const*>::const_iterator iter = _debug_gi_points.begin(); iter != _debug_gi_points.end(); ++iter)
-            {
-                debug_info->gi_points.insert(*iter);
-            }
+//            for (std::tr1::unordered_set<yafaray::Gi_point_base const*>::const_iterator iter = _debug_gi_points.begin(); iter != _debug_gi_points.end(); ++iter)
+//            {
+//                debug_info->gi_points.insert(*iter);
+//            }
 
             bool const debug_pixel = debug_info->cube_plane == Abstract_frame_buffer<Data>::_debug_plane && debug_info->cube_x == x && debug_info->cube_y == y;
 
@@ -636,7 +641,7 @@ public:
 protected:
     std::vector<Data_depth_pixel> _data;
 
-    std::tr1::unordered_set<GiPoint const*> _debug_gi_points;
+    std::tr1::unordered_set<Gi_point_base const*> _debug_gi_points;
     std::vector< std::vector<Node_weight_pair> > _single_pixel_contributors;
 
     bool _normalize;
@@ -681,7 +686,7 @@ class Parameter_frame_buffer : public Abstract_frame_buffer<Data>
         float depth;
         float filling_degree;
         float radius;
-        GiPoint const* node;
+        Gi_point_base const* node;
 
         friend bool operator<(Pixel const& lhs, Pixel const& rhs)
         {
@@ -722,7 +727,7 @@ public:
     }
 
     virtual void add_point(int const x, int const y, Data const& color, float const filling_degree, Gi_point_info const& point_info,
-                           GiPoint const* node = NULL);
+                           Gi_point_base const* node = NULL);
 
     virtual Data get_color(int const x, int const y, Debug_info * debug_info = NULL) const;
 
@@ -730,157 +735,13 @@ public:
 protected:
     std::vector<Pixel> _data;
 
-    std::tr1::unordered_set<GiPoint const*> _debug_gi_points;
+    std::tr1::unordered_set<Gi_point_base const*> _debug_gi_points;
     mutable std::vector< std::vector<Node_weight_pair> > _single_pixel_contributors;
     std::vector< std::vector<Mises_fisher_lobe<color_t> > > _pixel_lobes;
 };
 
 
 
-
-
-// store a list of color values and corresponding depths and weights (for example filling) per pixel
-template <class Data>
-class Grouping_frame_buffer_without_queue : public Abstract_frame_buffer<Data>
-{
-    struct Data_weight_group
-    {
-        Data color;
-        float weight;
-    };
-
-public:
-    virtual ~Grouping_frame_buffer_without_queue() {}
-
-    Grouping_frame_buffer_without_queue(int size, int plane) : Abstract_frame_buffer<Data>(size, plane)
-    {
-        set_size(size);
-    }
-
-    static Abstract_frame_buffer<Data>* create(int resolution, int plane)
-    {
-        return new Grouping_frame_buffer_without_queue(resolution, plane);
-    }
-
-    virtual Abstract_frame_buffer<Data>* clone()
-    {
-        Grouping_frame_buffer_without_queue* afb = new Grouping_frame_buffer_without_queue(*this);
-
-        return afb;
-    }
-
-    virtual void set_size(int size)
-    {
-        _groups.clear();
-        _groups.resize(size * size);
-
-        _last_added_pixel_depths.resize(size * size, 1e10);
-        _last_added_pixel_radius.resize(size * size, 0);
-
-        _single_pixel_contributors.resize(size * size);
-    }
-
-    virtual void clear()
-    {
-        //_data.clear();
-        _groups.clear();
-    }
-
-    virtual void add_point(int const x, int const y, Data const& color, float const filling_degree, Gi_point_info const& point_info,
-                           GiPoint const* node = NULL)
-    {
-        int const serial_index = Abstract_frame_buffer<Data>::calc_serial_index(x, y);
-
-        if (std::abs(point_info.depth - _last_added_pixel_depths[serial_index]) > _last_added_pixel_radius[serial_index] * 2.0f)
-        {
-            // new group
-            Data_weight_group cd;
-            cd.color  = color * filling_degree;
-            cd.weight = filling_degree;
-            _groups[serial_index].push_back(cd);
-
-
-            // TODO: this is new depth weight, old one would always change this after added node
-            _last_added_pixel_depths[serial_index] = point_info.depth;
-            _last_added_pixel_radius[serial_index] = point_info.radius;
-        }
-        else
-        {
-            assert(_groups[serial_index].size() > 0);
-            Data_weight_group & cd = _groups[serial_index].back();
-            cd.color  += color * filling_degree;
-            cd.weight += filling_degree;
-        }
-
-        if (node)
-        {
-            Node_weight_pair nwp(node, filling_degree, color, _groups[serial_index].size() - 1);
-            _single_pixel_contributors[serial_index].push_back(nwp);
-
-            // std::cout << serial_index << " " << depth << " " << _last_added_pixel_depths[serial_index] << " " << radius << std::endl;
-            _debug_gi_points.insert(node);
-        }
-
-    }
-
-    virtual Data get_color(int const x, int const y, Debug_info * debug_info = NULL) const
-    {
-        int const serial_index = Abstract_frame_buffer<Data>::calc_serial_index(x, y);
-
-        std::vector<Data_weight_group> const& pixel_groups = _groups[serial_index];
-
-        Data accumulated_color(0.0f);
-
-        for (int i = pixel_groups.size() - 1; i >= 0; --i)
-        {
-            float weight = pixel_groups[i].weight;
-
-            Data color = pixel_groups[i].color;
-
-            if (weight > 1.0f)
-            {
-                color *= 1.0f / weight;
-                weight = 1.0f;
-            }
-
-            accumulated_color = accumulated_color * (1.0f - weight) + color;
-        }
-
-        if (debug_info)
-        {
-            for (std::tr1::unordered_set<yafaray::GiPoint const*>::const_iterator iter = _debug_gi_points.begin(); iter != _debug_gi_points.end(); ++iter)
-            {
-                debug_info->gi_points.insert(*iter);
-            }
-
-            bool const debug_pixel = debug_info->cube_plane == Abstract_frame_buffer<Data>::_debug_plane && debug_info->cube_x == x && debug_info->cube_y == y;
-
-            if (debug_pixel)
-            {
-                for (std::size_t i = 0; i < _single_pixel_contributors[serial_index].size(); ++i)
-                {
-                    int const group_index =_single_pixel_contributors[serial_index][i].group_index;
-                    _single_pixel_contributors[serial_index][i].group_weight = pixel_groups[group_index].weight;
-                }
-
-                debug_info->single_pixel_contributors = _single_pixel_contributors[serial_index];
-            }
-
-
-            // std::cout << "debug_gi_points: " << debug_gi_points.size() << std::endl;
-        }
-
-        return accumulated_color;
-    }
-
-protected:
-    std::vector<float> _last_added_pixel_depths;
-    std::vector<float> _last_added_pixel_radius;
-    std::vector< std::vector<Data_weight_group> > _groups;
-
-    std::tr1::unordered_set<GiPoint const*> _debug_gi_points;
-    mutable std::vector< std::vector<Node_weight_pair> > _single_pixel_contributors;
-};
 
 
 /*
@@ -1041,7 +902,7 @@ public:
 
 template <class Data>
 void Parameter_frame_buffer<Data>::add_point(int const x, int const y, Data const& color, float const filling_degree, Gi_point_info const& point_info,
-                       GiPoint const* node)
+                       Gi_point_base const* node)
 {
     int const serial_index = Abstract_frame_buffer<Data>::calc_serial_index(x, y);
 
@@ -1137,6 +998,8 @@ void Parameter_frame_buffer<Data>::add_point(int const x, int const y, Data cons
             _pixel_lobes[serial_index].push_back(lobe);
             _debug_gi_points.insert(node);
         }
+
+        point_info.splatted = true;
     }
 }
 
@@ -1179,10 +1042,10 @@ Data Parameter_frame_buffer<Data>::get_color(int const x, int const y, Debug_inf
 
     if (debug_info)
     {
-        for (std::tr1::unordered_set<yafaray::GiPoint const*>::const_iterator iter = _debug_gi_points.begin(); iter != _debug_gi_points.end(); ++iter)
-        {
-            debug_info->gi_points.insert(*iter);
-        }
+//        for (std::tr1::unordered_set<yafaray::Gi_point_base const*>::const_iterator iter = _debug_gi_points.begin(); iter != _debug_gi_points.end(); ++iter)
+//        {
+//            debug_info->gi_points.insert(*iter);
+//        }
 
         bool const debug_pixel = debug_info->cube_plane == Abstract_frame_buffer<Data>::_debug_plane && debug_info->cube_x == x && debug_info->cube_y == y;
 

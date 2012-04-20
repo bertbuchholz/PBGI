@@ -3,10 +3,14 @@
 
 #include <tr1/unordered_set>
 
+#include <vector>
+
 #include <yafray_config.h>
 
 #include <yafraycore/timer.h>
 #include <core_api/color.h>
+
+#include <integrators/Gi_point_info.h>
 
 __BEGIN_YAFRAY
 
@@ -14,12 +18,13 @@ template <class Data>
 class Cube_raster_buffer;
 class Splat_cube_raster_buffer;
 class GiPoint;
+class Gi_point_base;
 
 
 
 struct Node_weight_pair
 {
-    Node_weight_pair(GiPoint const* n, float w, color_t const& c, int group_i = -1, float group_w = 0.0f) :
+    Node_weight_pair(Gi_point_base const* n, float w, color_t const& c, int group_i = -1, float group_w = 0.0f) :
         node(n),
         weight(w),
         color(c),
@@ -27,7 +32,7 @@ struct Node_weight_pair
         group_weight(group_w)
     {}
 
-    GiPoint const* node;
+    Gi_point_base const* node;
     float weight;
     color_t color;
     int group_index;
@@ -78,7 +83,7 @@ struct Debug_info
     int node_depth;
     int node_height;
     bool color_by_depth;
-    std::tr1::unordered_set<GiPoint const*> gi_points;
+    std::vector<Gi_point_info> gi_point_infos;
     std::vector<Node_weight_pair> single_pixel_contributors;
     Splat_cube_raster_buffer * result_fb;
     int checked_cells;

@@ -148,8 +148,6 @@ public:
         vector3d_t tangent, bitangent;
         createCS(reflected_dir, tangent, bitangent);
 
-        std::string fuckyou;
-
         // FIXME: lobe_angle is okay, but get_value stays 0, maybe prob with the reflected_dir or the material?
 
         while (get_value(reflected_dir * std::cos(lobe_angle) + tangent * std::sin(lobe_angle)) < 0.1f && lobe_angle > 0.01f)
@@ -270,9 +268,9 @@ public:
     virtual std::vector< float > to_vector() const { return std::vector<float>(); }
     virtual void from_vector(std::vector< float > const& /* data */) {}
 
-    virtual void get_precalculated_coefficients(Cube_raster_buffer<Spherical_function<float> *> const& normal_map,
-                                                Data const& scale,
-                                                vector3d_t const& surface_normal) {}
+    virtual void get_precalculated_coefficients(Cube_raster_buffer<Spherical_function<float> *> const& /* normal_map */,
+                                                Data const& /* scale */,
+                                                vector3d_t const& /* surface_normal */) {}
 
     virtual std::vector< std::vector<float> > components_to_vectors() const { return std::vector< std::vector<float> >(); }
     virtual void from_component_vectors(std::vector< std::vector<float> > const& /* data */) {}

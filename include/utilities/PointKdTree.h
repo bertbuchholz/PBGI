@@ -24,10 +24,40 @@ __BEGIN_YAFRAY
 //   - If yes, split the cell and redistribute the points into the new
 //     cells.
 
+template <class Point>
+inline int get_longest_axis_2d(Point const& cell)
+{
+    int longest_axis = 0;
+    if      (std::abs(cell[1]) > std::abs(cell[0]))
+    {
+        longest_axis = 1;
+    }
+    return longest_axis;
+}
+
+template <class Point>
+inline int get_longest_axis_3d(Point const& cell)
+{
+    int longest_axis = 0;
+    if      (std::abs(cell[1]) > std::abs(cell[0]) &&
+             std::abs(cell[1]) > std::abs(cell[2]))
+    {
+        longest_axis = 1;
+    }
+    else if (std::abs(cell[2]) > std::abs(cell[0]))
+    {
+        longest_axis = 2;
+    }
+    return longest_axis;
+}
+
+
 template < class Point, int dim, class Data = int >
 class Point_kd_tree
 {
 public:
+    typedef Point_kd_tree Tree_node;
+
         Point_kd_tree(Point const& min, Point const& max, int maxDepth, int maxPoints) :
         _cellMin(min),
         _cellMax(max),
@@ -78,12 +108,12 @@ public:
         _depth = d;
     }
 
-    int getDepth() const
+    int get_depth() const
     {
         return _depth;
     }
 
-    bool getIsLeaf() const
+    bool is_leaf() const
     {
         return _isLeaf;
     }
@@ -123,6 +153,16 @@ public:
         return _children;
     }
 
+    Point_kd_tree* get_child(int const i)
+    {
+        return &_children[i];
+    }
+
+    Point_kd_tree const* get_child(int const i) const
+    {
+        return &_children[i];
+    }
+
     std::vector<Point> const& getPoints() const
     {
         return _points;
@@ -133,12 +173,12 @@ public:
         return _points;
     }
 
-    std::vector<Data> & getData()
+    std::vector<Data> & get_points_data()
     {
         return _data;
     }
 
-    std::vector<Data> const& getData() const
+    std::vector<Data> const& get_points_data() const
     {
         return _data;
     }
@@ -290,33 +330,6 @@ public:
         _points[index] = point;
         _data[index] = data;
     }
-
-
-    inline int get_longest_axis_2d(Point const& cell) const
-    {
-        int longest_axis = 0;
-        if      (std::abs(cell[1]) > std::abs(cell[0]))
-        {
-            longest_axis = 1;
-        }
-        return longest_axis;
-    }
-
-    inline int get_longest_axis_3d(Point const& cell) const
-    {
-        int longest_axis = 0;
-        if      (std::abs(cell[1]) > std::abs(cell[0]) &&
-                 std::abs(cell[1]) > std::abs(cell[2]))
-        {
-            longest_axis = 1;
-        }
-        else if (std::abs(cell[2]) > std::abs(cell[0]))
-        {
-            longest_axis = 2;
-        }
-        return longest_axis;
-    }
-
 
     struct Point_data
     {
@@ -530,13 +543,13 @@ public:
             Point_kd_tree * node = queue.front();
             queue.pop();
 
-            if (node->getIsLeaf())
+            if (node->is_leaf())
             {
                 assert(node->getChildren().size() == 0);
 
                 // add point into cell directly or if full, split the cell
                 // and add then
-                if (int(node->getPoints().size()) > node->get_tree_max_points_per_node() && node->getDepth() < node->get_tree_max_depth())
+                if (int(node->getPoints().size()) > node->get_tree_max_points_per_node() && node->get_depth() < node->get_tree_max_depth())
                 {
                     node->split();
 
@@ -659,7 +672,7 @@ public:
 
             // std::cout << "node depth: " << node._depth << " node: " << &node << std::endl;
 
-            if (node.getIsLeaf())
+            if (node.is_leaf())
 //            if (node.getIsLeaf() && node._data.size() > 0)
             {
                 if (node._data.size() > 0)
@@ -673,7 +686,7 @@ public:
 
                 // assert(node._averagedData.radius > 0.0f);
             }
-            else if (!node.getIsLeaf())
+            else if (!node.is_leaf())
             {
                 std::vector<Data> leafData;
 
@@ -706,7 +719,7 @@ public:
     template <class Averager>
     void average_node(Averager averager)
     {
-        if (getIsLeaf())
+        if (is_leaf())
         {
             assert(_data.size() == 1);
 
@@ -715,8 +728,8 @@ public:
         else
         {
             assert(_children.size() == 2);
-            assert(_children[0].getClusteredData() != NULL);
-            assert(_children[1].getClusteredData() != NULL);
+            assert(_children[0].get_data() != NULL);
+            assert(_children[1].get_data() != NULL);
 
             std::vector<Data> leafData;
             leafData.push_back(_children[0]._clusteredData);
@@ -727,12 +740,12 @@ public:
     }
 
 
-    Data const& getClusteredData() const
+    Data const& get_data() const
     {
         return _clusteredData;
     }
 
-    Data & getClusteredData()
+    Data & get_data()
     {
         return _clusteredData;
     }
@@ -745,7 +758,7 @@ public:
 
 
     // get nodes in specified depth or all nodes for depth == -1
-    std::vector<Point_kd_tree const*> getNodes(int const depth = -1) const
+    std::vector<Point_kd_tree const*> get_nodes(int const depth = -1) const
     {
         std::vector<Point_kd_tree const*> result;
 
@@ -776,7 +789,7 @@ public:
         return result;
     }
 
-    std::vector<Point_kd_tree*> getNodes(int const depth = -1)
+    std::vector<Point_kd_tree*> get_nodes(int const depth = -1)
     {
         std::vector<Point_kd_tree*> result;
 
@@ -846,7 +859,7 @@ public:
             Point_kd_tree const* node = queue.front();
             queue.pop();
 
-            if (node->getIsLeaf() && node->_depth < minDepth)
+            if (node->is_leaf() && node->_depth < minDepth)
             {
                 minDepth = node->_depth;
             }
@@ -886,7 +899,7 @@ public:
     // longest path to a leaf
     int get_node_height(int const height) const
     {
-        if (getIsLeaf())
+        if (is_leaf())
         {
             return height;
         }
@@ -899,7 +912,7 @@ public:
 
     int get_shortest_distance_to_leaf(int const height = 0) const
     {
-        if (getIsLeaf())
+        if (is_leaf())
         {
             return height;
         }
@@ -942,7 +955,7 @@ public:
 
         tree.finalize_points();
 
-        std::vector<MyTree*> nodes_in_depth_2 = tree.getNodes(2);
+        std::vector<MyTree*> nodes_in_depth_2 = tree.get_nodes(2);
 
         std::vector<MyTree*> nodes_with_depth_2_as_leafs;
         tree.get_post_order_queue(nodes_with_depth_2_as_leafs, 2);
@@ -953,13 +966,13 @@ public:
         for (unsigned int i = 0; i < nodes_in_depth_2.size(); ++i)
         {
             MyTree * node = nodes_in_depth_2[i];
-            std::cout << "i: " << i << " " << node << " " << node->getDepth() << std::endl;
+            std::cout << "i: " << i << " " << node << " " << node->get_depth() << std::endl;
         }
 
         for (unsigned int i = 0; i < nodes_with_depth_2_as_leafs.size(); ++i)
         {
             MyTree * node = nodes_with_depth_2_as_leafs[i];
-            std::cout << "i: " << i << " " << node << " " << node->getDepth() << std::endl;
+            std::cout << "i: " << i << " " << node << " " << node->get_depth() << std::endl;
         }
     }
 
@@ -1028,6 +1041,13 @@ void draw(QPainter & p, RegularBspTree<Point, 2> const& quadTree, Point const& m
 	}
 }
 */
+
+
+template <class Node>
+bool is_node_data_behind_plane(Node const* node, vector3d_t const& pos, vector3d_t const& normal, float const bias)
+{
+    return node->isNodeDataBehindPlane(pos, normal, bias);
+}
 
 __END_YAFRAY
 

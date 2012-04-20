@@ -17,6 +17,8 @@ float generate_histogram(std::vector<pbgi_sample_t> const& samples, float const 
 
 
 
+
+
 class Scene_sampler
 {
     public:

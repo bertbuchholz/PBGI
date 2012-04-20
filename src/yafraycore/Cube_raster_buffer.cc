@@ -405,10 +405,6 @@ void Splat_cube_raster_buffer::setup(
         {
             buffers[i] = new Accumulating_frame_buffer_without_queue<color_t>(_resolution, i);
         }
-        else if (fb_type == Distance_weighted)
-        {
-            buffers[i] = new Grouping_frame_buffer_without_queue<color_t>(_resolution, i);
-        }
         else if (fb_type == Parameter)
         {
             buffers[i] = new Parameter_frame_buffer<color_t>(_resolution, i);
@@ -447,7 +443,7 @@ Splat_cube_raster_buffer & Splat_cube_raster_buffer::operator= (Splat_cube_raste
 }
 
 
-void Splat_cube_raster_buffer::add_point_single_pixel(Gi_point_info const& point_info, GiPoint const* node)
+void Splat_cube_raster_buffer::add_point_single_pixel(Gi_point_info const& point_info, Gi_point_base const* node)
 {
     Point dir = point_info.direction;
     Color const& color = point_info.color;
@@ -462,7 +458,7 @@ void Splat_cube_raster_buffer::add_point_single_pixel(Gi_point_info const& point
 
 
 
-void Splat_cube_raster_buffer::add_point_stochastic_disc_tracing(Gi_point_info const& point_info, GiPoint const* node)
+void Splat_cube_raster_buffer::add_point_stochastic_disc_tracing(Gi_point_info const& point_info, Gi_point_base const* node)
 {
     Color const& color       = point_info.color;
     Point const& disc_normal = point_info.disc_normal;
@@ -540,7 +536,7 @@ void Splat_cube_raster_buffer::add_point_stochastic_disc_tracing(Gi_point_info c
 }
 
 
-void Splat_cube_raster_buffer::add_point_stochastic_node_tracing(Gi_point_info const& point_info, GiPoint const* node)
+void Splat_cube_raster_buffer::add_point_stochastic_node_tracing(Gi_point_info const& point_info, Gi_point_base const* node)
 {
     Color const& color            = point_info.color;
     Point const& node_normal      = point_info.direction;
@@ -606,7 +602,7 @@ float calc_angular_corrected_square_width(float const dir_x, float const dir_y, 
 
 
 
-void Splat_cube_raster_buffer::add_point_solid_angle_rays(Gi_point_info const& point_info, GiPoint const* node)
+void Splat_cube_raster_buffer::add_point_solid_angle_rays(Gi_point_info const& point_info, Gi_point_base const* node)
 {
     Color const& color       = point_info.color;
     Point const& disc_normal = (point_info.receiver_position - point_info.position).normalize();
@@ -654,7 +650,7 @@ void Splat_cube_raster_buffer::add_point_solid_angle_rays(Gi_point_info const& p
 }
 
 
-void Splat_cube_raster_buffer::add_point(Gi_point_info const& point_info, GiPoint const* gi_point)
+void Splat_cube_raster_buffer::add_point(Gi_point_info const& point_info, Gi_point_base const* gi_point)
 {
     // (this->*add_point_function_map[point_info.type])(point_info, gi_point);
     add_point_function_map[point_info.type]->splat(*this, point_info, gi_point);
@@ -844,7 +840,7 @@ float wendland_integral(const float x)
 }
 
 
-void Gaussian_splat_strategy::splat(Splat_cube_raster_buffer & cube_buffer, Gi_point_info const& point_info, GiPoint const* node)
+void Gaussian_splat_strategy::splat(Splat_cube_raster_buffer & cube_buffer, Gi_point_info const& point_info, Gi_point_base const* node)
 {
     int const _resolution = cube_buffer.get_resolution();
     int const _resolution_2 = _resolution / 2;
@@ -982,13 +978,14 @@ void Gaussian_splat_strategy::splat(Splat_cube_raster_buffer & cube_buffer, Gi_p
 
                 fill_ratio *= point_info.weight;
 
-                Gi_point_info changed_point_info = point_info;
-                changed_point_info.distance_from_center = dist_from_center;
-                changed_point_info.radius = std::sqrt(point_info.solid_angle * point_info.depth * point_info.depth / M_PI);
+//                Gi_point_info changed_point_info = point_info;
+//                changed_point_info.distance_from_center = dist_from_center;
+//                changed_point_info.radius = std::sqrt(point_info.solid_angle * point_info.depth * point_info.depth / M_PI);
 
                 if (fill_ratio > 0.01f)
                 {
-                    cube_buffer.get_buffer(plane_index)->add_point(cell_u, cell_v, color, fill_ratio, changed_point_info, node);
+                    // cube_buffer.get_buffer(plane_index)->add_point(cell_u, cell_v, color, fill_ratio, changed_point_info, node);
+                    cube_buffer.get_buffer(plane_index)->add_point(cell_u, cell_v, color, fill_ratio, point_info, node);
                 }
 
                 v = next_v;
@@ -1000,7 +997,7 @@ void Gaussian_splat_strategy::splat(Splat_cube_raster_buffer & cube_buffer, Gi_p
 }
 
 
-void Square_splat_strategy::splat(Splat_cube_raster_buffer & cube_buffer, Gi_point_info const& point_info, GiPoint const* node)
+void Square_splat_strategy::splat(Splat_cube_raster_buffer & cube_buffer, Gi_point_info const& point_info, Gi_point_base const* node)
 {
     int const _resolution_2 = cube_buffer.get_resolution() / 2;
 
@@ -1199,7 +1196,7 @@ void Square_splat_strategy::splat(Splat_cube_raster_buffer & cube_buffer, Gi_poi
     }
 }
 
-void Disc_splat_strategy::splat(Splat_cube_raster_buffer & cube_buffer, Gi_point_info const& point_info, GiPoint const* node)
+void Disc_splat_strategy::splat(Splat_cube_raster_buffer & cube_buffer, Gi_point_info const& point_info, Gi_point_base const* node)
 {
     int const _resolution_2 = cube_buffer.get_resolution() / 2;
 
@@ -1258,7 +1255,8 @@ void Disc_splat_strategy::splat(Splat_cube_raster_buffer & cube_buffer, Gi_point
                             dir.normalize();
 
                             // FIXME: put this back in
-                            Color color = point_info.spherical_function->color->get_value(dir) * gauss_weight;
+                            // Color color = point_info.spherical_function->color->get_value(dir) * gauss_weight;
+                            Color color = point_info.color * gauss_weight;
                             // Color color(0.0f);
 
                             cube_buffer.get_buffer(plane_index)->add_point(u, v, color, filling_degree, point_info, node);
