@@ -310,15 +310,15 @@ public:
 
     Splat_cube_raster_buffer & operator= (Splat_cube_raster_buffer const& cbr);
 
-    void add_point_single_pixel(Gi_point_info const& point_info, Gi_point_base const* node = NULL);
-    void add_point_disc_tracing(Gi_point_info const& point_info, Gi_point_base const* node = NULL);
-    void add_point_stochastic_disc_tracing(Gi_point_info const& point_info, Gi_point_base const* node = NULL);
-    void add_point_stochastic_node_tracing(Gi_point_info const& point_info, Gi_point_base const* node = NULL);
-    void add_point_aa_square(Gi_point_info const& point_info, Gi_point_base const* node = NULL);
-    void add_point_gaussian_splat(Gi_point_info const& point_info, Gi_point_base const* node = NULL);
-    void add_point_solid_angle_rays(Gi_point_info const& point_info, Gi_point_base const* node = NULL);
+    void add_point_single_pixel(Gi_point_info const& point_info);
+    void add_point_disc_tracing(Gi_point_info const& point_info);
+    void add_point_stochastic_disc_tracing(Gi_point_info const& point_info);
+    void add_point_stochastic_node_tracing(Gi_point_info const& point_info);
+    void add_point_aa_square(Gi_point_info const& point_info);
+    void add_point_gaussian_splat(Gi_point_info const& point_info);
+    void add_point_solid_angle_rays(Gi_point_info const& point_info);
 
-    void add_point(Gi_point_info const& point_info, Gi_point_base const* gi_point = NULL);
+    void add_point(Gi_point_info const& point_info);
 
     void add_background(background_t * background);
 
@@ -1293,7 +1293,7 @@ public:
     virtual void set_parameters(Parameter_list const& /* parameters */)
     { }
 
-    virtual void splat(Splat_cube_raster_buffer & cube_buffer, Gi_point_info const& point_info, Gi_point_base const* node) = 0;
+    virtual void splat(Splat_cube_raster_buffer & cube_buffer, Gi_point_info const& point_info) = 0;
 
     static Parameter_list get_parameters()
     {
@@ -1317,7 +1317,7 @@ public:
         _wendland_integral = parameters["wendland_integral"]->get_value<bool>();
     }
 
-    void splat(Splat_cube_raster_buffer & cube_buffer, Gi_point_info const& point_info, Gi_point_base const* node);
+    void splat(Splat_cube_raster_buffer & cube_buffer, Gi_point_info const& point_info);
 
     static std::string name()
     {
@@ -1349,7 +1349,7 @@ REGISTER_CLASS_WITH_PARAMETERS(Splat_strategy, Gaussian_splat_strategy);
 class Disc_splat_strategy : Splat_strategy
 {
 public:
-    void splat(Splat_cube_raster_buffer & cube_buffer, Gi_point_info const& point_info, Gi_point_base const* node);
+    void splat(Splat_cube_raster_buffer & cube_buffer, Gi_point_info const& point_info);
 
     static std::string name()
     {
@@ -1374,7 +1374,18 @@ REGISTER_CLASS_WITH_PARAMETERS(Splat_strategy, Disc_splat_strategy);
 class Square_splat_strategy : Splat_strategy
 {
 public:
-    void splat(Splat_cube_raster_buffer & cube_buffer, Gi_point_info const& point_info, Gi_point_base const* node);
+    Square_splat_strategy() : _angular_size_correction(false)
+    {}
+
+    void set_parameters(Parameter_list const& parameters)
+    {
+        Splat_strategy::set_parameters(parameters);
+
+        _angular_size_correction = parameters["angular_size_correction"]->get_value<bool>();
+        _angular_size_correction_factor = parameters["angular_size_correction_factor"]->get_value<float>();
+    }
+
+    void splat(Splat_cube_raster_buffer & cube_buffer, Gi_point_info const& point_info);
 
     static std::string name()
     {
@@ -1389,8 +1400,16 @@ public:
     static Parameter_list get_parameters()
     {
         Parameter_list parameters;
+
+        parameters.add_parameter(new Parameter("angular_size_correction", false));
+        parameters.add_parameter(new Parameter("angular_size_correction_factor", 1.0f, 0.5f, 2.0f));
+
         return parameters;
     }
+
+private:
+    bool _angular_size_correction;
+    float _angular_size_correction_factor;
 };
 
 REGISTER_CLASS_WITH_PARAMETERS(Splat_strategy, Square_splat_strategy);

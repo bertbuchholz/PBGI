@@ -24,15 +24,15 @@ class Gi_point_base;
 
 struct Node_weight_pair
 {
-    Node_weight_pair(Gi_point_base const* n, float w, color_t const& c, int group_i = -1, float group_w = 0.0f) :
-        node(n),
+    Node_weight_pair(Gi_point_info const& p_info, float w, color_t const& c, int group_i = -1, float group_w = 0.0f) :
+        point_info(p_info),
         weight(w),
         color(c),
         group_index(group_i),
         group_weight(group_w)
     {}
 
-    Gi_point_base const* node;
+    Gi_point_info point_info;
     float weight;
     color_t color;
     int group_index;

@@ -62,8 +62,7 @@ public:
 //                           Spherical_node_representation const* sf_representation,
 //                           Gi_point_base const* node = NULL) = 0;
 
-    virtual void add_point(int const x, int const y, Data const& color, float const filling_degree, Gi_point_info const& point_info,
-                           Gi_point_base const* node = NULL) = 0;
+    virtual void add_point(int const x, int const y, Data const& color, float const filling_degree, Gi_point_info const& point_info) = 0;
 
     virtual void set_color(int const /* x */, int const /* y */, Data const& /* color */) {}
 
@@ -135,8 +134,7 @@ public:
         return sfb;
     }
 
-    virtual void add_point(int const /* x */, int const /* y */, Data const& /* color */, float const /* filling_degree */, Gi_point_info const& /* point_info */,
-                           Gi_point_base const* /* node = NULL */)
+    virtual void add_point(int const /* x */, int const /* y */, Data const& /* color */, float const /* filling_degree */, Gi_point_info const& /* point_info */)
     {
         assert(false);
     }
@@ -228,8 +226,7 @@ public:
         _data.clear();
     }
 
-    virtual void add_point(int const x, int const y, Data const& color, float const filling_degree, Gi_point_info const& point_info,
-                           Gi_point_base const* node = NULL)
+    virtual void add_point(int const x, int const y, Data const& color, float const filling_degree, Gi_point_info const& point_info)
     {
         int const serial_index = Abstract_frame_buffer<Data>::calc_serial_index(x, y);
 
@@ -238,20 +235,17 @@ public:
             _data[serial_index].color = color;
             _data[serial_index].filled = true;
 
-            if (node)
+#ifdef DEBUG
+            if (_single_pixel_contributors.size() == 0)
             {
-                if (_single_pixel_contributors.size() == 0)
-                {
-                    _single_pixel_contributors.resize(Abstract_frame_buffer<Data>::_resolution * Abstract_frame_buffer<Data>::_resolution);
-                }
-
-                Node_weight_pair nwp(node, filling_degree, color);
-                _single_pixel_contributors[serial_index].push_back(nwp);
-
-                _debug_gi_points.insert(node);
+                _single_pixel_contributors.resize(Abstract_frame_buffer<Data>::_resolution * Abstract_frame_buffer<Data>::_resolution);
             }
 
+            Node_weight_pair nwp(point_info, filling_degree, color);
+            _single_pixel_contributors[serial_index].push_back(nwp);
+
             point_info.splatted = true;
+#endif
         }
 
     }
@@ -260,20 +254,15 @@ public:
     {
         int const serial_index = Abstract_frame_buffer<Data>::calc_serial_index(x, y);
 
-        if (debug_info)
+#ifdef DEBUG
+        bool debug_pixel = debug_info->cube_plane == Abstract_frame_buffer<Data>::_debug_plane && debug_info->cube_x == x && debug_info->cube_y == y;
+
+        if (debug_pixel && _single_pixel_contributors[serial_index].size() > 0)
         {
-            bool debug_pixel = debug_info->cube_plane == Abstract_frame_buffer<Data>::_debug_plane && debug_info->cube_x == x && debug_info->cube_y == y;
-
-//            for (std::tr1::unordered_set<yafaray::Gi_point_base const*>::const_iterator iter = _debug_gi_points.begin(); iter != _debug_gi_points.end(); ++iter)
-//            {
-//                debug_info->gi_points.insert(*iter);
-//            }
-
-            if (debug_pixel && _single_pixel_contributors[serial_index].size() > 0)
-            {
-                debug_info->single_pixel_contributors = _single_pixel_contributors[serial_index];
-            }
+            debug_info->single_pixel_contributors = _single_pixel_contributors[serial_index];
         }
+#endif
+
 
 //        std::cout << "Simple_frame_buffer_without_queue::get_color(): " << _data[serial_index].color << std::endl;
 
@@ -283,7 +272,6 @@ public:
 protected:
     std::vector<Color_filled> _data;
 
-    std::tr1::unordered_set<Gi_point_base const*> _debug_gi_points;
     mutable std::vector< std::vector<Node_weight_pair> > _single_pixel_contributors;
 };
 
@@ -389,8 +377,7 @@ public:
         return std::sqrt(radius * radius - distance_from_center * distance_from_center);
     }
 
-    virtual void add_point(int const x, int const y, Data const& color, float const filling_degree, Gi_point_info const& point_info,
-                           Gi_point_base const* node = NULL)
+    virtual void add_point(int const x, int const y, Data const& color, float const filling_degree, Gi_point_info const& point_info)
     {
         int const serial_index = Abstract_frame_buffer<Data>::calc_serial_index(x, y);
 
@@ -528,19 +515,18 @@ public:
 
             // c.depth = (c.depth > 1e5f) ? point_info.depth * weight : c.depth + point_info.depth * weight;
 
-            if (node)
+#ifdef DEBUG
+            if (_single_pixel_contributors.size() == 0)
             {
-                if (_single_pixel_contributors.size() == 0)
-                {
-                    _single_pixel_contributors.resize(Abstract_frame_buffer<Data>::_resolution * Abstract_frame_buffer<Data>::_resolution);
-                }
-
-                Node_weight_pair nwp(node, weight, color);
-                _single_pixel_contributors[serial_index].push_back(nwp);
-                _debug_gi_points.insert(node);
+                _single_pixel_contributors.resize(Abstract_frame_buffer<Data>::_resolution * Abstract_frame_buffer<Data>::_resolution);
             }
 
+            Node_weight_pair nwp(point_info, weight, color);
+            _single_pixel_contributors[serial_index].push_back(nwp);
+
             point_info.splatted = true;
+#endif
+
         }
     }
 
@@ -641,7 +627,6 @@ public:
 protected:
     std::vector<Data_depth_pixel> _data;
 
-    std::tr1::unordered_set<Gi_point_base const*> _debug_gi_points;
     std::vector< std::vector<Node_weight_pair> > _single_pixel_contributors;
 
     bool _normalize;
@@ -726,8 +711,7 @@ public:
         _data.clear();
     }
 
-    virtual void add_point(int const x, int const y, Data const& color, float const filling_degree, Gi_point_info const& point_info,
-                           Gi_point_base const* node = NULL);
+    virtual void add_point(int const x, int const y, Data const& color, float const filling_degree, Gi_point_info const& point_info);
 
     virtual Data get_color(int const x, int const y, Debug_info * debug_info = NULL) const;
 
@@ -735,7 +719,6 @@ public:
 protected:
     std::vector<Pixel> _data;
 
-    std::tr1::unordered_set<Gi_point_base const*> _debug_gi_points;
     mutable std::vector< std::vector<Node_weight_pair> > _single_pixel_contributors;
     std::vector< std::vector<Mises_fisher_lobe<color_t> > > _pixel_lobes;
 };
@@ -901,8 +884,7 @@ public:
 
 
 template <class Data>
-void Parameter_frame_buffer<Data>::add_point(int const x, int const y, Data const& color, float const filling_degree, Gi_point_info const& point_info,
-                       Gi_point_base const* node)
+void Parameter_frame_buffer<Data>::add_point(int const x, int const y, Data const& color, float const filling_degree, Gi_point_info const& point_info)
 {
     int const serial_index = Abstract_frame_buffer<Data>::calc_serial_index(x, y);
 
@@ -981,25 +963,23 @@ void Parameter_frame_buffer<Data>::add_point(int const x, int const y, Data cons
         c.lobe.weight += lobe.weight * weight;
         c.rp_to_node += point_info.direction * weight;
 
-        if (node)
+#ifdef DEBUG
+        if (_single_pixel_contributors.size() == 0)
         {
-            if (_single_pixel_contributors.size() == 0)
-            {
-                _single_pixel_contributors.resize(Abstract_frame_buffer<Data>::_resolution * Abstract_frame_buffer<Data>::_resolution);
-            }
-
-            if (_pixel_lobes.size() == 0)
-            {
-                _pixel_lobes.resize(Abstract_frame_buffer<Data>::_resolution * Abstract_frame_buffer<Data>::_resolution);
-            }
-
-            Node_weight_pair nwp(node, weight, color);
-            _single_pixel_contributors[serial_index].push_back(nwp);
-            _pixel_lobes[serial_index].push_back(lobe);
-            _debug_gi_points.insert(node);
+            _single_pixel_contributors.resize(Abstract_frame_buffer<Data>::_resolution * Abstract_frame_buffer<Data>::_resolution);
         }
 
+        if (_pixel_lobes.size() == 0)
+        {
+            _pixel_lobes.resize(Abstract_frame_buffer<Data>::_resolution * Abstract_frame_buffer<Data>::_resolution);
+        }
+
+        Node_weight_pair nwp(point_info, weight, color);
+        _single_pixel_contributors[serial_index].push_back(nwp);
+        _pixel_lobes[serial_index].push_back(lobe);
+
         point_info.splatted = true;
+#endif
     }
 }
 

@@ -129,6 +129,17 @@ T log_base(T const value, T const base)
     return std::log(value) / std::log(base);
 }
 
+inline
+int log2_int(int const value)
+{
+    int result = -1;
+    int tmp_val = value;
+    while (tmp_val != 0) {
+        tmp_val >>= 1;
+        result++;
+    }
+    return result;
+}
 
 template <class Data, class Averager, int Arity = 2>
 class Inner_node : public Node<Data, Averager>
@@ -151,7 +162,7 @@ public:
 
         // vector3d_t split_positions = bound.center();
 
-        int const num_splits = log_base(Arity, 2);
+        int const num_splits = log2_int(Arity);
 
         std::vector<bound_t> new_bounds(Arity, bound);
         // new_bounds[0] = bound;
@@ -217,13 +228,16 @@ public:
 
         for (int i = 0; i < Arity; ++i)
         {
-            if (new_points[i].size() == 0)
+            if (new_points[i].size() == 0) // empty child
             {
                 _children[i] = NULL;
             }
             else
             {
-                if (new_points[i].size() == 1)
+                // if (new_points[i].size() == 1)
+                int const longest_axis = new_bounds[i].largestAxis();
+
+                if (new_bounds[i].get_length(longest_axis) < 0.1f || new_points[i].size() == 1)
                 {
                     _children[i] = new Leaf_node<Data, Averager>;
                 }

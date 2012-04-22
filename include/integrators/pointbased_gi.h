@@ -576,6 +576,15 @@ private:
 
 
 
+class Tree_cell_radius_split
+{
+    bool operator() ()
+    {
+        return false;
+    }
+};
+
+
 
 class My_hash {
 public:
