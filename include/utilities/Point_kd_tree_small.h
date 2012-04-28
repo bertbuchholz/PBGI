@@ -31,16 +31,16 @@ struct Compare_by_axis
 
 
 
-template <class Data, class Averager>
+template <class Data, class Tree_subdivision_decider, class Averager>
 class Node
 {
 public:
-    Node() : _data(NULL), _depth(-1), _parent(NULL)
+    Node() : _depth(-1), _parent(NULL)
     { }
 
     virtual void average() {}
 
-    virtual void add_points(std::vector<vector3d_t> const& points, bound_t const& bound, int const depth) = 0;
+    virtual void add_points(std::vector<vector3d_t> const& points, bound_t const& bound, int const depth, Tree_subdivision_decider const& subdiv_decider) = 0;
 
     virtual void get_post_order_queue(std::vector<Node*> & list, int const depth, int const max_depth = -1) = 0;
 
@@ -53,13 +53,10 @@ public:
 
     // virtual bound_t get_bound() const = 0;
 
-    Data * get_data() { return _data; }
-    Data const* get_data() const { return _data; }
+    Data &      get_data()       { return _data; }
+    Data const& get_data() const { return _data; }
 
-    void set_data(Data * data) { _data = data; }
-
-    virtual std::vector<Data*> const* get_surfels() const { assert(false); return NULL; }
-    virtual std::vector<Data*>      * get_surfels()       { assert(false); return NULL; }
+    void set_data(Data const& data) { _data = data; }
 
     int get_depth() const { return _depth; }
 
@@ -69,23 +66,30 @@ public:
 
     virtual int get_shortest_distance_to_leaf(int const height) const = 0;
 
+    template <class T >
+    T const* get_derived() const { return static_cast<T const*>(this); }
+    template <class T >
+    T      * get_derived()       { return static_cast<T*>(this); }
+
 protected:
-    Data * _data;
+    Data _data;
     int _depth;
     Node * _parent;
 };
 
-template <class Data, class Averager>
-class Leaf_node : public Node<Data, Averager>
+template <class Data, class Leaf_data, class Tree_subdivision_decider, class Averager>
+class Leaf_node : public Node<Data, Tree_subdivision_decider, Averager>
 {
 public:
-    void add_points(std::vector<vector3d_t> const& points, bound_t const& /* bound */, int const depth)
+    typedef Node<Data, Tree_subdivision_decider, Averager> Tree_node;
+
+    void add_points(std::vector<vector3d_t> const& points, bound_t const& /* bound */, int const depth, Tree_subdivision_decider const& /* subdiv_decider */)
     {
         // assert(points.size() == 1);
         for (size_t i = 0; i < points.size(); ++i)
         {
-            Data * d = new Data;
-            d->pos = points[i];
+            Leaf_data d;
+            d.pos = points[i];
             _surfels.push_back(d);
         }
 
@@ -93,7 +97,7 @@ public:
         this->_depth = depth;
     }
 
-    void get_post_order_queue(std::vector<Node<Data, Averager>*> & list, int const /* depth */, int const /* max_depth = -1 */)
+    void get_post_order_queue(std::vector<Tree_node*> & list, int const /* depth */, int const /* max_depth = -1 */)
     {
         list.push_back(this);
     }
@@ -105,20 +109,19 @@ public:
         // this->_data = averager.average_leaf(_surfels);
     }
 
-    std::vector<Data*> const* get_surfels() const { return &_surfels; }
-    std::vector<Data*>      * get_surfels()       { return &_surfels; }
+    std::vector<Leaf_data> const& get_surfels() const { return _surfels; }
+    std::vector<Leaf_data>      & get_surfels()       { return _surfels; }
 
     int get_shortest_distance_to_leaf(int const height) const { return height; }
 
     // shouldn't be called
     bound_t get_bound() const { assert(false); return bound_t(); }
 
-
-    Node<Data, Averager> *      get_child(int const i)       { return NULL; }
-    Node<Data, Averager> const* get_child(int const i) const { return NULL; }
+    Tree_node *      get_child(int const i)       { return NULL; }
+    Tree_node const* get_child(int const i) const { return NULL; }
 
 private:
-    std::vector<Data*> _surfels;
+    std::vector<Leaf_data> _surfels;
 };
 
 
@@ -141,20 +144,24 @@ int log2_int(int const value)
     return result;
 }
 
-template <class Data, class Averager, int Arity = 2>
-class Inner_node : public Node<Data, Averager>
+template <class Data, class Leaf_data, class Tree_subdivision_decider, class Averager, int Arity = 2>
+class Inner_node : public Node<Data, Tree_subdivision_decider, Averager>
 {
 public:
+    typedef Node<Data, Tree_subdivision_decider, Averager> Tree_node;
+
     Inner_node()
     {
+        /*
         for (int i = 0; i < Arity; ++i)
         {
             _children[i] = NULL;
         }
+        */
     }
 
 
-    void add_points_any_arity(std::vector<vector3d_t> const& points, bound_t const& bound, int const depth)
+    void add_points_any_arity(std::vector<vector3d_t> const& points, bound_t const& bound, int const depth, Tree_subdivision_decider const& subdiv_decider)
     {
         this->_depth = depth;
 
@@ -230,32 +237,32 @@ public:
         {
             if (new_points[i].size() == 0) // empty child
             {
-                _children[i] = NULL;
+                continue;
             }
             else
             {
-                // if (new_points[i].size() == 1)
-                int const longest_axis = new_bounds[i].largestAxis();
+                Tree_node* child = NULL;
 
-                if (new_bounds[i].get_length(longest_axis) < 0.1f || new_points[i].size() == 1)
+                if (!subdiv_decider(new_bounds[i], new_points[i].size()))
                 {
-                    _children[i] = new Leaf_node<Data, Averager>;
+                    child = new Leaf_node<Data, Leaf_data, Tree_subdivision_decider, Averager>;
                 }
                 else
                 {
-                    _children[i] = new Inner_node;
+                    child = new Inner_node;
                 }
 
-                _children[i]->set_parent(this);
+                child->set_parent(this);
+                child->add_points(new_points[i], new_bounds[i], depth + 1, subdiv_decider);
 
-                _children[i]->add_points(new_points[i], new_bounds[i], depth + 1);
+                _children.push_back(child);
+
                 std::vector<vector3d_t>().swap(new_points[i]);
             }
         }
     }
 
-    void add_points_binary(std::vector<vector3d_t> const& points, bound_t const& bound, int const depth)
-    // void add_points(std::vector<vector3d_t> const& points, std::vector<Data*> const& data_per_point, bound_t const& bound)
+    void add_points_binary(std::vector<vector3d_t> const& points, bound_t const& bound, int const depth, Tree_subdivision_decider const& subdiv_decider)
     {
 //        calc_points_bounding_box();
 //        Point cell_extent = get_points_extent();
@@ -291,47 +298,44 @@ public:
 
         if (left_points.size() == 1)
         {
-            _children[0] = new Leaf_node<Data, Averager>;
+            _children[0] = new Leaf_node<Data, Leaf_data, Tree_subdivision_decider, Averager>;
         }
         else
         {
-            _children[0] = new Inner_node<Data, Averager>;
+            _children[0] = new Inner_node;
         }
 
         if (right_points.size() == 1)
         {
-            _children[1] = new Leaf_node<Data, Averager>;
+            _children[1] = new Leaf_node<Data, Leaf_data, Tree_subdivision_decider, Averager>;
         }
         else
         {
-            _children[1] = new Inner_node<Data, Averager>;
+            _children[1] = new Inner_node;
         }
 
         _children[0]->set_parent(this);
         _children[1]->set_parent(this);
 
-        _children[0]->add_points(left_points, left_bound, depth + 1);
+        _children[0]->add_points(left_points, left_bound, depth + 1, subdiv_decider);
         std::vector<vector3d_t>().swap(left_points);
 
-        _children[1]->add_points(right_points, right_bound, depth + 1);
+        _children[1]->add_points(right_points, right_bound, depth + 1, subdiv_decider);
         std::vector<vector3d_t>().swap(right_points);
     }
 
-    void add_points(std::vector<vector3d_t> const& points, bound_t const& bound, int const depth)
+    void add_points(std::vector<vector3d_t> const& points, bound_t const& bound, int const depth, Tree_subdivision_decider const& subdiv_decider)
     {
-        add_points_any_arity(points, bound, depth);
+        add_points_any_arity(points, bound, depth, subdiv_decider);
     }
 
-    void get_post_order_queue(std::vector<Node<Data, Averager>*> & list, int const depth, int const max_depth = -1)
+    void get_post_order_queue(std::vector<Tree_node*> & list, int const depth, int const max_depth = -1)
     {
         if (max_depth == -1 || (max_depth != -1 && depth < max_depth))
         {
-            for (int i = 0; i < Arity; ++i)
+            for (size_t i = 0; i < _children.size(); ++i)
             {
-                if (_children[i])
-                {
-                    _children[i]->get_post_order_queue(list, depth + 1, max_depth);
-                }
+                _children[i]->get_post_order_queue(list, depth + 1, max_depth);
             }
         }
 
@@ -340,65 +344,62 @@ public:
 
     bool is_leaf() const { return false; }
 
-    Node<Data, Averager> *      get_child(int const i)       { return _children[i]; }
-    Node<Data, Averager> const* get_child(int const i) const { return _children[i]; }
+    Tree_node *      get_child(int const i)       { return _children[i]; }
+    Tree_node const* get_child(int const i) const { return _children[i]; }
 
 
     void average_node(Averager const& averager)
     {
         // TODO: change bounds to sum of childrens' BB -> bounds in GiPoint, so no bounds needed (?) in the tree
 
-        std::vector<Data*> leaf_data;
+        std::vector<Data*> children_data;
 
-        for (int i = 0; i < Arity; ++i)
+        for (size_t i = 0; i < _children.size(); ++i)
         {
-            if (_children[i])
-            {
-                assert(_children[i]->get_data() != NULL);
-                leaf_data.push_back(_children[i]->get_data());
-            }
+            children_data.push_back(&_children[i]->get_data());
         }
 
-        this->_data = averager.average_node(leaf_data);
+        this->_data = averager.average_node(children_data);
     }
 
     int get_shortest_distance_to_leaf(int const height) const
     {
         std::vector<int> heights;
 
-        for (int i = 0; i < Arity; ++i)
+        for (size_t i = 0; i < _children.size(); ++i)
         {
-            if (_children[i])
-            {
-                heights.push_back(_children[i]->get_shortest_distance_to_leaf(height + 1));
-            }
+            heights.push_back(_children[i]->get_shortest_distance_to_leaf(height + 1));
         }
 
         return *std::min_element(heights.begin(), heights.end());
     }
 
+    std::vector< Tree_node* >      & get_children()       { return _children; }
+    std::vector< Tree_node* > const& get_children() const { return _children; }
+
     // bound_t get_bound() const { return _bound; }
 
 private:
-    Node<Data, Averager> * _children[Arity];
+    // Node<Data, Averager> * _children[Arity];
+    std::vector< Tree_node* > _children;
 
     // bound_t _bound;
 };
 
-template <class Data, class Averager, int n_Arity>
+template <class Inner_node_data, class Leaf_data, class Tree_subdivision_decider, class Averager, int n_Arity>
 class Point_kd_tree_small
 {
 public:
     static int const Arity = n_Arity;
 
-    typedef Node<Data, Averager> Tree_node;
-    typedef Inner_node<Data, Averager, Arity> Tree_inner_node;
-    typedef Leaf_node<Data, Averager> Tree_leaf_node;
+    typedef Node<Inner_node_data, Tree_subdivision_decider, Averager> Tree_node;
+    typedef Inner_node<Inner_node_data, Leaf_data, Tree_subdivision_decider, Averager, Arity> Tree_inner_node;
+    typedef Leaf_node<Inner_node_data, Leaf_data, Tree_subdivision_decider, Averager> Tree_leaf_node;
 
-    void build_tree(std::vector<vector3d_t> const& points, bound_t const& bound)
+    void build_tree(std::vector<vector3d_t> const& points, bound_t const& bound, Tree_subdivision_decider const& subdiv_decider)
     {
         _root = new Tree_inner_node;
-        _root->add_points(points, bound, 0);
+        _root->add_points(points, bound, 0, subdiv_decider);
     }
 
     std::vector<Tree_node*> get_post_order_queue(int const max_depth = -1)
@@ -431,12 +432,12 @@ public:
             }
             else
             {
-                for (int i = 0; i < Arity; ++i)
+                Tree_inner_node const* inner_node = node->template get_derived<Tree_inner_node>();
+                std::vector< Tree_node* > const& children = inner_node->get_children();
+
+                for (int i = 0; i < children.size(); ++i)
                 {
-                    if (node->get_child(i))
-                    {
-                        queue.push(node->get_child(i));
-                    }
+                    queue.push(children[i]);
                 }
             }
         }
@@ -460,12 +461,12 @@ public:
 
             if (!node->is_leaf())
             {
-                for (int i = 0; i < Arity; ++i)
+                Tree_inner_node const* inner_node = node->template get_derived<Tree_inner_node>();
+                std::vector< Tree_node* > const& children = inner_node->get_children();
+
+                for (size_t i = 0; i < children.size(); ++i)
                 {
-                    if (node->get_child(i))
-                    {
-                        queue.push(node->get_child(i));
-                    }
+                    queue.push(children[i]);
                 }
             }
         }
@@ -497,12 +498,12 @@ public:
 
             if (!node->is_leaf())
             {
-                for (int i = 0; i < Arity; ++i)
+                Tree_inner_node const* inner_node = node->template get_derived<Tree_inner_node>();
+                std::vector< Tree_node* > const& children = inner_node->get_children();
+
+                for (int i = 0; i < children.size(); ++i)
                 {
-                    if (node->get_child(i))
-                    {
-                        queue.push(node->get_child(i));
-                    }
+                    queue.push(children[i]);
                 }
             }
         }
@@ -513,8 +514,8 @@ private:
 };
 
 
-template <class Data, class Averager>
-bool is_node_data_behind_plane(Node<Data, Averager> const* node, vector3d_t const& pos, vector3d_t const& normal, float const bias)
+template <class Data, class Tree_subdivision_decider, class Averager>
+bool is_node_data_behind_plane(Node<Data, Tree_subdivision_decider, Averager> const* node, vector3d_t const& pos, vector3d_t const& normal, float const bias)
 {
     // XXX: possible problem when using threads
     static int corners[][3] = {

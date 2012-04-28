@@ -107,6 +107,13 @@ public:
 class Gi_point_inner_node : public Gi_point_base
 {
 public:
+    Gi_point_inner_node()
+    {
+        _is_surfel = false;
+        sf_representation.color = NULL;
+        sf_representation.area  = NULL;
+    }
+
     Gi_point_inner_node(Spherical_function_factory<color_t> const* sf_color_factory, Spherical_function_factory<float> const* sf_area_factory)
     {
         _is_surfel = false;
@@ -330,19 +337,19 @@ class Gi_point_averager
 
 
     // for new Gi_point_base
-    Gi_point_base * average_node(std::vector<Gi_point_base*> const& base_points) const
+    Gi_point_inner_node average_node(std::vector<Gi_point_inner_node*> const& points) const
     {
         // assert(points.size() > 0 && points.size() <= pbLighting_t::MyTree::Arity);
-        assert(base_points.size() > 0);
+//        assert(base_points.size() > 0);
 
-        Gi_point_inner_node * result = new Gi_point_inner_node(_sf_color_factory, _sf_area_factory);
+        Gi_point_inner_node result(_sf_color_factory, _sf_area_factory);
 
-        std::vector<Gi_point_inner_node*> points;
+//        std::vector<Gi_point_inner_node*> points;
 
-        for (unsigned int i = 0; i < base_points.size(); ++i)
-        {
-            points.push_back(base_points[i]->get_derived<Gi_point_inner_node>());
-        }
+//        for (unsigned int i = 0; i < base_points.size(); ++i)
+//        {
+//            points.push_back(base_points[i]->get_derived<Gi_point_inner_node>());
+//        }
 
 
         // SH summation
@@ -350,8 +357,8 @@ class Gi_point_averager
         {
             Gi_point_inner_node const& p = *points[i];
 
-            result->sf_representation.area->add(p.sf_representation.area);
-            result->sf_representation.color->add(p.sf_representation.color);
+            result.sf_representation.area->add(p.sf_representation.area);
+            result.sf_representation.color->add(p.sf_representation.color);
         }
 
         // result->sf_representation.color->normalize(1.0f / float(points.size()));
@@ -370,9 +377,9 @@ class Gi_point_averager
             area_sum += p.sf_representation.area->get_value(dir);
         }
 
-        if (result->sf_representation.area->get_value(dir) > 0.0f && !is_in_range(0.9f, 1.1f, result->sf_representation.area->get_value(dir) / area_sum))
+        if (result.sf_representation.area->get_value(dir) > 0.0f && !is_in_range(0.9f, 1.1f, result.sf_representation.area->get_value(dir) / area_sum))
         {
-            std::cout << "Gi_point_averager::average(): surfel?: " << points[0]->_is_surfel << ", not in range: " << area_sum << " " << result->sf_representation.area->get_value(dir) << std::endl;
+            std::cout << "Gi_point_averager::average(): surfel?: " << points[0]->_is_surfel << ", not in range: " << area_sum << " " << result.sf_representation.area->get_value(dir) << std::endl;
         }
         /*
         else
@@ -386,23 +393,23 @@ class Gi_point_averager
         for (unsigned int i = 0; i < points.size(); ++i)
         {
             Gi_point_base const* p = points[i];
-            result->pos    += p->pos;
+            result.pos    += p->pos;
         }
 
-        result->bounding_box = points[0]->bounding_box;
+        result.bounding_box = points[0]->bounding_box;
 
         for (size_t i = 1; i < points.size(); ++i)
         {
             for (int j = 0; j < 3; ++j)
             {
-                result->bounding_box.a[j] = std::min(result->bounding_box.a[j], points[i]->bounding_box.a[j]);
-                result->bounding_box.g[j] = std::max(result->bounding_box.g[j], points[i]->bounding_box.g[j]);
+                result.bounding_box.a[j] = std::min(result.bounding_box.a[j], points[i]->bounding_box.a[j]);
+                result.bounding_box.g[j] = std::max(result.bounding_box.g[j], points[i]->bounding_box.g[j]);
             }
         }
 
-        result->pos    *= 1.0f / float(points.size());
+        result.pos    *= 1.0f / float(points.size());
 
-        result->_is_surfel = false;
+        result._is_surfel = false;
 
         return result;
     }
@@ -576,12 +583,29 @@ private:
 
 
 
-class Tree_cell_radius_split
+struct My_tree_subdivision_decider
 {
-    bool operator() ()
+    // returns true if a subdivision should be made
+    bool operator() (bound_t const& bound, int const num_points) const
     {
+        if (num_points == 1) return false;
+
+        if (max_num_points == 0) // check for bounds
+        {
+            int const longest_axis = bound.largestAxis();
+
+            return bound.get_length(longest_axis) > max_size;
+        }
+        else
+        {
+            return (num_points > max_num_points);
+        }
+
         return false;
     }
+
+    float max_size;
+    int   max_num_points;
 };
 
 
@@ -622,7 +646,7 @@ public:
     typedef Point_kd_tree<vector3d_t, 3, GiPoint*> MyTree;
 #else
     // typedef Point_kd_tree_small<GiPoint, Gi_point_averager, 8> MyTree;
-    typedef Point_kd_tree_small<Gi_point_base, Gi_point_averager, 8> MyTree;
+    typedef Point_kd_tree_small<Gi_point_inner_node, Gi_point_surfel, My_tree_subdivision_decider, Gi_point_averager, 8> MyTree;
 #endif
 
     pbLighting_t(bool transpShad=false, int shadowDepth=4, int rayDepth=6);
@@ -636,7 +660,7 @@ public:
     color_t doPointBasedGiTreeSH_leafs_only(renderState_t & state, surfacePoint_t const& sp, vector3d_t const& wo) const;
 
     void generate_spherical_function(renderState_t & state, GiPoint * gi_point, surfacePoint_t const& sp, std::vector<light_t*> const& lights);
-    Spherical_node_representation generate_spherical_function_2(renderState_t & state, Gi_point_surfel * surfel, surfacePoint_t const& sp, std::vector<light_t*> const& lights);
+    Spherical_node_representation generate_spherical_function_2(renderState_t & state, Gi_point_surfel & surfel, surfacePoint_t const& sp, std::vector<light_t*> const& lights);
     void generate_gi_points         (renderState_t & state, MyTree & tree, int const number_of_samples);
     void generate_gi_points_data    (renderState_t & state,
                                      std::vector<MyTree*> const& nodes,
