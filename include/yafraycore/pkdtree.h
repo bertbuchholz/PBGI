@@ -117,7 +117,7 @@ void pointKdTree<T>::buildTree(u_int32 start, u_int32 end, bound_t &nodeBound, c
 		nextFreeNode++;
 		return;
 	}
-	int splitAxis = nodeBound.largestAxis();
+	int splitAxis = nodeBound.longestAxis();
 	int splitEl = (start+end)/2;
 	std::nth_element(&prims[start], &prims[splitEl],
 					&prims[end], CompareNode<T>(splitAxis));

@@ -271,7 +271,7 @@ public:
 
         // _bound = bound;
 
-        int const split_axis = bound.largestAxis();
+        int const split_axis = bound.longestAxis();
         // int const split_axis = get_longest_axis_3d(cell_extent);
 
         std::vector<Point_data<Data> > points_sorted_by_axis = points;

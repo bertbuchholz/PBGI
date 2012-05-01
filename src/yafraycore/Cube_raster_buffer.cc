@@ -336,7 +336,8 @@ void Splat_cube_raster_buffer::setup(Parameter_list const& parameters)
 {
     for (int i = 0; i < 6; ++i)
     {
-        buffers[i] = Parameter_registry< Abstract_frame_buffer<color_t> >::get_class_from_single_select_instance("receiving_fb_type", parameters);
+        buffers[i] = Parameter_registry< Abstract_frame_buffer<color_t> >::get_class_from_single_select_instance_2(parameters.get_child("fb_type"));
+        // buffers[i] = Parameter_registry< Abstract_frame_buffer<color_t> >::get_class_from_single_select_instance("receiving_fb_type", parameters);
         buffers[i]->set_plane(i);
     }
 
@@ -345,9 +346,9 @@ void Splat_cube_raster_buffer::setup(Parameter_list const& parameters)
     _resolution_2 = _resolution / 2;
 
     add_point_function_map.resize(3);
-    add_point_function_map[Gi_point_info::Node] =        Parameter_registry<Splat_strategy>::get_class_from_single_select_instance("node_splat_type", parameters);
-    add_point_function_map[Gi_point_info::Far_surfel] =  Parameter_registry<Splat_strategy>::get_class_from_single_select_instance("surfel_far_splat_type", parameters);
-    add_point_function_map[Gi_point_info::Near_surfel] = Parameter_registry<Splat_strategy>::get_class_from_single_select_instance("surfel_near_splat_type", parameters);
+    add_point_function_map[Gi_point_info::Node] =        Parameter_registry<Splat_strategy>::get_class_from_single_select_instance_2(parameters.get_child("node_splat_type"));
+    add_point_function_map[Gi_point_info::Far_surfel] =  Parameter_registry<Splat_strategy>::get_class_from_single_select_instance_2(parameters.get_child("surfel_far_splat_type"));
+    add_point_function_map[Gi_point_info::Near_surfel] = Parameter_registry<Splat_strategy>::get_class_from_single_select_instance_2(parameters.get_child("surfel_near_splat_type"));
 }
 
 

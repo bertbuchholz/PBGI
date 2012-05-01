@@ -2,7 +2,7 @@
  *
  * 			bound.h: Bound and tree api for general raytracing acceleration
  *      This is part of the yafray package
- *      Copyright (C) 2002  Alejandro Conty Estévez
+ *      Copyright (C) 2002  Alejandro Conty Estvez
  *
  *      This library is free software; you can redistribute it and/or
  *      modify it under the terms of the GNU Lesser General Public
@@ -120,7 +120,7 @@ class YAFRAYCORE_EXPORT bound_t
                 PFLOAT centerY()const {return (g.y+a.y)*0.5;}
                 PFLOAT centerZ()const {return (g.z+a.z)*0.5;}
                 point3d_t center()const {return (g+a)*0.5;}
-                int largestAxis() const
+                int longestAxis() const
 		{
 			vector3d_t d = g-a;
 			return (d.x>d.y) ? ((d.x>d.z) ? 0 : 2) : ((d.y>d.z) ? 1:2 );

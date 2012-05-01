@@ -336,7 +336,7 @@ void pbLighting_t::generate_spherical_function(renderState_t & state, GiPoint * 
                 }
                 else
                 {
-                    Abstract_spherical_function_estimator<color_t> * color_estimator = new Spherical_function_light_color_estimator<color_t>(state, sp, lightRay, light_color);
+                    Abstract_spherical_function_estimator<color_t> * color_estimator = new Spherical_function_light_color_estimator<color_t>(state, sp, lightRay, light_color, gi_point->area);
                     gi_point->sf_representation.color->calc_coefficients_random(color_estimator);
                     delete color_estimator;
                 }
@@ -346,7 +346,7 @@ void pbLighting_t::generate_spherical_function(renderState_t & state, GiPoint * 
 
     if (sp.material->getFlags() & BSDF_EMIT)
     {
-        Abstract_spherical_function_estimator<color_t> * emit_estimator = new Spherical_function_emit_color_estimator<color_t>(state, sp);
+        Abstract_spherical_function_estimator<color_t> * emit_estimator = new Spherical_function_emit_color_estimator<color_t>(state, sp, gi_point->area);
         gi_point->sf_representation.color->calc_coefficients_random(emit_estimator);
         delete emit_estimator;
     }
@@ -370,18 +370,22 @@ Spherical_node_representation pbLighting_t::generate_spherical_function_2(render
     ray_t lightRay;
     lightRay.from = surfel.pos;
 
-    color_t light_color(0.f);
+
 
     Spherical_node_representation sf_representation;
 
     sf_representation.color = _spherical_function_color_factory->create();
     sf_representation.area  = _spherical_function_area_factory->create();
 
+    color_t accumulated_reflected_light(0.0f);
+
     for (std::vector<light_t *>::const_iterator light = lights.begin(); light != lights.end(); ++light)
     {
         if ((*light)->diracLight())
         {
             bool shadowed = true;
+
+            color_t light_color(0.f);
 
             if ((*light)->illuminate(sp, light_color, lightRay))
             {
@@ -407,12 +411,13 @@ Spherical_node_representation pbLighting_t::generate_spherical_function_2(render
                 if (_use_precalculated_sf)
                 {
                     float const lambert_scale = lightRay.dir * sp.N;
-                    color_t scale = sp.material->getDiffuseAtPoint(state, sp) * light_color * lambert_scale * surfel.area;
-                    sf_representation.color->get_precalculated_coefficients(_precalculated_sf, scale, sp.N);
+                    accumulated_reflected_light += lambert_scale * light_color;
+                    //color_t scale = sp.material->getDiffuseAtPoint(state, sp) * light_color * lambert_scale * surfel.area;
+                    //sf_representation.color->get_precalculated_coefficients(_precalculated_sf, scale, sp.N);
                 }
                 else
                 {
-                    Abstract_spherical_function_estimator<color_t> * color_estimator = new Spherical_function_light_color_estimator<color_t>(state, sp, lightRay, light_color);
+                    Abstract_spherical_function_estimator<color_t> * color_estimator = new Spherical_function_light_color_estimator<color_t>(state, sp, lightRay, light_color, surfel.area);
                     sf_representation.color->calc_coefficients_random(color_estimator);
                     delete color_estimator;
                 }
@@ -420,9 +425,10 @@ Spherical_node_representation pbLighting_t::generate_spherical_function_2(render
         }
     }
 
-    if (sp.material->getFlags() & BSDF_EMIT)
+    // FIXME: emit should be added, right now it replaces the color if a material has diffuse and emit
+    if (!_use_precalculated_sf && (sp.material->getFlags() & BSDF_EMIT))
     {
-        Abstract_spherical_function_estimator<color_t> * emit_estimator = new Spherical_function_emit_color_estimator<color_t>(state, sp);
+        Abstract_spherical_function_estimator<color_t> * emit_estimator = new Spherical_function_emit_color_estimator<color_t>(state, sp, surfel.area);
         sf_representation.color->calc_coefficients_random(emit_estimator);
         delete emit_estimator;
     }
@@ -430,6 +436,9 @@ Spherical_node_representation pbLighting_t::generate_spherical_function_2(render
     if (_use_precalculated_sf)
     {
         sf_representation.area->get_precalculated_coefficients(_precalculated_sf, surfel.area, sp.N);
+
+        color_t const scale = (sp.material->getDiffuseAtPoint(state, sp) * accumulated_reflected_light + sp.material->emission(state, sp, vector3d_t())) * surfel.area;
+        sf_representation.color->get_precalculated_coefficients(_precalculated_sf, scale, sp.N);
     }
     else
     {
@@ -918,6 +927,22 @@ void test_dart_params(float const radius, int const number_of_samples, std::vect
     }
 }
 
+// create an enclosing cube shaped bound
+bound_t create_fitting_cube(bound_t const& bound)
+{
+    int const longest_axis = bound.longestAxis();
+    float const longest_extent_2 = bound.get_length(longest_axis) / 2.0f;
+
+    vector3d_t center = vector3d_t(bound.center());
+
+    bound_t result;
+
+    result.a = center - vector3d_t(longest_extent_2 * 1.001f);
+    result.g = center + vector3d_t(longest_extent_2 * 1.001f);
+
+    return result;
+}
+
 void pbLighting_t::generate_gi_points(renderState_t & state, MyTree & tree, int const number_of_samples)
 {
     std::vector<triangle_t const*> triangles = get_scene_triangles(scene->meshes);
@@ -1046,7 +1071,8 @@ void pbLighting_t::generate_gi_points(renderState_t & state, MyTree & tree, int 
     subdivision_decider.max_num_points = 0;
     subdivision_decider.max_size = needed_radius * 2.0f;
 
-    tree.build_tree(point_data, scene->getSceneBound(), subdivision_decider);
+    bound_t cube_bound = create_fitting_cube(scene->getSceneBound());
+    tree.build_tree(point_data, cube_bound, subdivision_decider);
 #endif
 
     timer.stop("point_creation");
@@ -1706,6 +1732,7 @@ void process_node(
     if (debug_info && debug_info->color_by_depth)
     {
         // cluster_contribution = pbLighting_t::debug_colors[std::min(node->get_shortest_distance_to_leaf(), int(pbLighting_t::debug_colors.size()) - 1)];
+        cluster_contribution = pbLighting_t::debug_colors[std::min(debug_info->node_depth, int(pbLighting_t::debug_colors.size()) - 1)];
     }
     else
     {
@@ -2104,7 +2131,7 @@ color_t doPointBasedGiTree_sh_fb(
 
     if (parameters)
     {
-        frame_buffer.setup(*parameters);
+        frame_buffer.setup(*parameters->get_child("receiving_fb"));
     }
     else
     {
@@ -2127,6 +2154,8 @@ color_t doPointBasedGiTree_sh_fb(
     {
         debug_info->my_timer.start("Traversal");
     }
+
+    float const culling_bias = parameters->get_parameter("culling_bias")->get_value<float>();
 
     // traverse tree, if solid angle of node > max, traverse into the children
 //    std::queue<pbLighting_t::MyTree const*> queue;
@@ -2161,16 +2190,8 @@ color_t doPointBasedGiTree_sh_fb(
                 debug_info->my_timer.start("Surfel");
             }
 
-            // FIXME add distance check and process leaf as node
-            //    if (distance < disc_radius * surfel_near_threshold)
-            //    {
-            //        point_info.type = Gi_point_info::Near_surfel;
-            //    }
-
             pbLighting_t::MyTree::Tree_leaf_node const* leaf_node = node->get_derived<pbLighting_t::MyTree::Tree_leaf_node>();
             std::vector<Gi_point_surfel> const& surfels = leaf_node->get_surfels();
-
-            // std::vector<Gi_point_base*> const* surfels = leaf_node->get_surfels();
 
             for (size_t i = 0; i < surfels.size(); ++i)
             {
@@ -2194,7 +2215,7 @@ color_t doPointBasedGiTree_sh_fb(
             Gi_point_inner_node const& gi_point = node->get_data();
 
             // if (is_node_data_behind_plane(node, vector3d_t(receiving_point.P), receiving_point.N, 0.1f))
-            if (is_bound_behind_plane(gi_point.bounding_box, vector3d_t(receiving_point.P), receiving_point.N, 0.1f))
+            if (is_bound_behind_plane(gi_point.bounding_box, vector3d_t(receiving_point.P), receiving_point.N, culling_bias))
             // if (node->is_node_data_behind_plane_approx(vector3d_t(receiving_point.P), receiving_point.N, bb_radius, 0.2f))
             {
                 if (debug_info)
@@ -2745,23 +2766,34 @@ integrator_t* pbLighting_t::factory(paraMap_t &params, renderEnvironment_t &rend
     inte->_parameters.add_parameter(new Parameter("disc_scale_factor", disc_scale_factor, 0.01f, 20.0f));
 
     // Parameter_list parameters;
-    inte->_parameters += Parameter_registry< Abstract_frame_buffer<color_t> >::create_single_select_instance("receiving_fb_type");
-    inte->_parameters += Parameter_registry<Splat_strategy>::create_single_select_instance("node_splat_type");
-    inte->_parameters += Parameter_registry<Splat_strategy>::create_single_select_instance("surfel_far_splat_type");
-    inte->_parameters += Parameter_registry<Splat_strategy>::create_single_select_instance("surfel_near_splat_type");
-    inte->_parameters.set_value_for_instance_and_class("node_splat_type",       "Gaussian_splat_strategy", "wendland_integral", false);
-    inte->_parameters.set_value_for_instance_and_class("surfel_far_splat_type", "Gaussian_splat_strategy", "wendland_integral", false);
 
-    inte->_parameters["receiving_fb_type"]->set_value(fb_type);
-    inte->_parameters.set_value_for_instance("receiving_fb_type", "resolution", fb_resolution);
-    inte->_parameters.set_value_for_instance_and_class("receiving_fb_type", "Accumulating_frame_buffer_without_queue", "use_visibility", true);
-    inte->_parameters.set_value_for_instance_and_class("receiving_fb_type", "Accumulating_frame_buffer_without_queue", "use_depth_modulation", false);
-    inte->_parameters.set_value_for_instance_and_class("receiving_fb_type", "Accumulating_frame_buffer_without_queue", "normalize", true);
+    Parameter_list * l;
 
+    inte->_parameters.add_parameter(new Parameter("culling_bias", 0.1f, 0.0f, 0.5f));
 
-    inte->_parameters["node_splat_type"]->set_value(node_splat_type);
-    inte->_parameters["surfel_far_splat_type"]->set_value(surfel_far_splat_type);
-    inte->_parameters["surfel_near_splat_type"]->set_value(surfel_near_splat_type);
+    Parameter_list * receiving_fb_list = inte->_parameters.add_child("receiving_fb");
+    Parameter_registry< Abstract_frame_buffer<color_t> >::create_single_select_instance(receiving_fb_list, "fb_type");
+    receiving_fb_list->get_child("fb_type")->get_parameter("type")->set_value(fb_type);
+
+    l = receiving_fb_list->get_child("fb_type")->get_child("Accumulating_frame_buffer_without_queue");
+    (*l)["resolution"]->set_value(fb_resolution);
+    (*l)["use_visibility"]->set_value(true);
+    (*l)["use_depth_modulation"]->set_value(false);
+    (*l)["normalize"]->set_value(true);
+
+    Parameter_registry<Splat_strategy>::create_single_select_instance(receiving_fb_list, "node_splat_type");
+    Parameter_registry<Splat_strategy>::create_single_select_instance(receiving_fb_list, "surfel_far_splat_type");
+    Parameter_registry<Splat_strategy>::create_single_select_instance(receiving_fb_list, "surfel_near_splat_type");
+
+    receiving_fb_list->get_child("node_splat_type")->get_parameter("type")->set_value(node_splat_type);
+    receiving_fb_list->get_child("surfel_far_splat_type")->get_parameter("type")->set_value(surfel_far_splat_type);
+    receiving_fb_list->get_child("surfel_near_splat_type")->get_parameter("type")->set_value(surfel_near_splat_type);
+
+    l = receiving_fb_list->get_child("node_splat_type")->get_child("Gaussian_splat_strategy");
+    (*l)["wendland_integral"]->set_value(false);
+
+    l = receiving_fb_list->get_child("surfel_far_splat_type")->get_child("Gaussian_splat_strategy");
+    (*l)["wendland_integral"]->set_value(false);
 
     inte->raster_buffer_resolution = fb_resolution;
     inte->raster_buffer_type       = Splat_cube_raster_buffer::enum_type_map[fb_type];
@@ -2802,7 +2834,7 @@ integrator_t* pbLighting_t::factory(paraMap_t &params, renderEnvironment_t &rend
     inte->_do_dictionary_stats        = do_dictionary_stats;
     inte->_use_ann                    = false;
 
-    inte->_use_precalculated_sf       = true;
+    inte->_use_precalculated_sf       = false;
 
     if (dictionary_type_str == "No_dict")
     {

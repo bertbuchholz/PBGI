@@ -123,11 +123,12 @@ template <class Data>
 class Spherical_function_light_color_estimator : public Abstract_spherical_function_estimator<Data>
 {
 public:
-    Spherical_function_light_color_estimator(renderState_t & state, surfacePoint_t const& surfel, ray_t const& lightRay, color_t const& light_color) :
+    Spherical_function_light_color_estimator(renderState_t & state, surfacePoint_t const& surfel, ray_t const& lightRay, color_t const& light_color, float const area) :
         _state(state),
         _surfel(surfel),
         _lightRay(lightRay),
-        _light_color(light_color)
+        _light_color(light_color),
+        _area(area)
     {
         if (lightRay.dir * surfel.N <= 0.0f)
         {
@@ -171,7 +172,7 @@ public:
 
     virtual Data get_value(vector3d_t const& dir) const
     {
-        return estimate_light_sample_no_shadow_test(_state, _lightRay, _light_color, _surfel, dir);
+        return estimate_light_sample_no_shadow_test(_state, _lightRay, _light_color, _surfel, dir) * std::max(0.0f, _surfel.N * dir) * _area;
     }
 
 private:
@@ -179,25 +180,28 @@ private:
     surfacePoint_t const& _surfel;
     ray_t const& _lightRay;
     color_t const& _light_color;
+    float _area;
 };
 
 template <class Data>
 class Spherical_function_emit_color_estimator : public Abstract_spherical_function_estimator<Data>
 {
 public:
-    Spherical_function_emit_color_estimator(renderState_t & state, surfacePoint_t const& surfel) :
+    Spherical_function_emit_color_estimator(renderState_t & state, surfacePoint_t const& surfel, float const area) :
         _state(state),
-        _surfel(surfel)
+        _surfel(surfel),
+        _area(area)
     { }
 
     virtual Data get_value(vector3d_t const& dir) const
     {
-        return _surfel.material->emission(_state, _surfel, dir);
+        return _surfel.material->emission(_state, _surfel, dir) * _area;
     }
 
 private:
     renderState_t & _state;
     surfacePoint_t const& _surfel;
+    float _area;
 };
 
 
@@ -941,14 +945,15 @@ public:
         // FIXME: move into the estimator
         // color_t emission = surfel.material->emission(state, surfel, vector3d_t());
 
-        bool use_cones = false;
-        Cone specular_cone;
+        bool use_cones = true;
+        Cone const& diffuse_cone  = estimator->get_main_cones()[0];
+        Cone const& specular_cone = estimator->get_main_cones()[1];
 
-        if (estimator->get_main_cones().size() == 2)
-        {
-            use_cones = true;
-            specular_cone = estimator->get_main_cones()[1];
-        }
+//        if (estimator->get_main_cones().size() == 2)
+//        {
+//            use_cones = true;
+//            specular_cone = estimator->get_main_cones()[1];
+//        }
 
         for (unsigned int i = 0; i < cube_cells.size(); ++i)
         {
@@ -957,8 +962,12 @@ public:
             Cube_cell const& cell = cube_cells[i];
 
             vector3d_t const& cell_dir = buffer.get_cell_direction(cell);
+
+            float const angle_to_specular = fAcos(cell_dir * specular_cone.dir);
+            float const angle_to_diffuse  = fAcos(cell_dir * diffuse_cone.dir);
+
             // if (use_cones && (cell_dir * specular_cone.dir) > specular_cone.cos_angle)
-            if (use_cones && fAcos(cell_dir * specular_cone.dir) > specular_cone.cos_angle)
+            if (use_cones && angle_to_specular > specular_cone.cos_angle && angle_to_diffuse > diffuse_cone.cos_angle)
             {
                 continue;
             }

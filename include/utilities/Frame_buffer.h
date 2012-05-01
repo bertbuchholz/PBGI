@@ -680,18 +680,20 @@ class Parameter_frame_buffer : public Abstract_frame_buffer<Data>
     };
 
 public:
-    virtual ~Parameter_frame_buffer()
-    {  }
+    Parameter_frame_buffer() {  }
 
     Parameter_frame_buffer(int size, int plane) : Abstract_frame_buffer<Data>(size, plane)
     {
         set_size(size);
     }
 
-    static Abstract_frame_buffer<Data>* create(int resolution, int plane)
-    {
-        return new Parameter_frame_buffer(resolution, plane);
-    }
+    virtual ~Parameter_frame_buffer()
+    {  }
+
+//    static Abstract_frame_buffer<Data>* create(int resolution, int plane)
+//    {
+//        return new Parameter_frame_buffer(resolution, plane);
+//    }
 
     virtual Abstract_frame_buffer<Data>* clone()
     {
@@ -715,14 +717,50 @@ public:
 
     virtual Data get_color(int const x, int const y, Debug_info * debug_info = NULL) const;
 
+    static std::string name()
+    {
+        return "Parameter_fb";
+    }
+
+    static Parameter_frame_buffer * create()
+    {
+        return new Parameter_frame_buffer;
+    }
+
+    static Parameter_list get_parameters()
+    {
+        Parameter_list parameters;
+
+        parameters.add_parameter(new Parameter("use_visibility",       true));
+        parameters.add_parameter(new Parameter("use_depth_modulation", false));
+        parameters.add_parameter(new Parameter("normalize",            true));
+
+        return parameters;
+    }
+
+    void set_parameters(Parameter_list const& parameters)
+    {
+        Abstract_frame_buffer<color_t>::set_parameters(parameters);
+
+        _use_visibility = parameters["use_visibility"]->get_value<bool>();
+        _use_depth_modulation = parameters["use_depth_modulation"]->get_value<bool>();
+
+        set_size(this->_resolution);
+    }
 
 protected:
     std::vector<Pixel> _data;
 
     mutable std::vector< std::vector<Node_weight_pair> > _single_pixel_contributors;
     std::vector< std::vector<Mises_fisher_lobe<color_t> > > _pixel_lobes;
+
+    bool _use_visibility;
+    bool _use_depth_modulation;
 };
 
+static Class_parameter_registration< Abstract_frame_buffer<color_t>, Parameter_frame_buffer<color_t> > Parameter_frame_buffer_color_t(
+        &Parameter_frame_buffer<color_t>::create,
+         Parameter_frame_buffer<color_t>::get_parameters());
 
 
 
