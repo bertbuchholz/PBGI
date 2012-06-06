@@ -256,7 +256,9 @@ inline color_t operator * (const color_t &a,const color_t &b)
 
 inline color_t operator / (const color_t &a,const color_t &b)
 {
-        return color_t(a.R / b.R, a.G / b.G, a.B / b.B);
+        return color_t((b.R > 0.000001f) ? (a.R / b.R) : 0.0f,
+                       (b.G > 0.000001f) ? (a.G / b.G) : 0.0f,
+                       (b.B > 0.000001f) ? (a.B / b.B) : 0.0f);
 }
 
 inline color_t operator * (const CFLOAT f,const color_t &b)

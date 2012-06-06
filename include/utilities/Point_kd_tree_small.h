@@ -29,6 +29,18 @@ struct Compare_by_axis
     int axis;
 };
 
+struct Compare_vector_by_axis
+{
+    Compare_vector_by_axis(int const a) : axis(a) {}
+
+    bool operator() (vector3d_t const& a, vector3d_t const& b)
+    {
+        return a[axis] < b[axis];
+    }
+
+    int axis;
+};
+
 
 
 template <class Data, class Tree_subdivision_decider, class Averager>
@@ -37,6 +49,8 @@ class Node
 public:
     Node() : _depth(-1), _parent(NULL)
     { }
+
+    virtual ~Node() {}
 
     virtual void average() {}
 
@@ -262,8 +276,15 @@ public:
         }
     }
 
-    void add_points_binary(std::vector<vector3d_t> const& points, bound_t const& bound, int const depth, Tree_subdivision_decider const& subdiv_decider)
+//    bound_t get_points_bound(std::vector<vector3d_t> const& points)
+//    {
+
+//    }
+
+    void add_points_binary_median(std::vector<vector3d_t> const& points, bound_t const& bound, int const depth, Tree_subdivision_decider const& subdiv_decider)
     {
+        assert(Arity == 2);
+
 //        calc_points_bounding_box();
 //        Point cell_extent = get_points_extent();
 
@@ -274,9 +295,9 @@ public:
         int const split_axis = bound.longestAxis();
         // int const split_axis = get_longest_axis_3d(cell_extent);
 
-        std::vector<Point_data<Data> > points_sorted_by_axis = points;
+        std::vector<vector3d_t> points_sorted_by_axis = points;
 
-        std::sort(points_sorted_by_axis.begin(), points_sorted_by_axis.end(), Compare_by_axis<Data>(split_axis));
+        std::sort(points_sorted_by_axis.begin(), points_sorted_by_axis.end(), Compare_vector_by_axis(split_axis));
 
         int const median_index = int(points_sorted_by_axis.size() / 2.0f);
 
@@ -290,11 +311,14 @@ public:
                 0.5f * (right_points.front())[split_axis];
 
         bound_t left_bound = bound;
-        left_bound.setMax(split_position, split_axis);
+        // left_bound.setMax(split_position, split_axis);
+        left_bound.setMax(left_points.back()[split_axis], split_axis);
 
         bound_t right_bound = bound;
-        right_bound.setMin(split_position, split_axis);
+        // right_bound.setMin(split_position, split_axis);
+        right_bound.setMin(right_points.front()[split_axis], split_axis);
 
+        _children.resize(2);
 
         if (left_points.size() == 1)
         {
@@ -327,6 +351,17 @@ public:
     void add_points(std::vector<vector3d_t> const& points, bound_t const& bound, int const depth, Tree_subdivision_decider const& subdiv_decider)
     {
         add_points_any_arity(points, bound, depth, subdiv_decider);
+
+        /*
+        if (Arity == 8)
+        {
+            add_points_any_arity(points, bound, depth, subdiv_decider);
+        }
+        else
+        {
+            add_points_binary_median(points, bound, depth, subdiv_decider);
+        }
+        */
     }
 
     void get_post_order_queue(std::vector<Tree_node*> & list, int const depth, int const max_depth = -1)
@@ -396,10 +431,36 @@ public:
     typedef Inner_node<Inner_node_data, Leaf_data, Tree_subdivision_decider, Averager, Arity> Tree_inner_node;
     typedef Leaf_node<Inner_node_data, Leaf_data, Tree_subdivision_decider, Averager> Tree_leaf_node;
 
+    Point_kd_tree_small() : _root(NULL) {}
+
+    ~Point_kd_tree_small()
+    {
+        if (_root)
+        {
+            clear();
+        }
+    }
+
     void build_tree(std::vector<vector3d_t> const& points, bound_t const& bound, Tree_subdivision_decider const& subdiv_decider)
     {
         _root = new Tree_inner_node;
         _root->add_points(points, bound, 0, subdiv_decider);
+    }
+
+    void clear()
+    {
+        std::vector<Tree_node*> nodes = get_post_order_queue();
+
+        for (size_t i = 0; i < nodes.size(); ++i)
+        {
+            Tree_node * node = nodes[i];
+
+            node->get_data().clear();
+
+            delete node;
+        }
+
+        _root = NULL;
     }
 
     std::vector<Tree_node*> get_post_order_queue(int const max_depth = -1)
@@ -474,6 +535,39 @@ public:
         return result;
     }
 
+    std::vector<Tree_node*> get_nodes_at_depth(int const depth) const
+    {
+        std::vector<Tree_node*> result;
+
+        std::queue<Tree_node*> queue;
+        queue.push(_root);
+
+        while (!queue.empty())
+        {
+            Tree_node * node = queue.front();
+            queue.pop();
+
+            if (node->get_depth() == depth)
+            {
+                result.push_back(node);
+            }
+            else if (!node->is_leaf() && node->get_depth() < depth)
+            {
+                Tree_inner_node const* inner_node = node->template get_derived<Tree_inner_node>();
+                std::vector< Tree_node* > const& children = inner_node->get_children();
+
+                for (size_t i = 0; i < children.size(); ++i)
+                {
+                    queue.push(children[i]);
+                }
+            }
+
+            assert(node->get_depth() <= depth);
+        }
+
+        return result;
+    }
+
     void count_nodes(int & num_inner_nodes, int & num_leafs) const
     {
         num_inner_nodes = 0;
@@ -502,6 +596,57 @@ public:
                 std::vector< Tree_node* > const& children = inner_node->get_children();
 
                 for (int i = 0; i < children.size(); ++i)
+                {
+                    queue.push(children[i]);
+                }
+            }
+        }
+    }
+
+    struct Node_gatherer
+    {
+        void operator() (Tree_node const* node)
+        {
+            result.push_back(node);
+        }
+
+        std::vector<Tree_node const*> result;
+    };
+
+    std::vector<Tree_node const*> get_nodes_using_handler() const
+    {
+        Node_gatherer gatherer;
+
+        traverse_tree(gatherer, gatherer);
+
+        return gatherer.result;
+    }
+
+
+    template <typename Inner_node_handler, typename Leaf_handler>
+    void traverse_tree(Inner_node_handler & inner_node_handler, Leaf_handler & leaf_handler) const
+    {
+        std::queue<Tree_node*> queue;
+        queue.push(_root);
+
+        while (!queue.empty())
+        {
+            Tree_node * node = queue.front();
+            queue.pop();
+
+
+            if (node->is_leaf())
+            {
+                leaf_handler(node);
+            }
+            else
+            {
+                inner_node_handler(node);
+
+                Tree_inner_node const* inner_node = node->template get_derived<Tree_inner_node>();
+                std::vector< Tree_node* > const& children = inner_node->get_children();
+
+                for (size_t i = 0; i < children.size(); ++i)
                 {
                     queue.push(children[i]);
                 }

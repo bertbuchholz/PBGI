@@ -37,6 +37,8 @@ class glossyMat_t: public nodeMaterial_t
 		virtual float pdf(const renderState_t &state, const surfacePoint_t &sp, const vector3d_t &wo, const vector3d_t &wi, BSDF_t bsdfs)const;
 		static material_t* factory(paraMap_t &, std::list< paraMap_t > &, renderEnvironment_t &);
 		
+                virtual color_t getDiffuseAtPoint(const renderState_t &state, const surfacePoint_t &sp) const;
+
 		struct MDat_t
 		{
 			float mDiffuse, mGlossy, pDiffuse;
@@ -351,6 +353,14 @@ float glossyMat_t::pdf(const renderState_t &state, const surfacePoint_t &sp, con
 		else pdf = Blinn_Pdf(cos_N_H, cos_wo_H, exponent);
 	}
 	return pdf;
+}
+
+color_t glossyMat_t::getDiffuseAtPoint(const renderState_t &state, const surfacePoint_t &sp) const {
+    MDat_t *dat = (MDat_t *)state.userdata;
+    nodeStack_t stack(dat->stack);
+
+    float mD = dat->mDiffuse;
+    return mD * (diffuseS ? diffuseS->getColor(stack) : diff_color);
 }
 
 material_t* glossyMat_t::factory(paraMap_t &params, std::list< paraMap_t > &paramList, renderEnvironment_t &render)

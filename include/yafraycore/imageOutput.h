@@ -36,7 +36,7 @@ class YAFRAYCORE_EXPORT imageOutput_t : public colorOutput_t
 		virtual ~imageOutput_t();
 		virtual bool putPixel(int x, int y, const float *c, bool alpha = true, bool depth = false, float z = 0.f);
 		virtual void flush();
-		virtual void flushArea(int x0, int y0, int x1, int y1) {}; // not used by images... yet
+                virtual void flushArea(int x0, int y0, int x1, int y1) {} // not used by images... yet
 	private:
 		imageHandler_t *image;
 		std::string fname;

@@ -8,8 +8,8 @@
 
 __BEGIN_YAFRAY
 
-template <class Data>
-class Cube_raster_buffer;
+// template <class Data>
+// class Cube_raster_buffer;
 
 template <class Output_data> inline
 Output_data convert_data(color_t const& color);
@@ -76,6 +76,11 @@ struct Mises_fisher_lobe
     float concentration;
     Data weight;
 
+#ifdef PBGI_DEBUG
+    vector3d_t pos;
+#endif
+
+
     Mises_fisher_lobe() {}
 
     Mises_fisher_lobe(
@@ -100,16 +105,18 @@ struct Mises_fisher_lobe
         concentration = 1;//0.1f + 2 * MathTools::frand();
     }
 
-    void fit(Cube_raster_buffer<Data> const& likelihoods);
 
     friend std::ostream & operator <<(std::ostream & s, Mises_fisher_lobe const& l)
     {
         s << "mean: " << l.mean_dir << " k: " << l.concentration << " weight: " << l.weight;
+#ifdef PBGI_DEBUG
+        s << " pos: " << l.pos;
+#endif
         return s;
     }
 };
 
-
+/*
 __END_YAFRAY
 #include <utilities/CubeRasterBuffer.h>
 __BEGIN_YAFRAY
@@ -172,6 +179,7 @@ void Mises_fisher_lobe<Data>::fit(Cube_raster_buffer<Data> const& likelihoods)
     mean_dir = newMean;
     concentration = newConcentration;
 }
+*/
 
 __END_YAFRAY
 

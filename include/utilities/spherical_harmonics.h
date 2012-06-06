@@ -5,10 +5,12 @@
 //#include <stdint.h>
 
 #include <tr1/functional>
+#include <utilities/Mises_fisher.h>
 
 #include <boost/serialization/export.hpp>
 #include <boost/serialization/vector.hpp>
 #include <boost/serialization/serialization.hpp>
+#include <boost/optional/optional.hpp>
 
 #include <yafray_config.h>
 #include <utilities/mcqmc.h>
@@ -18,7 +20,6 @@
 #include <core_api/material.h>
 #include <utilities/Quaternion_Matrix.h>
 #include <utilities/Dictionary_utils.h>
-
 
 #include <integrators/kmeans.hpp>
 
@@ -245,6 +246,7 @@ public:
 
 struct Spherical_node_representation
 {
+    Spherical_node_representation() : area(NULL), color(NULL) {}
 //    ~Spherical_node_representation();
 
     Spherical_function<float> * area;
@@ -335,8 +337,8 @@ public:
     {
         random_t random;
 
-        float const res_u = 10.0f;
-        float const res_v = 20.0f;
+        float const res_u = 30.0f;
+        float const res_v = 60.0f;
 
         for (int u = 0; u < res_u; ++u)
         {
@@ -844,9 +846,9 @@ public:
         assert(false);
     }
 
-    void generate_from_cube_spherical_function(Cube_spherical_function<Data> const* csf, int const num_lobes);
+    void generate_from_cube_spherical_function(Cube_spherical_function<Data> const* csf, int const num_lobes, Spherical_function<float> const* area_sf = NULL);
 
-    std::vector<Mises_fisher_lobe<Data> > generate_from_cube(Cube_raster_buffer<Data> const& distribution, int const num_lobes);
+    // std::vector<Mises_fisher_lobe<Data> > generate_from_cube(Cube_raster_buffer<Data> const& distribution, int const num_lobes);
 
     Spherical_function<Data> * clone() const
     {
@@ -863,6 +865,11 @@ public:
         return _lobes;
     }
 
+    void set_lobes(std::vector<Mises_fisher_lobe<Data> > const& lobes)
+    {
+        _lobes = lobes;
+    }
+
     virtual void accept(Spherical_function_visitor<Data> * visitor)
     {
         visitor->visit(this);
@@ -877,8 +884,9 @@ private:
 
 
 __END_YAFRAY
-#include <utilities/Mises_fisher.h>
-#include <utilities/CubeRasterBuffer.h>
+
+#include <utilities/Mises_fisher_fitting.h>
+
 __BEGIN_YAFRAY
 
 
@@ -1515,6 +1523,8 @@ template <class Data>
 class Spherical_function_factory
 {
 public:
+    virtual ~Spherical_function_factory() {}
+
     virtual Spherical_function<Data> * create() const = 0;
     virtual std::string get_name() const = 0;
     virtual std::string get_settings() const = 0;
@@ -1584,219 +1594,265 @@ private:
 
 
 template <class Data>
-void Mises_Fisher_spherical_function<Data>::generate_from_cube_spherical_function(Cube_spherical_function<Data> const* csf, int const num_lobes)
+void Mises_Fisher_spherical_function<Data>::generate_from_cube_spherical_function(Cube_spherical_function<Data> const* csf, int const num_lobes, Spherical_function<float> const* area_sf)
 {
     // if (!csf->get_buffer().is_black())
     if (csf->get_buffer().calc_total_energy() > 0.001f)
     {
-        _lobes = generate_from_cube(csf->get_buffer(), num_lobes);
+        _lobes = generate_mises_fisher_from_cube(csf->get_buffer(), num_lobes, area_sf);
     }
 }
 
 
 
-template <class Data>
-std::vector<Mises_fisher_lobe<Data> > Mises_Fisher_spherical_function<Data>::generate_from_cube(Cube_raster_buffer<Data> const& distribution, int const num_lobes)
-{
-    std::vector<Cube_cell> const& cells = distribution.get_cube_cells();
+//template <class Data>
+//// std::vector<Mises_fisher_lobe<Data> > Mises_Fisher_spherical_function<Data>::generate_from_cube(Cube_raster_buffer<Data> const& distribution, int const num_lobes)
+//std::vector<Mises_fisher_lobe<Data> > generate_mises_fisher_from_cube(Cube_raster_buffer<Data> const& distribution,
+//                                                         int const num_lobes,
+//                                                         Spherical_function<float> const* area_sf)
+//{
+//    std::vector<Cube_cell> const& cells = distribution.get_cube_cells();
 
-    const int size = cells.size();
+//    const int size = cells.size();
 
-    const int num_iterations = 5;
+//    const int num_iterations = 5;
 
-    std::vector<Mises_fisher_lobe<Data> > lobes(num_lobes);
+//    std::vector<Mises_fisher_lobe<Data> > lobes(num_lobes);
 
-    std::vector<Cube_raster_buffer<Data> > likelihoods(num_lobes);
-    for (int i = 0; i < num_lobes; i++)
-    {
-        likelihoods[i].setup_surfel_buffer(distribution.get_resolution());
-    }
+//    std::vector<Cube_raster_buffer<Data> > likelihoods(num_lobes);
+//    for (int i = 0; i < num_lobes; i++)
+//    {
+//        likelihoods[i].setup_surfel_buffer(distribution.get_resolution());
+//    }
 
-    Cube_raster_buffer<Data> totalLikelihoods;
-    totalLikelihoods.setup_surfel_buffer(distribution.get_resolution());
+//    Cube_raster_buffer<Data> totalLikelihoods;
+//    totalLikelihoods.setup_surfel_buffer(distribution.get_resolution());
 
-    // Random start guess
-    random_t my_random;
-    for (int i = 0; i < num_lobes; i++)
-    {
-        lobes[i].randomize(my_random);
-        // std::cout << "Mises_Fisher_spherical_function::generate_from_cube(): " << i << " " << lobes[i] << std::endl;
-    }
+//    // Random start guess
+//    random_t my_random;
+//    for (int i = 0; i < num_lobes; i++)
+//    {
+//        lobes[i].randomize(my_random);
+//        // std::cout << "Mises_Fisher_spherical_function::generate_from_cube(): " << i << " " << lobes[i] << std::endl;
+//    }
 
-    // http://crsouza.blogspot.com/2010/10/gaussian-mixture-models-and-expectation.html
-    for (int step = 0; step < num_iterations; ++step)
-    {
-        // E-Step
+//    // http://crsouza.blogspot.com/2010/10/gaussian-mixture-models-and-expectation.html
+//    for (int step = 0; step < num_iterations; ++step)
+//    {
+//        // E-Step
 
-        // For every observation ..
-        for (int j = 0; j < size; j++)
-        {
-            Cube_cell const& c = cells[j];
+//        // For every observation ..
+//        for (int j = 0; j < size; j++)
+//        {
+//            Cube_cell const& c = cells[j];
 
-            const vector3d_t direction = distribution.get_cell_direction(c);
+//            const vector3d_t direction = distribution.get_cell_direction(c);
 
-            // 1.) Evaluate each lobe
-            for (int k = 0; k < num_lobes; k++)
-            {
-                likelihoods[k].set_data(c, lobes[k].evaluate(direction));
-            }
-        }
+//            // 1.) Evaluate each lobe
+//            for (int k = 0; k < num_lobes; k++)
+//            {
+//                likelihoods[k].set_data(c, lobes[k].evaluate(direction));
+//            }
+//        }
 
-        for (int j = 0; j < size; j++)
-        {
-            // 2.) Sum over all lobes
-            Cube_cell const& c = cells[j];
+//        for (int j = 0; j < size; j++)
+//        {
+//            // 2.) Sum over all lobes
+//            Cube_cell const& c = cells[j];
 
-            totalLikelihoods.set_data(c, 0.0f);
-            for(int k = 0; k < num_lobes; k++)
-            {
-                Data current_likelihood = totalLikelihoods.get_data(c);
-                current_likelihood += likelihoods[k].get_data(c);
-                totalLikelihoods.set_data(c, current_likelihood);
-            }
-        }
+//            totalLikelihoods.set_data(c, 0.0f);
+//            for(int k = 0; k < num_lobes; k++)
+//            {
+//                Data current_likelihood = totalLikelihoods.get_data(c);
+//                current_likelihood += likelihoods[k].get_data(c);
+//                totalLikelihoods.set_data(c, current_likelihood);
+//            }
+//        }
 
-        for (int j = 0; j < size; j++)
-        {
-            // 3.) Divide by total likelihood
-            Cube_cell const& c = cells[j];
-            const Data pixel_value = distribution.get_data(c); // + 0.01f;
-            const float solid_angle = distribution.get_solid_angle(c); // / (4.0f * M_PI);
-            for (int k = 0; k < num_lobes; k++)
-            {
-                if (totalLikelihoods.get_data(c) > 0.0001f)
-                {
-                    likelihoods[k].set_data(c, pixel_value * solid_angle * likelihoods[k].get_data(c) / totalLikelihoods.get_data(c));
-                }
-            }
-        }
+//        for (int j = 0; j < size; j++)
+//        {
+//            Cube_cell const& c = cells[j];
 
-        // M-step
-        for (int lobe_index = 0; lobe_index < num_lobes; lobe_index++)
-        {
-            lobes[lobe_index].fit(likelihoods[lobe_index]);
+//            // 3.) Divide by total likelihood
+//            if (totalLikelihoods.get_data(c) > 0.0001f)
+//            {
+//                const Data pixel_value = distribution.get_data(c); // + 0.01f;
+//                const float solid_angle = distribution.get_solid_angle(c); // / (4.0f * M_PI);
 
-            // std::cout << "step: " << step << " " << lobes[lobe_index] << std::endl;
-        }
-    }
+//                float area = 1.0f;
 
-    // calculate lobe weight
-    for (int cell_index = 0; cell_index < size; cell_index++)
-    {
-        // 2.) Sum over all lobes
-        Cube_cell const& c = cells[cell_index];
+//                if (area_sf)
+//                {
+//                    vector3d_t const cell_dir = distribution.get_cell_direction(c);
+//                    area = area_sf->get_value(cell_dir);
+//                }
 
-        Data likelihood_sum(0.0f);
+//                for (int k = 0; k < num_lobes; k++)
+//                {
+//                    likelihoods[k].set_data(c, pixel_value / area * solid_angle * likelihoods[k].get_data(c) / totalLikelihoods.get_data(c));
+//                }
+//            }
+//        }
 
-        for (int k = 0; k < num_lobes; k++)
-        {
-            likelihood_sum += likelihoods[k].get_data(c);
-        }
+//        // M-step
+//        for (int lobe_index = 0; lobe_index < num_lobes; lobe_index++)
+//        {
+//            lobes[lobe_index] = fit(likelihoods[lobe_index]);
 
-        totalLikelihoods.set_data(c, likelihood_sum);
+//            // std::cout << "step: " << step << " " << lobes[lobe_index] << std::endl;
+//        }
+//    }
 
-        for (int k = 0; k < num_lobes; k++)
-        {
-            if (totalLikelihoods.get_data(c) > Data(0.0001f))
-            {
-                Data likelihood_normalized = likelihoods[k].get_data(c) / totalLikelihoods.get_data(c);
-                likelihoods[k].set_data(c, likelihood_normalized);
-            }
-            else
-            {
-                likelihoods[k].set_data(c, Data(0.0f));
-            }
-        }
+//    // calculate lobe weight
+//    for (int cell_index = 0; cell_index < size; cell_index++)
+//    {
+//        // 2.) Sum over all lobes
+//        Cube_cell const& c = cells[cell_index];
 
+//        Data likelihood_sum(0.0f);
 
 //        for (int k = 0; k < num_lobes; k++)
 //        {
-//            Data current_likelihood = totalLikelihoods.get_data(c);
-//            current_likelihood += likelihoods[k].get_data(c);
-//            totalLikelihoods.set_data(c, current_likelihood);
+//            likelihood_sum += likelihoods[k].get_data(c);
 //        }
-    }
 
-    /*
-    for (int lobe_index = 0; lobe_index < num_lobes; lobe_index++)
-    {
-        vector3d_t const& mean = lobes[lobe_index].mean_dir;
+//        totalLikelihoods.set_data(c, likelihood_sum);
 
-        if (mean.length() < 0.001f)
-        {
-            lobes[lobe_index].weight = Data(0.0f);
-            continue;
-        }
+//        for (int k = 0; k < num_lobes; k++)
+//        {
+//            if (totalLikelihoods.get_data(c) > Data(0.0001f))
+//            {
+//                Data likelihood_normalized = likelihoods[k].get_data(c) / totalLikelihoods.get_data(c);
+//                likelihoods[k].set_data(c, likelihood_normalized);
+//            }
+//            else
+//            {
+//                likelihoods[k].set_data(c, Data(0.0f));
+//            }
+//        }
 
-        Cube_cell c = likelihoods[lobe_index].get_cell(mean);
-        Data const likelihood = likelihoods[lobe_index].get_data_interpolated(c);
-        Data const total_likelihood = totalLikelihoods.get_data_interpolated(c);
-        Data const amplitude = distribution.get_data_interpolated(c);
-        Data const lobe_max = lobes[lobe_index].evaluate(mean);
 
-        if (total_likelihood > Data(0.00001f))
-        {
-            // lobes[lobe_index].weight = (likelihood / total_likelihood) * amplitude;
-            // lobes[lobe_index].weight = (convert_to_float(likelihood) / convert_to_float(total_likelihood)) * amplitude;
-            lobes[lobe_index].weight = (convert_to_float(likelihood) / convert_to_float(total_likelihood)) * amplitude / convert_to_float(lobe_max);
-        }
+////        for (int k = 0; k < num_lobes; k++)
+////        {
+////            Data current_likelihood = totalLikelihoods.get_data(c);
+////            current_likelihood += likelihoods[k].get_data(c);
+////            totalLikelihoods.set_data(c, current_likelihood);
+////        }
+//    }
 
-        std::cout << "weight: " << lobes[lobe_index].weight.energy() << std::endl;
-    }
-    */
+//    /*
+//    for (int lobe_index = 0; lobe_index < num_lobes; lobe_index++)
+//    {
+//        vector3d_t const& mean = lobes[lobe_index].mean_dir;
 
-    for (int lobe_index = 0; lobe_index < num_lobes; lobe_index++)
-    {
-        lobes[lobe_index].weight = distribution.integrate(likelihoods[lobe_index]);
+//        if (mean.length() < 0.001f)
+//        {
+//            lobes[lobe_index].weight = Data(0.0f);
+//            continue;
+//        }
+
+//        Cube_cell c = likelihoods[lobe_index].get_cell(mean);
+//        Data const likelihood = likelihoods[lobe_index].get_data_interpolated(c);
+//        Data const total_likelihood = totalLikelihoods.get_data_interpolated(c);
+//        Data const amplitude = distribution.get_data_interpolated(c);
+//        Data const lobe_max = lobes[lobe_index].evaluate(mean);
+
+//        if (total_likelihood > Data(0.00001f))
+//        {
+//            // lobes[lobe_index].weight = (likelihood / total_likelihood) * amplitude;
+//            // lobes[lobe_index].weight = (convert_to_float(likelihood) / convert_to_float(total_likelihood)) * amplitude;
+//            lobes[lobe_index].weight = (convert_to_float(likelihood) / convert_to_float(total_likelihood)) * amplitude / convert_to_float(lobe_max);
+//        }
 
 //        std::cout << "weight: " << lobes[lobe_index].weight.energy() << std::endl;
-    }
-
-    for (std::size_t i = 0; i < lobes.size() && false; ++i)
-    {
-         // distribution.print();
-         std::cout << "Mises_Fisher_spherical_function::generate_from_cube(): lobe " << i << ": " << lobes[i] <<
-                      " lobe max: " << lobes[i].evaluate(lobes[i].mean_dir) <<
-                      " cube tot: " << distribution.calc_total_energy() <<
-                      " cube max: " << distribution.find_maximum() <<
-                      std::endl;
-    }
-
-    return lobes;
-}
+//    }
+//    */
 
 
-template <class Data>
-Mises_Fisher_spherical_function<Data> * Mises_Fisher_spherical_function<Data>::test()
-{
-    vector3d_t mean_dir(0.0f, 0.5f, 0.5f);
-    mean_dir.normalize();
-    float const concentration = 30;
-    float const weight = 1.0f;
+//    if (area_sf)
+//    {
+//        for (int cell_index = 0; cell_index < size; cell_index++)
+//        {
+//            Cube_cell const& c = cells[cell_index];
 
-    Mises_fisher_lobe<float> lobe_0(mean_dir, concentration, weight);
-    Mises_fisher_lobe<float> lobe_1(vector3d_t(1.0f, 0.0f, 0.0f), 10.0f, weight);
+//            vector3d_t const cell_dir = distribution.get_cell_direction(c);
+//            float const area = area_sf->get_value(cell_dir);
 
-    std::cout << "test lobe 0: " << lobe_0 << std::endl;
-    std::cout << "test lobe 1: " << lobe_1 << std::endl;
+//            for (int k = 0; k < num_lobes; k++)
+//            {
+//                if (area > 0.0001f)
+//                {
+//                    Data likelihood_normalized = likelihoods[k].get_data(c) / area;
+//                    likelihoods[k].set_data(c, likelihood_normalized);
+//                }
+//                else
+//                {
+//                    likelihoods[k].set_data(c, Data(0.0f));
+//                }
+//            }
+//        }
+//    }
 
-    Cube_spherical_function<float> * distribution   = Cube_spherical_function<float>::create_from_mises_fisher(lobe_0, 8, false, 2.0f);
-    Cube_spherical_function<float> * distribution_1 = Cube_spherical_function<float>::create_from_mises_fisher(lobe_1, 8, false, 1.0f);
 
-    // distribution->add(distribution_1);
+//    for (int lobe_index = 0; lobe_index < num_lobes; lobe_index++)
+//    {
+//        lobes[lobe_index].weight = distribution.integrate(likelihoods[lobe_index]);
+
+//        /*
+//        assert(!std::isnan(lobes[lobe_index].concentration) &&
+//               !std::isnan(lobes[lobe_index].weight.R) &&
+//               !std::isnan(lobes[lobe_index].weight.G) &&
+//               !std::isnan(lobes[lobe_index].weight.B));
+//               */
+
+////        std::cout << "weight: " << lobes[lobe_index].weight.energy() << std::endl;
+//    }
+
+//    for (std::size_t i = 0; i < lobes.size() && false; ++i)
+//    {
+//         // distribution.print();
+//         std::cout << "Mises_Fisher_spherical_function::generate_from_cube(): lobe " << i << ": " << lobes[i] <<
+//                      " lobe max: " << lobes[i].evaluate(lobes[i].mean_dir) <<
+//                      " cube tot: " << distribution.calc_total_energy() <<
+//                      " cube max: " << distribution.find_maximum() <<
+//                      std::endl;
+//    }
+
+//    return lobes;
+//}
 
 
-    Mises_Fisher_spherical_function * mf_sf = new Mises_Fisher_spherical_function;
-    mf_sf->generate_from_cube_spherical_function(distribution, 10);
+//template <class Data>
+//Mises_Fisher_spherical_function<Data> * Mises_Fisher_spherical_function<Data>::test()
+//{
+//    vector3d_t mean_dir(0.0f, 0.5f, 0.5f);
+//    mean_dir.normalize();
+//    float const concentration = 30;
+//    float const weight = 1.0f;
 
-    std::cout << "lobes:" << std::endl;
-    for (unsigned int i = 0; i < mf_sf->get_lobes().size(); ++i)
-    {
-        std::cout << i << " " << mf_sf->get_lobes()[i] << std::endl;
-    }
+//    Mises_fisher_lobe<float> lobe_0(mean_dir, concentration, weight);
+//    Mises_fisher_lobe<float> lobe_1(vector3d_t(1.0f, 0.0f, 0.0f), 10.0f, weight);
 
-    return mf_sf;
-}
+//    std::cout << "test lobe 0: " << lobe_0 << std::endl;
+//    std::cout << "test lobe 1: " << lobe_1 << std::endl;
+
+//    Cube_spherical_function<float> * distribution   = Cube_spherical_function<float>::create_from_mises_fisher(lobe_0, 8, false, 2.0f);
+//    Cube_spherical_function<float> * distribution_1 = Cube_spherical_function<float>::create_from_mises_fisher(lobe_1, 8, false, 1.0f);
+
+//    // distribution->add(distribution_1);
+
+
+//    Mises_Fisher_spherical_function * mf_sf = new Mises_Fisher_spherical_function;
+//    mf_sf->generate_from_cube_spherical_function(distribution, 10);
+
+//    std::cout << "lobes:" << std::endl;
+//    for (unsigned int i = 0; i < mf_sf->get_lobes().size(); ++i)
+//    {
+//        std::cout << i << " " << mf_sf->get_lobes()[i] << std::endl;
+//    }
+
+//    return mf_sf;
+//}
 
 
 template <class Data>

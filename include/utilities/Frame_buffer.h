@@ -235,7 +235,7 @@ public:
             _data[serial_index].color = color;
             _data[serial_index].filled = true;
 
-#ifdef DEBUG
+#ifdef PBGI_DEBUG
             if (_single_pixel_contributors.size() == 0)
             {
                 _single_pixel_contributors.resize(Abstract_frame_buffer<Data>::_resolution * Abstract_frame_buffer<Data>::_resolution);
@@ -254,7 +254,7 @@ public:
     {
         int const serial_index = Abstract_frame_buffer<Data>::calc_serial_index(x, y);
 
-#ifdef DEBUG
+#ifdef PBGI_DEBUG
         bool debug_pixel = debug_info->cube_plane == Abstract_frame_buffer<Data>::_debug_plane && debug_info->cube_x == x && debug_info->cube_y == y;
 
         if (debug_pixel && _single_pixel_contributors[serial_index].size() > 0)
@@ -515,7 +515,7 @@ public:
 
             // c.depth = (c.depth > 1e5f) ? point_info.depth * weight : c.depth + point_info.depth * weight;
 
-#ifdef DEBUG
+#ifdef PBGI_DEBUG
             if (_single_pixel_contributors.size() == 0)
             {
                 _single_pixel_contributors.resize(Abstract_frame_buffer<Data>::_resolution * Abstract_frame_buffer<Data>::_resolution);
@@ -660,6 +660,7 @@ class Parameter_frame_buffer : public Abstract_frame_buffer<Data>
         Pixel() :
             lobe(Mises_fisher_lobe<color_t>(vector3d_t(0.0f), 0.0f, Data(0.0f))),
             rp_to_node(vector3d_t(0.0f)),
+            lobe_position(vector3d_t(0.0f)),
             depth(1e10f),
             filling_degree(0.0f),
             radius(0.0f),
@@ -668,6 +669,8 @@ class Parameter_frame_buffer : public Abstract_frame_buffer<Data>
 
         Mises_fisher_lobe<color_t> lobe;
         vector3d_t rp_to_node;
+        vector3d_t lobe_position;
+        vector3d_t receiver_pos; // useless as per-pixel data, but needed in get_color()
         float depth;
         float filling_degree;
         float radius;
@@ -731,9 +734,10 @@ public:
     {
         Parameter_list parameters;
 
-        parameters.add_parameter(new Parameter("use_visibility",       true));
-        parameters.add_parameter(new Parameter("use_depth_modulation", false));
-        parameters.add_parameter(new Parameter("normalize",            true));
+        parameters.add_parameter(new Parameter("use_visibility",               true));
+        parameters.add_parameter(new Parameter("use_depth_modulation",         false));
+        parameters.add_parameter(new Parameter("multiply_with_filling_degree", false));
+        parameters.add_parameter(new Parameter("normalize",                    true));
 
         return parameters;
     }
@@ -744,6 +748,7 @@ public:
 
         _use_visibility = parameters["use_visibility"]->get_value<bool>();
         _use_depth_modulation = parameters["use_depth_modulation"]->get_value<bool>();
+        _multiply_with_filling_degree = parameters["multiply_with_filling_degree"]->get_value<bool>();
 
         set_size(this->_resolution);
     }
@@ -756,6 +761,7 @@ protected:
 
     bool _use_visibility;
     bool _use_depth_modulation;
+    bool _multiply_with_filling_degree;
 };
 
 static Class_parameter_registration< Abstract_frame_buffer<color_t>, Parameter_frame_buffer<color_t> > Parameter_frame_buffer_color_t(
@@ -928,26 +934,12 @@ void Parameter_frame_buffer<Data>::add_point(int const x, int const y, Data cons
 
     Pixel & c = _data[serial_index];
 
-    Mises_Fisher_spherical_function<color_t> const* mf_sf = dynamic_cast< Mises_Fisher_spherical_function<color_t> *>(point_info.spherical_function->color);
-
-    assert(mf_sf);
-
-    if (mf_sf->get_lobes().size() == 0) return;
-
-    assert(mf_sf->get_lobes().size() > 0);
-
-    Mises_fisher_lobe<color_t> const& lobe = mf_sf->get_lobes()[0];
-
-    assert(!std::isnan(lobe.mean_dir.x));
-
-
-    bool const use_visibility = false;
-    bool const use_depth_modulation = true;
+    c.receiver_pos = point_info.receiver_position;
 
     bool accepted = false;
     float weight = filling_degree;
 
-    if (use_visibility)
+    if (_use_visibility)
     {
         if (c.filling_degree < 1.0f)
         {
@@ -959,7 +951,7 @@ void Parameter_frame_buffer<Data>::add_point(int const x, int const y, Data cons
             accepted = true;
         }
     }
-    else if (use_depth_modulation)
+    else if (_use_depth_modulation)
     {
         accepted = true;
 
@@ -996,25 +988,41 @@ void Parameter_frame_buffer<Data>::add_point(int const x, int const y, Data cons
     if (accepted && weight > 0.0001f)
     {
         c.filling_degree += weight;
-        c.lobe.concentration += lobe.concentration * weight;
-        c.lobe.mean_dir += lobe.mean_dir * weight;
-        c.lobe.weight += lobe.weight * weight;
-        c.rp_to_node += point_info.direction * weight;
 
-#ifdef DEBUG
+        Mises_Fisher_spherical_function<color_t> const* mf_sf = dynamic_cast< Mises_Fisher_spherical_function<color_t> *>(point_info.spherical_function->color);
+
+        assert(mf_sf);
+
+        if (mf_sf->get_lobes().size() > 0)
+        {
+            Mises_fisher_lobe<color_t> const& lobe = mf_sf->get_lobes()[0];
+
+            assert(!std::isnan(lobe.mean_dir.x));
+
+            c.lobe.concentration += lobe.concentration * weight;
+            c.lobe.mean_dir += lobe.mean_dir * weight;
+            c.lobe.weight += lobe.weight * weight;
+            c.rp_to_node += point_info.direction * weight;
+            c.lobe_position += point_info.position * weight;
+
+#ifdef PBGI_DEBUG
+            if (_pixel_lobes.size() == 0)
+            {
+                _pixel_lobes.resize(Abstract_frame_buffer<Data>::_resolution * Abstract_frame_buffer<Data>::_resolution);
+            }
+
+            _pixel_lobes[serial_index].push_back(lobe);
+#endif
+        }
+
+#ifdef PBGI_DEBUG
         if (_single_pixel_contributors.size() == 0)
         {
             _single_pixel_contributors.resize(Abstract_frame_buffer<Data>::_resolution * Abstract_frame_buffer<Data>::_resolution);
         }
 
-        if (_pixel_lobes.size() == 0)
-        {
-            _pixel_lobes.resize(Abstract_frame_buffer<Data>::_resolution * Abstract_frame_buffer<Data>::_resolution);
-        }
-
         Node_weight_pair nwp(point_info, weight, color);
         _single_pixel_contributors[serial_index].push_back(nwp);
-        _pixel_lobes[serial_index].push_back(lobe);
 
         point_info.splatted = true;
 #endif
@@ -1041,6 +1049,9 @@ Data Parameter_frame_buffer<Data>::get_color(int const x, int const y, Debug_inf
     vector3d_t rp_to_node = c.rp_to_node;
     rp_to_node.normalize();
 
+    vector3d_t lobe_position = c.lobe_position * (1.0f / c.filling_degree);
+
+    vector3d_t averaged_node_pos_to_rp = (c.receiver_pos - lobe_position).normalize();
 
     int pixel_serial_index_cube =
             (y + Abstract_frame_buffer<Data>::_resolution_2) +
@@ -1054,9 +1065,16 @@ Data Parameter_frame_buffer<Data>::get_color(int const x, int const y, Debug_inf
 
     // std::cout << "x, y: " << x << ", " << y << " pixel_dir: " << pixel_direction << " color: " << lobe.evaluate(-pixel_direction) << " rp_to_node " << rp_to_node << " color: " << lobe.evaluate(-rp_to_node) << std::endl;
 
-    // return lobe.evaluate(-rp_to_node) * c.filling_degree;
-    // return lobe.evaluate(-pixel_direction) * c.filling_degree;
+    // color_t result_color = lobe.evaluate(-rp_to_node);
     color_t result_color = lobe.evaluate(-pixel_direction);
+    // color_t result_color = lobe.evaluate(averaged_node_pos_to_rp);
+
+
+    if (_multiply_with_filling_degree && c.filling_degree < 1.0f)
+    {
+        result_color *= c.filling_degree;
+    }
+
 
     if (debug_info)
     {
@@ -1081,6 +1099,14 @@ Data Parameter_frame_buffer<Data>::get_color(int const x, int const y, Debug_inf
             {
                 std::cout << "Parameter_frame_buffer::get_color(): lobe " << i << " " << _pixel_lobes[serial_index][i] << std::endl;
             }
+        }
+
+        if (debug_pixel)
+        {
+#ifdef PBGI_DEBUG
+            lobe.pos = lobe_position;
+#endif
+            debug_info->averaged_mf_lobe = lobe;
         }
 
         // std::cout << "debug_gi_points: " << debug_gi_points.size() << std::endl;

@@ -2,6 +2,7 @@
 #define DEBUG_INFO_H
 
 #include <tr1/unordered_set>
+#include <boost/optional/optional.hpp>
 
 #include <vector>
 
@@ -11,6 +12,7 @@
 #include <core_api/color.h>
 
 #include <integrators/Gi_point_info.h>
+#include <utilities/Mises_fisher.h>
 
 __BEGIN_YAFRAY
 
@@ -19,6 +21,9 @@ class Cube_raster_buffer;
 class Splat_cube_raster_buffer;
 class GiPoint;
 class Gi_point_base;
+
+template <class T>
+class Mises_fisher_lobe;
 
 
 
@@ -90,6 +95,10 @@ struct Debug_info
     float time_add_point;
     int num_node_checks;
     timer_t my_timer;
+
+
+    // Mises_fisher_lobe<color_t> * mf_lobe; // lobe used in a pixel with parameter_fb
+    boost::optional<Mises_fisher_lobe<color_t> > averaged_mf_lobe;
 
     std::string debug_return_type;
 

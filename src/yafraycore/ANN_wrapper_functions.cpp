@@ -1,12 +1,11 @@
 #include <utilities/ANN_wrapper_functions.h>
 
-ANNkd_tree * generate_kd_tree_from_centers(std::vector<Word> const& centers)
+void ANN_wrapper::generate_tree_from_centers(std::vector<Word> const& centers)
 {
     int const dim = centers[0].size(); // dimension
     int const maxPts = centers.size();
-    ANNpointArray dataPts; // data points
 
-    dataPts = annAllocPts(maxPts, dim); // allocate data points
+    _dataPts = annAllocPts(maxPts, dim); // allocate data points
 
     for (size_t i = 0; i < centers.size(); ++i)
     {
@@ -14,22 +13,18 @@ ANNkd_tree * generate_kd_tree_from_centers(std::vector<Word> const& centers)
 
         for (size_t j = 0; j < center.size(); ++j)
         {
-            dataPts[i][j] = center[j];
+            _dataPts[i][j] = center[j];
         }
 
     }
 
-    ANNkd_tree* kdTree; // search structur
-    kdTree = new ANNkd_tree(dataPts, // the data points
+    _tree = new ANNkd_tree(_dataPts, // the data points
                             maxPts, // number of points
                             dim); // dimension of spac
-
-    return kdTree;
 }
 
-int find_closest_center_ann(Word const& word, ANNkd_tree* kdTree)
+int ANN_wrapper::find_closest_center_ann(Word const& word) const
 {
-
     int const k = 1; // number of nearest neighbors
     int const dim = word.size(); // dimension
     double const eps = 0; // error boun
@@ -48,17 +43,19 @@ int find_closest_center_ann(Word const& word, ANNkd_tree* kdTree)
     nnIdx = new ANNidx[k]; // allocate near neigh indices
     dists = new ANNdist[k]; // allocate near neighbor dists
 
-    kdTree->annkSearch(queryPt, // query point
-                       k, // number of near neighbors
-                       nnIdx, // nearest neighbors (returned)
-                       dists, // distance (returned)
-                       eps); // error boun
+    _tree->annkSearch(queryPt, // query point
+                      k, // number of near neighbors
+                      nnIdx, // nearest neighbors (returned)
+                      dists, // distance (returned)
+                      eps); // error boun
 
 
     int const closest_center = nnIdx[0];
 
     delete [] nnIdx;
     delete [] dists;
+
+    annDeallocPt(queryPt);
 
     return closest_center;
 }

@@ -2,8 +2,9 @@
 #define DICTIONARY_CONVERTER_H
 
 #include <ANN/ANN.h>
-#include <utilities/ANN_wrapper_functions.h>
+#include <boost/optional/optional.hpp>
 
+#include <utilities/ANN_wrapper_functions.h>
 #include <utilities/spherical_harmonics.h>
 
 
@@ -13,7 +14,7 @@ template <class Data>
 class Spherical_function_converter
 {
     public:
-    virtual Spherical_function<Data> * convert(Spherical_function<Data> const* sf) const = 0;
+    virtual Spherical_function<Data> * convert(Spherical_function<Data> const* sf, Spherical_function<float> const* area_sf = NULL) const = 0;
     virtual std::string get_name() const = 0;
 };
 
@@ -25,14 +26,24 @@ public:
         _num_lobes(num_lobes)
     {}
 
-    Spherical_function<Data> * convert(Spherical_function<Data> const* sf) const
+    Spherical_function<Data> * convert(Spherical_function<Data> const* sf, Spherical_function<float> const* area_sf = NULL) const
     {
         Cube_spherical_function<Data> const* csf = static_cast<Cube_spherical_function<Data> const*>(sf);
 
         assert(csf);
 
         Mises_Fisher_spherical_function<Data> * mf_sf = new Mises_Fisher_spherical_function<Data>;
-        mf_sf->generate_from_cube_spherical_function(csf, _num_lobes);
+        // mf_sf->generate_from_cube_spherical_function(csf, _num_lobes, area_sf);
+
+        std::vector<Mises_fisher_lobe<Data> > lobes;
+
+        if (csf->get_buffer().calc_total_energy() > 0.001f)
+        {
+            lobes = generate_mises_fisher_from_cube(csf->get_buffer(), _num_lobes, area_sf);
+        }
+
+        mf_sf->set_lobes(lobes);
+
 
         return mf_sf;
     }
@@ -54,7 +65,7 @@ public:
         _resolution(resolution)
     {}
 
-    Spherical_function<Data> * convert(Spherical_function<Data> const* sf) const
+    Spherical_function<Data> * convert(Spherical_function<Data> const* sf, Spherical_function<float> const* area_sf = NULL) const
     {
         Mises_Fisher_spherical_function<Data> const* mf_sf = static_cast<Mises_Fisher_spherical_function<Data> const*>(sf);
 
@@ -85,8 +96,7 @@ class Spherical_function_indexed_converter : public Spherical_function_converter
 public:
     Spherical_function_indexed_converter(std::vector<Spherical_function<Data> *> const* dictionary, bool const use_ann, bool const keep_original) :
         _dictionary(dictionary),
-        _keep_original(keep_original),
-        _ann_tree(NULL)
+        _keep_original(keep_original)
     {
         for (unsigned int i = 0; i < _dictionary->size(); ++i)
         {
@@ -95,29 +105,31 @@ public:
 
         if (use_ann)
         {
-            _ann_tree = generate_kd_tree_from_centers(_unpacked_dictionary);
+            _ann_wrapper.reset(ANN_wrapper());
+            _ann_wrapper->generate_tree_from_centers(_unpacked_dictionary);
         }
     }
 
 
 
-    Spherical_function<Data> * convert(Spherical_function<Data> const* sf) const
+    Spherical_function<Data> * convert(Spherical_function<Data> const* sf, Spherical_function<float> const* area_sf = NULL) const
     {
         Indexed_spherical_function<Data> * indexed_sf;
 
-        if (_ann_tree)
+        if (_ann_wrapper)
         {
             int index;
 
-            #pragma omp critical
-            {
-                index = find_closest_center_ann(sf->to_vector(), _ann_tree);
-            }
+            //#pragma omp critical
+            //{
+                index = _ann_wrapper->find_closest_center_ann(sf->to_vector());
+            //}
 
             indexed_sf = new Indexed_spherical_function<Data>(index, _dictionary, _keep_original ? sf->clone() : NULL);
         }
         else
         {
+            assert(false); // temporary, make sure boost::optional is working
             indexed_sf = new Indexed_spherical_function<Data>(_unpacked_dictionary, _dictionary, sf, _keep_original);
         }
 
@@ -199,7 +211,7 @@ private:
     std::vector< Spherical_function<Data> *> const* _dictionary;
     std::vector< Word > _unpacked_dictionary;
     bool _keep_original;
-    ANNkd_tree * _ann_tree;
+    boost::optional<ANN_wrapper> _ann_wrapper;
 };
 
 

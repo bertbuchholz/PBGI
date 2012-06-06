@@ -327,7 +327,8 @@ void Splat_cube_raster_buffer::setup_empty()
 
     for (int i = 0; i < 6; ++i)
     {
-        buffers[i] = new Simple_frame_buffer_without_queue<color_t>(_resolution, i);
+        // buffers[i] = new Simple_frame_buffer_without_queue<color_t>(_resolution, i);
+        buffers[i] = boost::shared_ptr<Abstract_frame_buffer<color_t> >(new Simple_frame_buffer_without_queue<color_t>(_resolution, i));
     }
 }
 
@@ -336,7 +337,7 @@ void Splat_cube_raster_buffer::setup(Parameter_list const& parameters)
 {
     for (int i = 0; i < 6; ++i)
     {
-        buffers[i] = Parameter_registry< Abstract_frame_buffer<color_t> >::get_class_from_single_select_instance_2(parameters.get_child("fb_type"));
+        buffers[i] = boost::shared_ptr<Abstract_frame_buffer<color_t> >(Parameter_registry< Abstract_frame_buffer<color_t> >::get_class_from_single_select_instance_2(parameters.get_child("fb_type")));
         // buffers[i] = Parameter_registry< Abstract_frame_buffer<color_t> >::get_class_from_single_select_instance("receiving_fb_type", parameters);
         buffers[i]->set_plane(i);
     }
@@ -400,15 +401,15 @@ void Splat_cube_raster_buffer::setup(
 
         if (fb_type == Simple)
         {
-            buffers[i] = new Simple_frame_buffer_without_queue<color_t>(_resolution, i);
+            buffers[i] = boost::shared_ptr<Abstract_frame_buffer<color_t> >(new Simple_frame_buffer_without_queue<color_t>(_resolution, i));
         }
         else if (fb_type == Accumulating)
         {
-            buffers[i] = new Accumulating_frame_buffer_without_queue<color_t>(_resolution, i);
+            buffers[i] = boost::shared_ptr<Abstract_frame_buffer<color_t> >(new Accumulating_frame_buffer_without_queue<color_t>(_resolution, i));
         }
         else if (fb_type == Parameter)
         {
-            buffers[i] = new Parameter_frame_buffer<color_t>(_resolution, i);
+            buffers[i] = boost::shared_ptr<Abstract_frame_buffer<color_t> >(new Parameter_frame_buffer<color_t>(_resolution, i));
         }
         else
         {
@@ -418,7 +419,7 @@ void Splat_cube_raster_buffer::setup(
     }
 }
 
-
+/*
 Splat_cube_raster_buffer & Splat_cube_raster_buffer::operator= (Splat_cube_raster_buffer const& cbr)
 {
     if (this != &cbr)
@@ -442,7 +443,7 @@ Splat_cube_raster_buffer & Splat_cube_raster_buffer::operator= (Splat_cube_raste
 
     return *this;
 }
-
+*/
 
 void Splat_cube_raster_buffer::add_point_single_pixel(Gi_point_info const& point_info)
 {
@@ -678,7 +679,8 @@ void Splat_cube_raster_buffer::add_background(background_t * background)
                 c.pos[1] = v;
 
                 ray_t ray(point3d_t(0.0f), get_cell_direction(c));
-                buffers[plane_index]->add_point(u, v, background->eval(ray) * (1.0f / (2.0f * M_PI)), 1.0f, point_info); // FIXME: 2pi factor, due to not normalizing in the integration function
+                // buffers[plane_index]->add_point(u, v, background->eval(ray) * (1.0f / (2.0f * M_PI)), 1.0f, point_info); // FIXME: 2pi factor, due to not normalizing in the integration function
+                buffers[plane_index]->add_point(u, v, background->eval(ray), 1.0f, point_info);
             }
         }
     }
@@ -726,11 +728,13 @@ Color Splat_cube_raster_buffer::get_brdf_response(renderState_t & state, surface
 
                 vector3d_t const& light_dir = cell_dir;
 
+
+//                float const pdf = receiving_point.material->pdf(state, receiving_point, wo, light_dir, BSDF_ALL);
+//                outgoing_color += pdf * incoming_color * weight * cos_sp_normal_cell_dir;
+
                 Color const surf_col = receiving_point.material->eval(state, receiving_point, wo, light_dir, BSDF_ALL);
-                // Color const surf_col(1.0f);
-                // float const pdf = receiving_point.material->pdf(state, receiving_point, wo, light_dir, BSDF_ALL);
-                float const pdf = 1.0f;
-                outgoing_color += surf_col * incoming_color * cos_sp_normal_cell_dir * weight * pdf;
+                outgoing_color += surf_col * incoming_color * weight * cos_sp_normal_cell_dir;
+
 
 //                total += color; // * weight;
 
@@ -750,7 +754,7 @@ Color Splat_cube_raster_buffer::get_brdf_response(renderState_t & state, surface
 
     // not sure about the normalization, the solid angle weights sum up to 2 pi (over the hemisphere)
     // so it seems reasonable to take the factor out again
-//    diffuse *= 1.0f / (2.0f * M_PI);
+    outgoing_color *= 1.0f / (2.0f * M_PI);
 
     // std::cout << "get_diffuse(): " << debug_weight_sum << std::endl;
 
@@ -1004,7 +1008,6 @@ void Square_splat_strategy::splat(Splat_cube_raster_buffer & cube_buffer, Gi_poi
 
     color_t const& color        = point_info.color;
     float const solid_angle     = point_info.solid_angle;
-    float const distance        = point_info.depth;
     vector3d_t const& direction = point_info.direction;
 
     // --- new square projection ---
@@ -1251,18 +1254,21 @@ void Disc_splat_strategy::splat(Splat_cube_raster_buffer & cube_buffer, Gi_point
                         //float const relative_dist = dist_sqr / disc_radius_sqr;
                         //float const gauss_weight = std::exp(-3.0f * relative_dist);
                         float const gauss_weight = 1.0f;
+                        // float const gauss_weight = wendland_2_1(dist_sqr / disc_radius_sqr);
 
                         if (gauss_weight > 0.05f)
                         {
                             // float const filling_degree = std::min(1.0f, point_info.solid_angle / _pixel_solid_angle);
-                            float const filling_degree = 1.0f;
+                            // float const filling_degree = 1.0f;
+                            float const filling_degree = gauss_weight;
 
                             Point dir = point_info.receiver_position - (relative_hitpoint + point_info.position);
                             dir.normalize();
 
                             // FIXME: put this back in
                             // Color color = point_info.spherical_function->color->get_value(dir) * gauss_weight;
-                            Color color = point_info.color * gauss_weight;
+                            // Color color = point_info.color * gauss_weight;
+                            Color color = point_info.color;
                             // Color color(0.0f);
 
                             cube_buffer.get_buffer(plane_index)->add_point(u, v, color, filling_degree, point_info);

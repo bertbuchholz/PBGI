@@ -2,6 +2,7 @@
 #define GI_POINT_INFO_H
 
 #include <yafray_config.h>
+#include <core_api/color.h>
 
 //#include <utilities/spherical_harmonics.h>
 
@@ -12,10 +13,12 @@ class Gi_point_base;
 
 struct Gi_point_info
 {
-#ifdef DEBUG
-    Gi_point_info() : splatted(false)
+    Gi_point_info() :
+        gi_point(NULL)
+  #ifdef PBGI_DEBUG
+        , splatted(false)
+  #endif
     {}
-#endif
 
     enum Type { Node = 0, Far_surfel, Near_surfel };
 
@@ -33,8 +36,9 @@ struct Gi_point_info
     Gi_point_base const* gi_point;
     Spherical_node_representation const* spherical_function;
 
-#ifdef DEBUG
+#ifdef PBGI_DEBUG
     mutable bool splatted;
+    float visible_area;
 #endif
 };
 

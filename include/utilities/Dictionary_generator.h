@@ -259,11 +259,11 @@ public:
         {
             std::cout << "Iteration: " << iteration << std::endl;
 
-            ANNkd_tree* ann_tree = NULL;
+            ANN_wrapper ann_wrapper;
 
             if (_use_ann)
             {
-                ann_tree = generate_kd_tree_from_centers(centers);
+                ann_wrapper.generate_tree_from_centers(centers);
             }
 
             std::vector< std::vector<int> > assignment = std::vector< std::vector<int> >(dict_num_centers);
@@ -276,7 +276,7 @@ public:
 
                 if (_use_ann)
                 {
-                    closest_center = find_closest_center_ann(word, ann_tree);
+                    closest_center = ann_wrapper.find_closest_center_ann(word);
                 }
                 else
                 {
@@ -285,8 +285,6 @@ public:
 
                 assignment[closest_center].push_back(i);
             }
-
-            delete ann_tree;
 
             assert(assignment.size() == centers.size());
 
@@ -316,7 +314,7 @@ public:
 
         // std::vector<Word> const& centers = my_kmeans.centers();
 
-        std::vector<Word> const& centers = brute_kmeans(words, dict_num_centers);
+        std::vector<Word> centers = brute_kmeans(words, dict_num_centers);
 
 //        if (_do_stats)
 //        {

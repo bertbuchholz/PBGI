@@ -29,6 +29,10 @@
 
 __BEGIN_YAFRAY
 
+//#define USE_FAT_TREE
+//#define SURFEL_HAS_COLOR_SF
+
+bound_t generate_disc_bounding_box(vector3d_t const& p, vector3d_t const& nu, vector3d_t const& nv, float const radius);
 
 class Gi_point_base
 {
@@ -36,6 +40,10 @@ class Gi_point_base
     Gi_point_base() :
         pos(vector3d_t(0.0f))
     { }
+
+    virtual ~Gi_point_base() {}
+
+    virtual void clear() {}
 
     vector3d_t const& get_pos()
     {
@@ -63,7 +71,7 @@ class Gi_point_base
 
     vector3d_t pos;
 
-#ifdef DEBUG
+#ifdef PBGI_DEBUG
     int           debug_depth;
     mutable float debug_radius;
     mutable float debug_mix_amount;
@@ -71,6 +79,8 @@ class Gi_point_base
 };
 
 
+
+#ifndef SURFEL_HAS_COLOR_SF
 class Gi_point_surfel : public Gi_point_base
 {
 public:
@@ -97,11 +107,48 @@ public:
         return area;
     }
 
-// private:
     vector3d_t normal;
     color_t    color;
     float      area;
+    private:
 };
+#else
+class Gi_point_surfel : public Gi_point_base
+{
+public:
+    Gi_point_surfel() :
+        normal(vector3d_t(0.0f)),
+        color(NULL),
+        area(0.0f)
+    {
+        _is_surfel = true;
+    }
+
+    void clear()
+    {
+        delete color;
+    }
+
+    vector3d_t const& get_normal()
+    {
+        return normal;
+    }
+
+    color_t           get_color(vector3d_t const& dir)
+    {
+        return color->get_value(dir);
+    }
+
+    float             get_area ()
+    {
+        return area;
+    }
+
+    vector3d_t normal;
+    Spherical_function<color_t> * color;
+    float      area;
+};
+#endif
 
 
 class Gi_point_inner_node : public Gi_point_base
@@ -112,6 +159,12 @@ public:
         _is_surfel = false;
         sf_representation.color = NULL;
         sf_representation.area  = NULL;
+    }
+
+    void clear()
+    {
+        delete sf_representation.color;
+        delete sf_representation.area;
     }
 
     Gi_point_inner_node(Spherical_function_factory<color_t> const* sf_color_factory, Spherical_function_factory<float> const* sf_area_factory)
@@ -336,6 +389,62 @@ class Gi_point_averager
 
 
 
+
+    Gi_point_inner_node average_leaf(std::vector<Gi_point_surfel> const& points, Cube_raster_buffer< Spherical_function<float> *> const& precalculated_sf)
+    {
+        assert(points.size() > 0);
+
+        Gi_point_inner_node result = Gi_point_inner_node(_sf_color_factory, _sf_area_factory);
+
+        result.bounding_box = bound_t(point3d_t(1e10f, 1e10f, 1e10f), point3d_t(-1e10f, -1e10f, -1e10f));
+
+        for (unsigned int i = 0; i < points.size(); ++i)
+        {
+            Gi_point_surfel const& surfel = points[i];
+
+            result.pos += surfel.pos;
+
+            vector3d_t NU, NV;
+            createCS(surfel.normal, NU, NV);
+            float const radius = std::sqrt(surfel.area / M_PI);
+
+            bound_t bounding_box = generate_disc_bounding_box(surfel.pos, NU, NV, radius);
+
+            for (int j = 0; j < 3; ++j)
+            {
+                result.bounding_box.a[j] = std::min(result.bounding_box.a[j], bounding_box.a[j]);
+                result.bounding_box.g[j] = std::max(result.bounding_box.g[j], bounding_box.g[j]);
+            }
+
+            Spherical_function<color_t> * color_sh = _sf_color_factory->create();
+            Spherical_function<float>   * area_sh  = _sf_area_factory->create();
+
+            area_sh->get_precalculated_coefficients(precalculated_sf, surfel.area, surfel.normal);
+
+            color_t const scale = surfel.color * surfel.area;
+            color_sh->get_precalculated_coefficients(precalculated_sf, scale, surfel.normal);
+
+            result.sf_representation.area->add(area_sh);
+            result.sf_representation.color->add(color_sh);
+
+#ifndef SURFEL_HAS_COLOR_SF
+            delete color_sh;
+#endif
+            delete area_sh;
+        }
+
+
+        result.pos *= 1.0f / float(points.size());
+
+        assert (!std::isnan(result.pos.x) && !std::isinf(result.pos.x));
+
+        return result;
+    }
+
+
+
+
+
     // for new Gi_point_base
     Gi_point_inner_node average_node(std::vector<Gi_point_inner_node*> const& points) const
     {
@@ -470,8 +579,6 @@ struct pbgi_sample_t
 };
 
 
-//#define USE_FAT_TREE
-
 class YAFRAYPLUGIN_EXPORT pbLighting_t: public mcIntegrator_t
 {
 public:
@@ -537,7 +644,10 @@ public:
 
     Parameter_list const& get_parameters() const { return _parameters; }
 
+    virtual void cleanup();
+
     std::vector<vector3d_t> _debug_new_triangles;
+
 
 private:
     enum Debug_type { NoTree, Tree, Tree_sh, Tree_sh_fb, Tree_sh_leafs };

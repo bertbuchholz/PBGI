@@ -5,6 +5,7 @@
 #include <vector>
 #include <map>
 #include <cassert>
+#include <boost/shared_ptr.hpp>
 
 #include <bert/shared/Parameter.h>
 
@@ -196,7 +197,7 @@ public:
 
     Cube_raster_buffer();
 
-    Cube_raster_buffer & operator= (Cube_raster_buffer const& cbr);
+    // Cube_raster_buffer & operator= (Cube_raster_buffer const& cbr);
 
     virtual ~Cube_raster_buffer();
 
@@ -273,10 +274,11 @@ public:
     Data integrate() const;
     Data integrate(Cube_raster_buffer<Data> const& weights) const;
 
-    Abstract_frame_buffer<Data>* get_buffer(int const i) { return buffers[i]; }
+    Abstract_frame_buffer<Data>* get_buffer(int const i) { return buffers[i].get(); }
 
 protected:
-    Abstract_frame_buffer<Data>* buffers[6];
+    // Abstract_frame_buffer<Data>* buffers[6];
+    boost::shared_ptr<Abstract_frame_buffer<Data> > buffers[6];
     mutable float _total_energy;
     mutable float _non_zero_area;
     int _resolution;
@@ -308,7 +310,7 @@ public:
 
     void setup(Parameter_list const& parameters);
 
-    Splat_cube_raster_buffer & operator= (Splat_cube_raster_buffer const& cbr);
+    // Splat_cube_raster_buffer & operator= (Splat_cube_raster_buffer const& cbr);
 
     void add_point_single_pixel(Gi_point_info const& point_info);
     void add_point_disc_tracing(Gi_point_info const& point_info);
@@ -328,9 +330,6 @@ public:
 
 
 private:
-    typedef void (Splat_cube_raster_buffer::*Add_point_function_ptr)(Gi_point_info const& point_info, GiPoint const* gi_point);
-
-    // std::vector<Add_point_function_ptr> add_point_function_map;
     std::vector<Splat_strategy*> add_point_function_map;
 };
 
@@ -352,12 +351,15 @@ template <class Data>
 Cube_raster_buffer<Data>::Cube_raster_buffer() :
     _get_color_done(false)
 {
+    /*
     for (int i = 0; i < 6; ++i)
     {
         buffers[i] = NULL;
     }
+    */
 }
 
+/*
 template <class Data>
 Cube_raster_buffer<Data> & Cube_raster_buffer<Data>::operator= (Cube_raster_buffer const& cbr)
 {
@@ -378,6 +380,7 @@ Cube_raster_buffer<Data> & Cube_raster_buffer<Data>::operator= (Cube_raster_buff
 
     return *this;
 }
+*/
 
 template <class Data>
 Cube_raster_buffer<Data>::~Cube_raster_buffer()
@@ -390,10 +393,10 @@ Cube_raster_buffer<Data>::~Cube_raster_buffer()
         }
     }
 
-    for (int i = 0; i < 6; ++i)
-    {
-        delete buffers[i];
-    }
+//    for (int i = 0; i < 6; ++i)
+//    {
+//        delete buffers[i];
+//    }
 }
 
 template <class Data>
@@ -426,7 +429,7 @@ void Cube_raster_buffer<Data>::setup_surfel_buffer(int resolution)
 
     for (int i = 0; i < 6; ++i)
     {
-        buffers[i] = new Simple_single_value_frame_buffer<Data>(_resolution, i);
+        buffers[i] = boost::shared_ptr<Abstract_frame_buffer<Data> >(new Simple_single_value_frame_buffer<Data>(_resolution, i));
     }
 }
 
@@ -1340,6 +1343,7 @@ public:
 
 protected:
     bool _wendland_integral;
+    bool _jing;
 };
 
 REGISTER_CLASS_WITH_PARAMETERS(Splat_strategy, Gaussian_splat_strategy);
