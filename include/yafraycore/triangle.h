@@ -42,7 +42,7 @@ class YAFRAYCORE_EXPORT triangle_t
 		virtual const material_t* getMaterial() const { return material; }	
 		virtual void getSurface(surfacePoint_t &sp, const point3d_t &hit, intersectData_t &data) const;
 		virtual float surfaceArea() const;
-		virtual void sample(float s1, float s2, point3d_t &p, vector3d_t &n) const;
+                virtual void sample(float s1, float s2, point3d_t &p, vector3d_t &n, intersectData_t & data) const;
 		
 		virtual vector3d_t getNormal() const{ return vector3d_t(normal); }
 		void setVertexIndices(int a, int b, int c){ pa=a, pb=b, pc=c; }
@@ -76,10 +76,10 @@ class YAFRAYCORE_EXPORT triangleInstance_t: public triangle_t
 		virtual const material_t* getMaterial() const { return mBase->getMaterial(); }	
 		virtual void getSurface(surfacePoint_t &sp, const point3d_t &hit, intersectData_t &data) const;
 		virtual float surfaceArea() const;
-		virtual void sample(float s1, float s2, point3d_t &p, vector3d_t &n) const;
+                virtual void sample(float s1, float s2, point3d_t &p, vector3d_t &n, intersectData_t & data) const;
 		
 		virtual vector3d_t getNormal() const;
-		virtual void recNormal() { /* Empty */ };
+                virtual void recNormal() { /* Empty */ }
 
 	private:
         const triangle_t* mBase;
@@ -111,7 +111,7 @@ class YAFRAYCORE_EXPORT vTriangle_t: public primitive_t
 		void setNormals(int a, int b, int c){ na=a, nb=b, nc=c; }
 		vector3d_t getNormal(){ return vector3d_t(normal); }
 		PFLOAT surfaceArea() const;
-		void sample(float s1, float s2, point3d_t &p, vector3d_t &n) const;
+                void sample(float s1, float s2, point3d_t &p, vector3d_t &n, intersectData_t & data) const;
 		void recNormal();
 
 	protected:
@@ -129,7 +129,7 @@ class YAFRAYCORE_EXPORT bsTriangle_t: public primitive_t
 	public:
 		bsTriangle_t(){};
 		bsTriangle_t(int ia, int ib, int ic, meshObject_t* m): pa(ia), pb(ib), pc(ic),
-					na(-1), nb(-1), nc(-1), mesh(m){ };
+                                        na(-1), nb(-1), nc(-1), mesh(m) { }
 		virtual bool intersect(const ray_t &ray, PFLOAT *t, intersectData_t &data) const;
 		virtual bound_t getBound() const;
 		//virtual bool intersectsBound(exBound_t &eb) const;

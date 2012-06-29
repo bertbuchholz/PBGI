@@ -32,6 +32,9 @@ target_link_libraries(SkyIntegrator yafaraycore)
 add_library(sppm SHARED sppm.cc)
 target_link_libraries(sppm yafaraycore)
 
-install (TARGETS directlight photonmap pathtrace bidirpath sppm
+add_library(pbgi_integrator SHARED Pbgi_integrator.cc Pbgi_integrator/Cube_raster_buffer.cc Pbgi_integrator/Scene_sampler.cpp Pbgi_integrator/Spherical_function.cc)
+target_link_libraries(pbgi_integrator yafaraycore)
+
+install (TARGETS directlight photonmap pathtrace bidirpath sppm pbgi_integrator
 		EmissionIntegrator SingleScatterIntegrator EmptyVolumeIntegrator DebugIntegrator SkyIntegrator
 		${YAF_TARGET_TYPE} DESTINATION ${YAF_PLUGIN_DIR})

@@ -91,8 +91,12 @@ class YAFRAYCORE_EXPORT vector3d_t
 		vector3d_t& operator /=(PFLOAT s) { x/=s;  y/=s;  z/=s;  return *this;}
 		vector3d_t& operator *=(PFLOAT s) { x*=s;  y*=s;  z*=s;  return *this;}
 		PFLOAT operator[] (int i) const{ return (&x)[i]; } //Lynx
+                PFLOAT & operator[] (int i)       { return (&x)[i]; } //Bert ;-)
 		void abs() { x=std::fabs(x);  y=std::fabs(y);  z=std::fabs(z); }
-		~vector3d_t() {};
+
+                PFLOAT * data() { return &x; }
+                PFLOAT const* data() const { return &x; }
+
 		PFLOAT x,y,z;
 };
 
@@ -348,6 +352,11 @@ inline vector3d_t RandomSpherical()
 inline GFLOAT dot( const normal_t &a,const normal_t &b)
 {
 	return (a.x*b.x+a.y*b.y+a.z*b.z);
+}
+
+inline GFLOAT dot( const vector3d_t &a,const vector3d_t &b)
+{
+        return (a.x*b.x+a.y*b.y+a.z*b.z);
 }
 
 YAFRAYCORE_EXPORT vector3d_t randomVectorCone(const vector3d_t &D, const vector3d_t &U, const vector3d_t &V,

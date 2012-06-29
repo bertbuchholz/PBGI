@@ -197,6 +197,9 @@ class YAFRAYCORE_EXPORT scene_t
 		bool intersect(const ray_t &ray, surfacePoint_t &sp) const;
 		bool isShadowed(renderState_t &state, const ray_t &ray) const;
 		bool isShadowed(renderState_t &state, const ray_t &ray, int maxDepth, color_t &filt) const;
+
+                std::map<objID_t, objData_t> const& get_meshes() const { return meshes; }
+
 		
 		enum sceneState { READY, GEOMETRY, OBJECT, VMAP };
 		enum changeFlags { C_NONE=0, C_GEOM=1, C_LIGHT= 1<<1, C_OTHER=1<<2,
@@ -204,6 +207,7 @@ class YAFRAYCORE_EXPORT scene_t
 		
 		std::vector<light_t *> lights;
 		volumeIntegrator_t *volIntegrator;
+        surfaceIntegrator_t *surfIntegrator;
 		
 	protected:
 
@@ -217,7 +221,6 @@ class YAFRAYCORE_EXPORT scene_t
 		triKdTree_t *tree; //!< kdTree for triangle-only mode
 		kdTree_t<primitive_t> *vtree; //!< kdTree for universal mode
 		background_t *background;
-		surfaceIntegrator_t *surfIntegrator;
 		bound_t sceneBound; //!< bounding box of all (finite) scene geometry
 		
 		int AA_samples, AA_passes;

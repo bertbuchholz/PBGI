@@ -151,6 +151,47 @@ inline float addMod1(float a, float b)
 	return s>1 ? s-1.f : s;
 }
 
+
+float inline radicalInverse(int n, int base)
+{
+    float value = 0.0f;
+    float invBase = 1.0f/(float)(base), invBi = invBase;
+
+    while (n > 0)
+    {
+        int d_i = (n % base);
+        value += d_i * invBi;
+        n /= base;
+        invBi *= invBase;
+
+    }
+
+    return value;
+}
+
+
+vector3d_t inline halton_3(int n)
+{
+    vector3d_t result;
+
+    result[0] = radicalInverse(n, 2);
+    result[1] = radicalInverse(n, 3);
+    result[2] = radicalInverse(n, 5);
+
+    return result;
+}
+
+vector3d_t inline hammersley_3(int const n, int const n_max)
+{
+    vector3d_t result;
+
+    result[0] = n / float(n_max);
+    result[1] = radicalInverse(n, 2);
+    result[2] = radicalInverse(n, 3);
+
+    return result;
+}
+
 __END_YAFRAY
 
 #endif // Y_SAMPLEUTILS_H
