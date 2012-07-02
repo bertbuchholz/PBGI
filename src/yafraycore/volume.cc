@@ -4,7 +4,7 @@
 
 __BEGIN_YAFRAY
 
-color_t DensityVolume::tau(const ray_t &ray, float stepSize, float offset)
+color_t DensityVolume::tau(const ray_t &ray, float stepSize, float offset) const
 {
 		float t0 = -1, t1 = -1;
 		

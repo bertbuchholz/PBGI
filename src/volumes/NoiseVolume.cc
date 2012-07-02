@@ -12,6 +12,8 @@
 #include <utilities/mcqmc.h>
 #include <utilities/mathOptimizations.h>
 
+#include <cassert>
+
 __BEGIN_YAFRAY
 
 class renderState_t;
@@ -29,7 +31,17 @@ class NoiseVolume : public DensityVolume {
 			density = dens;
 		}
 		
-		virtual float Density(point3d_t p);
+        virtual float Density(point3d_t const& p) const
+        {
+           float d = texDistNoise->getColor(p * 0.1f).energy();
+
+           assert(d >= 0.0f && d <= 1.0f);
+
+           d = 1.0f / (1.0f + fExp(sharpness * (1.0f - cover - d)));
+           d *= density;
+
+           return d;
+       }
 				
 		static VolumeRegion* factory(paraMap_t &params, renderEnvironment_t &render);
 	
@@ -40,15 +52,6 @@ class NoiseVolume : public DensityVolume {
 		float sharpness;
 		float density;
 };
-
-float NoiseVolume::Density(const point3d_t p) {
-	float d = texDistNoise->getColor(p * 0.1f).energy();
-
-	d = 1.0f / (1.0f + fExp(sharpness * (1.0f - cover - d)));
-	d *= density;
-	
-	return d;
-}
 
 VolumeRegion* NoiseVolume::factory(paraMap_t &params,renderEnvironment_t &render)
 {

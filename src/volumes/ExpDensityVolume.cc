@@ -17,22 +17,21 @@ class ExpDensityVolume : public DensityVolume {
 		ExpDensityVolume(color_t sa, color_t ss, color_t le, float gg, point3d_t pmin, point3d_t pmax, int attgridScale, float aa, float bb) :
 				DensityVolume(sa, ss, le, gg, pmin, pmax, attgridScale) {
 			a = aa;
-			b = bb;
-			Y_INFO << "ExpDensityVolume vol: " << s_a << " " << s_s << " " << l_e << " " << a << " " << b << yendl;
-		}
-	
-		virtual float Density(point3d_t p);
-				
+            b = bb;
+            Y_INFO << "ExpDensityVolume vol: " << s_a << " " << s_s << " " << l_e << " " << a << " " << b << yendl;
+        }
+
+        virtual float Density(point3d_t const& p) const
+        {
+            float height = p.z - bBox.a.z;
+            return a * fExp(-b * height);
+        }
+
 		static VolumeRegion* factory(paraMap_t &params, renderEnvironment_t &render);
 	
 	protected:
 		float a, b;
 };
-
-float ExpDensityVolume::Density(point3d_t p) {
-	float height = p.z - bBox.a.z;
-	return a * fExp(-b * height);
-}
 
 VolumeRegion* ExpDensityVolume::factory(paraMap_t &params,renderEnvironment_t &render)
 {

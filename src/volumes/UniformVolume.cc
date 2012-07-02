@@ -19,15 +19,15 @@ class UniformVolume : public VolumeRegion {
 			Y_INFO << "UniformVolume: Vol.[" << s_a << ", " << s_s << ", " << l_e << ", " << pmin << ", " << pmax << ", " << attgridScale << "]" << yendl;
 		}
 	
-		virtual color_t sigma_a(const point3d_t &p, const vector3d_t &v);
-		virtual color_t sigma_s(const point3d_t &p, const vector3d_t &v);
-		virtual color_t emission(const point3d_t &p, const vector3d_t &v);
-		virtual color_t tau(const ray_t &ray, float step, float offset);
+        virtual color_t sigma_a(const point3d_t &p, const vector3d_t &v) const;
+        virtual color_t sigma_s(const point3d_t &p, const vector3d_t &v) const;
+        virtual color_t emission(const point3d_t &p, const vector3d_t &v) const;
+        virtual color_t tau(const ray_t &ray, float step, float offset) const;
 				
 		static VolumeRegion* factory(paraMap_t &params, renderEnvironment_t &render);
 };
 
-color_t UniformVolume::sigma_a(const point3d_t &p, const vector3d_t &v) {
+color_t UniformVolume::sigma_a(const point3d_t &p, const vector3d_t &v) const {
 	if (!haveS_a) return color_t(0.f);
 	if (bBox.includes(p)) {
 		return s_a;
@@ -37,7 +37,7 @@ color_t UniformVolume::sigma_a(const point3d_t &p, const vector3d_t &v) {
 
 }
 
-color_t UniformVolume::sigma_s(const point3d_t &p, const vector3d_t &v) {
+color_t UniformVolume::sigma_s(const point3d_t &p, const vector3d_t &v) const {
 	if (!haveS_s) return color_t(0.f);
 	if (bBox.includes(p)) {
 		return s_s;
@@ -46,7 +46,7 @@ color_t UniformVolume::sigma_s(const point3d_t &p, const vector3d_t &v) {
 		return color_t(0.f);
 }
 
-color_t UniformVolume::tau(const ray_t &ray, float step, float offset) {
+color_t UniformVolume::tau(const ray_t &ray, float step, float offset) const {
 	float t0 = -1, t1 = -1;
 	
 	// ray doesn't hit the BB
@@ -67,7 +67,7 @@ color_t UniformVolume::tau(const ray_t &ray, float step, float offset) {
 	return dist * (s_s + s_a);
 }
 
-color_t UniformVolume::emission(const point3d_t &p, const vector3d_t &v) {
+color_t UniformVolume::emission(const point3d_t &p, const vector3d_t &v) const {
 	if (!haveL_e) return color_t(0.f);
 	if (bBox.includes(p)) {
 		return l_e;

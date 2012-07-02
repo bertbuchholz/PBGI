@@ -103,8 +103,38 @@ class GridVolume : public DensityVolume {
 			}
 			free(grid);
 		}
-		
-		virtual float Density(point3d_t p);
+
+
+        virtual float Density(point3d_t const& p) const
+        {
+           float x = (p.x - bBox.a.x) / bBox.longX() * sizeX - .5f;
+           float y = (p.y - bBox.a.y) / bBox.longY() * sizeY - .5f;
+           float z = (p.z - bBox.a.z) / bBox.longZ() * sizeZ - .5f;
+
+           int x0 = std::max(0, int(floor(x)));
+           int y0 = std::max(0, int(floor(y)));
+           int z0 = std::max(0, int(floor(z)));
+
+           int x1 = std::min(sizeX - 1, int(ceil(x)));
+           int y1 = std::min(sizeY - 1, int(ceil(y)));
+           int z1 = std::min(sizeZ - 1, int(ceil(z)));
+
+           float xd = x - x0;
+           float yd = y - y0;
+           float zd = z - z0;
+
+           float i1 = grid[x0][y0][z0] * (1-zd) + grid[x0][y0][z1] * zd;
+           float i2 = grid[x0][y1][z0] * (1-zd) + grid[x0][y1][z1] * zd;
+           float j1 = grid[x1][y0][z0] * (1-zd) + grid[x1][y0][z1] * zd;
+           float j2 = grid[x1][y1][z0] * (1-zd) + grid[x1][y1][z1] * zd;
+
+           float w1 = i1 * (1 - yd) + i2 * yd;
+           float w2 = j1 * (1 - yd) + j2 * yd;
+
+           float dens = w1 * (1 - xd) + w2 * xd;
+
+           return dens;
+       }
 				
 		static VolumeRegion* factory(paraMap_t &params, renderEnvironment_t &render);
 	
@@ -112,40 +142,6 @@ class GridVolume : public DensityVolume {
 		float*** grid;
 		int sizeX, sizeY, sizeZ;
 };
-
-inline float min(float a, float b) { return (a > b) ? b : a; }
-inline float max(float a, float b) { return (a < b) ? b : a; }
-
-
-float GridVolume::Density(const point3d_t p) {
-	float x = (p.x - bBox.a.x) / bBox.longX() * sizeX - .5f;
-	float y = (p.y - bBox.a.y) / bBox.longY() * sizeY - .5f;
-	float z = (p.z - bBox.a.z) / bBox.longZ() * sizeZ - .5f;
-			
-	int x0 = max(0, floor(x));
-	int y0 = max(0, floor(y));
-	int z0 = max(0, floor(z));
-
-	int x1 = min(sizeX - 1, ceil(x));
-	int y1 = min(sizeY - 1, ceil(y));
-	int z1 = min(sizeZ - 1, ceil(z));
-
-	float xd = x - x0;
-	float yd = y - y0;
-	float zd = z - z0;
-	
-	float i1 = grid[x0][y0][z0] * (1-zd) + grid[x0][y0][z1] * zd;
-	float i2 = grid[x0][y1][z0] * (1-zd) + grid[x0][y1][z1] * zd;
-	float j1 = grid[x1][y0][z0] * (1-zd) + grid[x1][y0][z1] * zd;
-	float j2 = grid[x1][y1][z0] * (1-zd) + grid[x1][y1][z1] * zd;
-	
-	float w1 = i1 * (1 - yd) + i2 * yd;
-	float w2 = j1 * (1 - yd) + j2 * yd;
-	
-	float dens = w1 * (1 - xd) + w2 * xd;
-
-	return dens;
-}
 
 VolumeRegion* GridVolume::factory(paraMap_t &params,renderEnvironment_t &render) {
 	float ss = .1f;

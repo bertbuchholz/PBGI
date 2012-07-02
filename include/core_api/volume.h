@@ -40,10 +40,10 @@ class YAFRAYCORE_EXPORT VolumeRegion {
 	
 	virtual ~VolumeRegion(){}
 	
-	virtual color_t sigma_a(const point3d_t &p, const vector3d_t &v) = 0;
-	virtual color_t sigma_s(const point3d_t &p, const vector3d_t &v) = 0;
-	virtual color_t emission(const point3d_t &p, const vector3d_t &v) = 0;
-	virtual color_t sigma_t(const point3d_t &p, const vector3d_t &v) {
+    virtual color_t sigma_a(const point3d_t &p, const vector3d_t &v) const = 0;
+    virtual color_t sigma_s(const point3d_t &p, const vector3d_t &v) const = 0;
+    virtual color_t emission(const point3d_t &p, const vector3d_t &v) const = 0;
+    virtual color_t sigma_t(const point3d_t &p, const vector3d_t &v) const {
 		return sigma_a(p, v) + sigma_s(p, v);
 	}
 
@@ -56,13 +56,13 @@ class YAFRAYCORE_EXPORT VolumeRegion {
 		return 1.f / (4.f * M_PI) * (1.f - k * k) / ((1.f - kcostheta) * (1.f - kcostheta));
 	}
 	
-	virtual color_t tau(const ray_t &ray, float step, float offset) = 0;
+    virtual color_t tau(const ray_t &ray, float step, float offset) const = 0;
 	
-	bool intersect(const ray_t &ray, float& t0, float& t1) {
+    bool intersect(const ray_t &ray, float& t0, float& t1) const {
 		return bBox.cross(ray, t0, t1, 10000.f);
 	}
 
-	bound_t getBB() { return bBox; }
+    bound_t const& getBB() const { return bBox; }
 
 	std::map<light_t *, float*> attenuationGridMap;
 	int attGridX, attGridY, attGridZ; // FIXME: un-hardcode
@@ -83,11 +83,11 @@ class YAFRAYCORE_EXPORT DensityVolume : public VolumeRegion {
 	
 	virtual ~DensityVolume(){}	
 	
-	virtual float Density(point3d_t p) = 0;
+    virtual float Density(point3d_t const& p) const = 0;
 
-	virtual color_t tau(const ray_t &ray, float stepSize, float offset);
+    virtual color_t tau(const ray_t &ray, float stepSize, float offset) const;
 	
-	color_t sigma_a(const point3d_t &p, const vector3d_t &v) {
+    color_t sigma_a(const point3d_t &p, const vector3d_t &v) const {
 		if (!haveS_a) return color_t(0.f);
 		if (bBox.includes(p)) {
 			return s_a * Density(p);
@@ -97,7 +97,7 @@ class YAFRAYCORE_EXPORT DensityVolume : public VolumeRegion {
 	
 	}
 	
-	color_t sigma_s(const point3d_t &p, const vector3d_t &v) {
+    color_t sigma_s(const point3d_t &p, const vector3d_t &v) const {
 		if (!haveS_s) return color_t(0.f);
 		if (bBox.includes(p)) {
 			return s_s * Density(p);
@@ -106,7 +106,7 @@ class YAFRAYCORE_EXPORT DensityVolume : public VolumeRegion {
 			return color_t(0.f);
 	}
 	
-	color_t emission(const point3d_t &p, const vector3d_t &v) {
+    color_t emission(const point3d_t &p, const vector3d_t &v) const {
 		if (!haveL_e) return color_t(0.f);
 		if (bBox.includes(p)) {
 			return l_e * Density(p);

@@ -40,10 +40,7 @@ public:
 	{
 		Y_INFO << "SingleScatter: Preprocessing..." << yendl;
 
-		for(unsigned int i=0;i<scene->lights.size();++i)
-		{
-			lights.push_back(scene->lights[i]);
-		}
+        lights = scene->lights;
 
 		listVR = scene->getVolumes();
 		VRSize = listVR.size();

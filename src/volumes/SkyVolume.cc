@@ -34,10 +34,10 @@ class SkyVolume : public VolumeRegion {
 		float phaseRayleigh(const vector3d_t &w_l, const vector3d_t &w_s);
 		float phaseMie(const vector3d_t &w_l, const vector3d_t &w_s);
 
-		virtual color_t sigma_a(const point3d_t &p, const vector3d_t &v);
-		virtual color_t sigma_s(const point3d_t &p, const vector3d_t &v);
-		virtual color_t emission(const point3d_t &p, const vector3d_t &v);
-		virtual color_t tau(const ray_t &ray, float step, float offset);
+        virtual color_t sigma_a(const point3d_t &p, const vector3d_t &v) const;
+        virtual color_t sigma_s(const point3d_t &p, const vector3d_t &v) const;
+        virtual color_t emission(const point3d_t &p, const vector3d_t &v) const;
+        virtual color_t tau(const ray_t &ray, float step, float offset) const;
 		
 		static VolumeRegion* factory(paraMap_t &params, renderEnvironment_t &render);
 	
@@ -48,11 +48,11 @@ class SkyVolume : public VolumeRegion {
 
 };
 
-color_t SkyVolume::sigma_a(const point3d_t &p, const vector3d_t &v) {
+color_t SkyVolume::sigma_a(const point3d_t &p, const vector3d_t &v) const {
 	return color_t(0.f);
 }
 
-color_t SkyVolume::sigma_s(const point3d_t &p, const vector3d_t &v) {
+color_t SkyVolume::sigma_s(const point3d_t &p, const vector3d_t &v) const {
 	//if (bBox.includes(p)) {
 		return s_ray + s_mie;
 	//}
@@ -60,7 +60,7 @@ color_t SkyVolume::sigma_s(const point3d_t &p, const vector3d_t &v) {
 	//	return color_t(0.f);
 }
 
-color_t SkyVolume::tau(const ray_t &ray, float step, float offset) {
+color_t SkyVolume::tau(const ray_t &ray, float step, float offset) const {
 	float t0 = -1, t1 = -1;
 	
 	// ray doesn't hit the BB
@@ -81,7 +81,7 @@ color_t SkyVolume::tau(const ray_t &ray, float step, float offset) {
 	return (s_ray + s_mie) * dist;
 }
 
-color_t SkyVolume::emission(const point3d_t &p, const vector3d_t &v) {
+color_t SkyVolume::emission(const point3d_t &p, const vector3d_t &v) const {
 	if (bBox.includes(p)) {
 		return l_e;
 	}

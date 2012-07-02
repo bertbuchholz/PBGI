@@ -20,6 +20,9 @@ target_link_libraries(EmissionIntegrator yafaraycore)
 add_library(SingleScatterIntegrator SHARED SingleScatterIntegrator.cc)
 target_link_libraries(SingleScatterIntegrator yafaraycore)
 
+add_library(Decoupled_scatter_integrator SHARED Decoupled_scatter_integrator.cc)
+target_link_libraries(Decoupled_scatter_integrator yafaraycore)
+
 add_library(EmptyVolumeIntegrator SHARED EmptyVolumeIntegrator.cc)
 target_link_libraries(EmptyVolumeIntegrator yafaraycore)
 
@@ -33,5 +36,5 @@ add_library(sppm SHARED sppm.cc)
 target_link_libraries(sppm yafaraycore)
 
 install (TARGETS directlight photonmap pathtrace bidirpath sppm
-		EmissionIntegrator SingleScatterIntegrator EmptyVolumeIntegrator DebugIntegrator SkyIntegrator
+                EmissionIntegrator SingleScatterIntegrator EmptyVolumeIntegrator DebugIntegrator SkyIntegrator Decoupled_scatter_integrator
 		${YAF_TARGET_TYPE} DESTINATION ${YAF_PLUGIN_DIR})
