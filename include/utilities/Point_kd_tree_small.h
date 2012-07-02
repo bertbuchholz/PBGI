@@ -85,6 +85,10 @@ public:
     template <class T >
     T      * get_derived()       { return static_cast<T*>(this); }
 
+#ifdef PBGI_DEBUG
+    int _distance_closest_leaf;
+#endif
+
 protected:
     Data _data;
     int _depth;
@@ -417,8 +421,6 @@ public:
 private:
     // Node<Data, Averager> * _children[Arity];
     std::vector< Tree_node* > _children;
-
-    // bound_t _bound;
 };
 
 template <class Inner_node_data, class Leaf_data, class Tree_subdivision_decider, class Averager, int n_Arity>
@@ -445,6 +447,10 @@ public:
     {
         _root = new Tree_inner_node;
         _root->add_points(points, bound, 0, subdiv_decider);
+
+#ifdef PBGI_DEBUG
+        set_distances_closest_leafs();
+#endif
     }
 
     void clear()
@@ -505,6 +511,41 @@ public:
 
         return result;
     }
+
+
+
+#ifdef PBGI_DEBUG
+    void set_distances_closest_leafs()
+    {
+        std::cout << "Point_kd_tree_small::set_distances_closest_leafs()" << std::endl;
+
+        std::vector<Tree_node*> nodes = get_post_order_queue();
+
+        for (size_t i = 0; i < nodes.size(); ++i)
+        {
+            Tree_node * node = nodes[i];
+
+            if (node->is_leaf())
+            {
+                node->_distance_closest_leaf = 0;
+            }
+            else
+            {
+                Tree_inner_node const* inner_node = node->template get_derived<Tree_inner_node>();
+                std::vector<Tree_node*> const& children = inner_node->get_children();
+
+                node->_distance_closest_leaf = 1e6;
+
+                for (size_t i = 0; i < children.size(); ++i)
+                {
+                    node->_distance_closest_leaf = std::min(node->_distance_closest_leaf, children[i]->_distance_closest_leaf);
+                }
+
+                node->_distance_closest_leaf += 1;
+            }
+        }
+    }
+#endif
 
     std::vector<Tree_node const*> get_nodes() const
     {
@@ -568,6 +609,39 @@ public:
         return result;
     }
 
+#ifdef PBGI_DEBUG
+    std::vector<Tree_node*> get_nodes_with_distance_to_leaf(int const distance) const
+    {
+        std::vector<Tree_node*> result;
+
+        std::queue<Tree_node*> queue;
+        queue.push(_root);
+
+        while (!queue.empty())
+        {
+            Tree_node * node = queue.front();
+            queue.pop();
+
+            if (node->_distance_closest_leaf == distance)
+            {
+                result.push_back(node);
+            }
+            else if (!node->is_leaf())
+            {
+                Tree_inner_node const* inner_node = node->template get_derived<Tree_inner_node>();
+                std::vector< Tree_node* > const& children = inner_node->get_children();
+
+                for (size_t i = 0; i < children.size(); ++i)
+                {
+                    queue.push(children[i]);
+                }
+            }
+        }
+
+        return result;
+    }
+#endif
+
     void count_nodes(int & num_inner_nodes, int & num_leafs) const
     {
         num_inner_nodes = 0;
@@ -603,6 +677,19 @@ public:
         }
     }
 
+//    std::vector<Tree_node const*>  get_nodes_with_shortest_distance_to_leaf(int const height = 0) const
+//    {
+//        if (is_leaf())
+//        {
+//            return height;
+//        }
+
+//        int const height_0 = _children[0].get_shortest_distance_to_leaf(height + 1);
+//        int const height_1 = _children[1].get_shortest_distance_to_leaf(height + 1);
+
+//        return std::min(height_0, height_1);
+//    }
+
     struct Node_gatherer
     {
         void operator() (Tree_node const* node)
@@ -623,6 +710,7 @@ public:
     }
 
 
+private:
     template <typename Inner_node_handler, typename Leaf_handler>
     void traverse_tree(Inner_node_handler & inner_node_handler, Leaf_handler & leaf_handler) const
     {
@@ -654,7 +742,6 @@ public:
         }
     }
 
-private:
     Tree_node* _root;
 };
 

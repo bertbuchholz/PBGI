@@ -110,7 +110,10 @@ public:
     vector3d_t normal;
     color_t    color;
     float      area;
-    private:
+
+#ifdef PBGI_DEBUG
+    color_t diffuse_color;
+#endif
 };
 #else
 class Gi_point_surfel : public Gi_point_base

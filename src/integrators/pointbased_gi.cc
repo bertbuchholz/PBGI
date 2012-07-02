@@ -825,9 +825,7 @@ void pbLighting_t::generate_gi_points_data_2(std::vector<MyTree::Tree_node*> con
                 surfel.color        = color_t(0.0f);
 #endif
 
-#ifdef PBGI_DEBUG
-                surfel.debug_radius = 0.0f;
-#endif
+
 
                 unsigned char userdata[USER_DATA_SIZE];
                 state.userdata = (void *) userdata;
@@ -842,6 +840,11 @@ void pbLighting_t::generate_gi_points_data_2(std::vector<MyTree::Tree_node*> con
                 {
                     surfel.color += material->emission(state, sp, surfel.normal);
                 }
+
+#ifdef PBGI_DEBUG
+                surfel.debug_radius = 0.0f;
+                surfel.diffuse_color = material->getDiffuseAtPoint(state, sp);
+#endif
 
                 /*
                 Spherical_node_representation sf_representation = generate_spherical_function_2(state, surfel, sp, lights);

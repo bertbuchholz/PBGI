@@ -904,10 +904,10 @@ public:
             return height;
         }
 
-        int height_0 = _children[0].get_node_height(height + 1);
-        int height_1 = _children[1].get_node_height(height + 1);
+        int const height_0 = _children[0].get_node_height(height + 1);
+        int const height_1 = _children[1].get_node_height(height + 1);
 
-        return height_0 > height_1 ? height_0 : height_1;
+        return std::max(height_0, height_1);
     }
 
     int get_shortest_distance_to_leaf(int const height = 0) const
@@ -917,10 +917,10 @@ public:
             return height;
         }
 
-        int height_0 = _children[0].get_shortest_distance_to_leaf(height + 1);
-        int height_1 = _children[1].get_shortest_distance_to_leaf(height + 1);
+        int const height_0 = _children[0].get_shortest_distance_to_leaf(height + 1);
+        int const height_1 = _children[1].get_shortest_distance_to_leaf(height + 1);
 
-        return height_0 < height_1 ? height_0 : height_1;
+        return std::min(height_0, height_1);
     }
 
     int get_tree_max_depth() const
