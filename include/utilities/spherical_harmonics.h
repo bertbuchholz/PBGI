@@ -21,7 +21,12 @@
 #include <utilities/Quaternion_Matrix.h>
 #include <utilities/Dictionary_utils.h>
 
-#include <integrators/kmeans.hpp>
+//#include <integrators/kmeans.hpp>
+#include <integrators/distance.hpp>
+
+typedef std::vector<float> Word;
+//typedef imdb::l1norm<Word> Distance_function;
+typedef imdb::l2norm<Word> Distance_function;
 
 __BEGIN_YAFRAY
 
@@ -87,6 +92,7 @@ class Abstract_spherical_function_estimator
 {
 public:
     virtual Data get_value(vector3d_t const& dir) const = 0;
+    virtual ~Abstract_spherical_function_estimator() {}
     std::vector<Cone> const& get_main_cones() const { return _main_cones; }
 
 protected:

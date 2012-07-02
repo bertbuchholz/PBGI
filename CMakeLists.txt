@@ -20,6 +20,8 @@ option(WITH_OSX_ADDON "Enable the use of blender's included python lib on OSX pl
 option(BUILDRELEASE "Enable release mode building of YafaRay" OFF)
 option(DEBUG_BUILD "Enable debug build mode" OFF)
 option(EMBED_FONT_QT "Embed font for QT GUI (usefull for some buggy QT installations)" OFF)
+option(FAST_MATH "Enable mathematic approximations to make code faster" OFF)
+option(FAST_TRIG "Enable trigonometric approximations to make code faster" OFF)
 
 ###### Packages and Definitions #########
 
@@ -32,6 +34,10 @@ endif(NOT YAF_USER_CONFIG)
 if(NOT YAF_USER_CONFIG)
 	include(${CMAKE_SOURCE_DIR}/UserConfig.txt OPTIONAL)
 endif(NOT YAF_USER_CONFIG)
+
+# Load the packaging config
+include(CMakeConfig/CPackConfig.txt)
+
 
 if(NOT YAF_MIN_RAY_DIST)
 	set(YAF_MIN_RAY_DIST 0.00005)
@@ -288,6 +294,15 @@ else (USER_DBGFLAGS)
 	set(CMAKE_CXX_FLAGS_DEBUG "${YAF_CXX_FLAGS_DEBUG}" CACHE STRING "Debug compiler flags" FORCE)
 endif (USER_DBGFLAGS)
 
+# Code speedup due mathematical approximations
+if (FAST_MATH)
+	add_definitions(-DFAST_MATH)
+endif (FAST_MATH)
+
+if (FAST_TRIG)
+	add_definitions(-DFAST_TRIG)
+endif (FAST_TRIG)
+
 # Adding subdirectories
 
 add_subdirectory(src)
@@ -296,3 +311,4 @@ add_subdirectory(src)
 
 include(CMakeConfig/GenConfHeaders.txt)
 
+include(CPack)

@@ -39,6 +39,9 @@
 #include <iostream>
 #include <limits>
 #include <sstream>
+#if HAVE_UNISTD_H
+	#include <unistd.h>
+#endif
 
 __BEGIN_YAFRAY
 
@@ -46,8 +49,8 @@ scene_t::scene_t():  volIntegrator(0), camera(0), imageFilm(0), tree(0), vtree(0
                     AA_samples(1), AA_passes(1), AA_threshold(0.05), nthreads(1), mode(1), do_depth(false), yaf_signals(0)
 {
 	state.changes = C_ALL;
-        state.stack.push_front(READY);
-	state.nextFreeID = 1;
+	state.stack.push_front(READY);
+	state.nextFreeID = std::numeric_limits<int>::max();
 	state.curObj = 0;
 }
 
@@ -912,10 +915,11 @@ objID_t scene_t::getNextFreeID()
 	if(meshes.find(id) != meshes.end())
 	{
 		Y_ERROR << "Scene: Object ID already in use!" << yendl;
-		return 0;
+		--state.nextFreeID;
+		return getNextFreeID();
 	}
 	
-	++state.nextFreeID;
+	--state.nextFreeID;
 	
 	return id;
 }
@@ -937,29 +941,29 @@ bool scene_t::addObject(object3d_t *obj, objID_t &id)
 
 bool scene_t::addInstance(objID_t baseObjectId, matrix4x4_t objToWorld)
 {
-    if(mode != 0) return false;
-    
-    if (meshes.find(baseObjectId) == meshes.end())
-    {
-        Y_ERROR << "Base mesh for instance doesn't exist" << yendl;
-        return false;
-    }
+	if(mode != 0) return false;
 
-    int id = getNextFreeID();
+	if (meshes.find(baseObjectId) == meshes.end())
+	{
+		Y_ERROR << "Base mesh for instance doesn't exist " << baseObjectId << yendl;
+		return false;
+	}
 
-    if (id > 0)
-    {
-        objData_t &od = meshes[id];
-        objData_t &base = meshes[baseObjectId];
+	int id = getNextFreeID();
 
-        od.obj = new triangleObjectInstance_t(base.obj, objToWorld);
+	if (id > 0)
+	{
+		objData_t &od = meshes[id];
+		objData_t &base = meshes[baseObjectId];
 
-        return true;
-    }
-    else
-    {
-        return false;
-    }
+		od.obj = new triangleObjectInstance_t(base.obj, objToWorld);
+
+		return true;
+	}
+	else
+	{
+		return false;
+	}
 }
 
 __END_YAFRAY

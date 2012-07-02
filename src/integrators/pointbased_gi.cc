@@ -37,7 +37,7 @@
 #include <integrators/Dictionary_converter.h>
 #include <integrators/pointbased_gi.h>
 //#include <integrators/KMeans.h>
-#include <integrators/kmeans.hpp>
+//#include <integrators/kmeans.hpp>
 
 #include <yafraycore/timer.h>
 

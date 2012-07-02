@@ -248,7 +248,7 @@ std::vector<pbgi_sample_t> Scene_sampler_darts_hash::generate_samples(std::vecto
 
     while (rejected_count < max_tries)
     {
-        float ksi[3] = { my_random(), my_random(), my_random() };
+        float ksi[3] = { float(my_random()), float(my_random()), float(my_random()) };
         // vector3d_t ksi = hammersley_3(i, number_of_samples);
 
         int triangle_index = std::lower_bound(triangle_areas_cdf.begin(), triangle_areas_cdf.end(), ksi[0] * scene_area) - triangle_areas_cdf.begin();
@@ -453,7 +453,7 @@ std::vector<pbgi_sample_t> Scene_sampler_darts::generate_samples(std::vector<tri
         {
             sample_too_close = false;
 
-            float ksi[3] = { my_random(), my_random(), my_random() };
+            float ksi[3] = { float(my_random()), float(my_random()), float(my_random()) };
 
             triangle_index = std::lower_bound(triangle_areas_cdf.begin(), triangle_areas_cdf.end(), ksi[0] * scene_area) - triangle_areas_cdf.begin();
             // triangle_index = int(ksi[0] * triangles.size()) % triangles.size();
@@ -578,7 +578,7 @@ std::vector<pbgi_sample_t> Scene_sampler_suicide::generate_samples(std::vector<t
 
     for (int i = 0; i < number_of_candidates; ++i)
     {
-        float ksi[3] = { my_random(), my_random(), my_random() };
+        float ksi[3] = { float(my_random()), float(my_random()), float(my_random()) };
         // vector3d_t ksi = hammersley_3(i, number_of_candidates);
 
         // int triangle_index = std::lower_bound(triangle_areas_cdf.begin(), triangle_areas_cdf.end(), ksi[0] * area_sum) - triangle_areas_cdf.begin();

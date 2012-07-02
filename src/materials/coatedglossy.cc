@@ -142,12 +142,12 @@ float coatedGlossyMat_t::OrenNayar(const vector3d_t &wi, const vector3d_t &wo, c
 	if(cos_to >= cos_ti)
 	{
 		sin_alpha = fSqrt(1.f - cos_ti*cos_ti);
-		tan_beta = fSqrt(1.f - cos_to*cos_to) / cos_to;
+		tan_beta = fSqrt(1.f - cos_to*cos_to) / ((cos_to == 0.f)?1e-8f:cos_to); // white (black on windows) dots fix for oren-nayar, could happen with bad normals
 	}
 	else
 	{
 		sin_alpha = fSqrt(1.f - cos_to*cos_to);
-		tan_beta = fSqrt(1.f - cos_ti*cos_ti) / cos_ti;
+		tan_beta = fSqrt(1.f - cos_ti*cos_ti) / ((cos_ti == 0.f)?1e-8f:cos_ti); // white (black on windows) dots fix for oren-nayar, could happen with bad normals
 	}
 	
 	return orenA + orenB * maxcos_f * sin_alpha * tan_beta;
@@ -293,7 +293,7 @@ color_t coatedGlossyMat_t::sample(const renderState_t &state, const surfacePoint
 				cos_wo_H = wo*H;
 				if ( cos_wo_H < 0.f )
 				{
-					H = reflect_plane(N, H);
+					H.reflect(N);
 					cos_wo_H = wo*H;
 				}
 				// Compute incident direction by reflecting wo about H
@@ -405,7 +405,8 @@ void coatedGlossyMat_t::getSpecular(const renderState_t &state, const surfacePoi
 	
 	if(state.raylevel > 5) return;
 	
-	dir[0] = reflect_plane(N, wo);
+	dir[0] = wo;
+	dir[0].reflect(N);
 	col[0] = Kr * mirror_color;
 	float cos_wi_Ng = dir[0]*Ng;
 	if(cos_wi_Ng < 0.01)
@@ -462,7 +463,6 @@ material_t* coatedGlossyMat_t::factory(paraMap_t &params, std::list< paraMap_t >
 	
 	std::vector<shaderNode_t *> roots;
 	std::map<std::string, shaderNode_t *> nodeList;
-	std::map<std::string, shaderNode_t *>::iterator actNode;
 	
 	// Prepare our node list
 	nodeList["diffuse_shader"] = NULL;
@@ -472,20 +472,7 @@ material_t* coatedGlossyMat_t::factory(paraMap_t &params, std::list< paraMap_t >
 	
 	if(mat->loadNodes(paramList, render))
 	{
-		for(actNode = nodeList.begin(); actNode != nodeList.end(); actNode++)
-		{
-			if(params.getParam(actNode->first, name))
-			{
-				std::map<std::string,shaderNode_t *>::const_iterator i = mat->shader_table.find(*name);
-				
-				if(i!=mat->shader_table.end())
-				{
-					actNode->second = i->second;
-					roots.push_back(actNode->second);
-				}
-				else Y_WARNING << "CoatedGlossy: Shader node " << actNode->first << " '" << *name << "' does not exist!" << yendl;
-			}
-		}
+        mat->parseNodes(params, roots, nodeList);
 	}
 	else Y_ERROR << "CoatedGlossy: loadNodes() failed!" << yendl;
 

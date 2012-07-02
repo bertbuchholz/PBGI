@@ -22,6 +22,7 @@ float generate_histogram(std::vector<pbgi_sample_t> const& samples, float const 
 class Scene_sampler
 {
     public:
+    virtual ~Scene_sampler() {}
     virtual std::vector<pbgi_sample_t> generate_samples(std::vector<triangle_t const*> const& triangles) = 0;
     virtual float get_widest_gap() { assert(false); return -1.0f; }
 };
