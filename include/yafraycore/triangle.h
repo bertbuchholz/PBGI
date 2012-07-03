@@ -76,7 +76,7 @@ class YAFRAYCORE_EXPORT triangleInstance_t: public triangle_t
 		virtual const material_t* getMaterial() const { return mBase->getMaterial(); }	
 		virtual void getSurface(surfacePoint_t &sp, const point3d_t &hit, intersectData_t &data) const;
 		virtual float surfaceArea() const;
-		virtual void sample(float s1, float s2, point3d_t &p, vector3d_t &n) const;
+                virtual void sample(float s1, float s2, point3d_t &p, vector3d_t &n, intersectData_t & data) const;
 		
 		virtual vector3d_t getNormal() const;
 		virtual void recNormal() { /* Empty */ };
@@ -111,7 +111,7 @@ class YAFRAYCORE_EXPORT vTriangle_t: public primitive_t
 		void setNormals(int a, int b, int c){ na=a, nb=b, nc=c; }
 		vector3d_t getNormal(){ return vector3d_t(normal); }
 		PFLOAT surfaceArea() const;
-		void sample(float s1, float s2, point3d_t &p, vector3d_t &n) const;
+                void sample(float s1, float s2, point3d_t &p, vector3d_t &n, intersectData_t & data) const;
 		void recNormal();
 
 	protected:
