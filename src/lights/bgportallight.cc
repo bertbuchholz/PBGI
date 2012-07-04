@@ -105,7 +105,8 @@ void bgPortalLight_t::sampleSurface(point3d_t &p, vector3d_t &n, float s1, float
 		ss1 = (s1 - areaDist->cdf[primNum]) / delta;
 	}
 	else ss1 = s1 / delta;
-	tris[primNum]->sample(ss1, s2, p, n);
+        intersectData_t data;
+        tris[primNum]->sample(ss1, s2, p, n, data);
 }
 
 color_t bgPortalLight_t::totalEnergy() const

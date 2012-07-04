@@ -153,7 +153,7 @@ inline float triangle_t::surfaceArea() const
 	return 0.5 * (edge1 ^ edge2).length();
 }
 
-inline void triangle_t::sample(float s1, float s2, point3d_t &p, vector3d_t &n) const
+inline void triangle_t::sample(float s1, float s2, point3d_t &p, vector3d_t &n, intersectData_t & data) const
 {
 	point3d_t const& a = mesh->getVertex(pa);
 	point3d_t const& b = mesh->getVertex(pb);
@@ -164,6 +164,10 @@ inline void triangle_t::sample(float s1, float s2, point3d_t &p, vector3d_t &n) 
 	float v = s2 * su1;
 	p = u*a + v*b + (1.f-u-v)*c;
 	n = getNormal();
+
+        data.b0 = u;
+        data.b1 = v;
+        data.b2 = (1.f-u-v);
 }
 
 // triangleInstance_t Methods
@@ -347,7 +351,7 @@ inline float triangleInstance_t::surfaceArea() const
 	return 0.5 * (edge1 ^ edge2).length();
 }
 
-inline void triangleInstance_t::sample(float s1, float s2, point3d_t &p, vector3d_t &n) const
+inline void triangleInstance_t::sample(float s1, float s2, point3d_t &p, vector3d_t &n, intersectData_t & data) const
 {
 	point3d_t const& a = mesh->getVertex(mBase->pa);
 	point3d_t const& b = mesh->getVertex(mBase->pb);
@@ -358,6 +362,8 @@ inline void triangleInstance_t::sample(float s1, float s2, point3d_t &p, vector3
 	float v = s2 * su1;
 	p = u*a + v*b + (1.f-u-v)*c;
 	n = getNormal();
+
+        // FIXME: fill intersectData_t
 }
 
 //==========================================
@@ -538,7 +544,7 @@ float vTriangle_t::surfaceArea() const
 	return 0.5 * (edge1 ^ edge2).length();
 }
 
-void vTriangle_t::sample(float s1, float s2, point3d_t &p, vector3d_t &n) const
+inline void vTriangle_t::sample(float s1, float s2, point3d_t &p, vector3d_t &n, intersectData_t & data) const
 {
 	const point3d_t &a=mesh->points[pa], &b=mesh->points[pb], &c=mesh->points[pc];
 	float su1 = fSqrt(s1);
@@ -546,6 +552,8 @@ void vTriangle_t::sample(float s1, float s2, point3d_t &p, vector3d_t &n) const
 	float v = s2 * su1;
 	p = u*a + v*b + (1.f-u-v)*c;
 	n = vector3d_t(normal);
+
+        // FIXME: fill intersectData_t
 }
 
 void vTriangle_t::recNormal()

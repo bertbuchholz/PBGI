@@ -88,6 +88,11 @@ class YAFRAYCORE_EXPORT triangleObject_t: public object3d_t
             return points[index];
         }
 
+        inline std::vector<triangle_t> const& getTriangles() const
+        {
+            return triangles;
+        }
+
 	private:
         std::vector<triangle_t> triangles;
 		std::vector<point3d_t> points;

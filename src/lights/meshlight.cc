@@ -93,7 +93,8 @@ void meshLight_t::sampleSurface(point3d_t &p, vector3d_t &n, float s1, float s2)
 		ss1 = (s1 - areaDist->cdf[primNum]) / delta;
 	}
 	else ss1 = s1 / delta;
-	tris[primNum]->sample(ss1, s2, p, n);
+        intersectData_t data;
+        tris[primNum]->sample(ss1, s2, p, n, data);
 //	++stats[primNum];
 }
 
