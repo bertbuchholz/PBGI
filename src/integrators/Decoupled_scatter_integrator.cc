@@ -10,6 +10,8 @@
 #include <yafraycore/scr_halton.h>
 #include <vector>
 #include <cassert>
+#include <fstream>
+#include <sstream>
 
 __BEGIN_YAFRAY
 
@@ -24,10 +26,12 @@ public:
             sigma_s(0.0f),
             sigma_t(0.0f),
             transmittance(0.0f),
-            pdf(0.0)
+            pdf(0.0),
+            density(0.0f)
         {}
 
-        float distance, delta, sigma_s, sigma_t, transmittance, pdf;
+        double distance, delta;
+        float sigma_s, sigma_t, transmittance, pdf, density;
     };
 
     struct Pixel_ray_data_cache
@@ -37,15 +41,17 @@ public:
 
         std::vector<Ray_volume_sample> density_samples;
         std::vector<float> density_samples_cdf;
+        std::vector<float> debug_sample_positions;
+        std::vector<float> debug_sample_contributions;
         float t0, t1;
         bool initialized;
     };
 
-    Decoupled_scatter_integrator(float sSize)
+    Decoupled_scatter_integrator(float const transmittance_step_size, float const shadow_step_size) :
+        _transmittance_step_size(transmittance_step_size),
+        _shadow_step_size(shadow_step_size)
     {
-        _step_size = sSize;
-
-        Y_INFO << "Decoupled_scatter_integrator: stepSize: " << _step_size << yendl;
+        Y_INFO << "Decoupled_scatter_integrator (t_step_size: " << _transmittance_step_size << ", shadow_step_size: " << _shadow_step_size << ")" << yendl;
     }
 
     virtual bool preprocess()
@@ -55,116 +61,55 @@ public:
         _lights = scene->lights;
         _volumes = scene->getVolumes();
 
-        // FIXME: should be the number of pixels of the image, 1e6 should be larger than any actual image
+        // FIXME: should be the number of pixels of the image, 1e6 should be larger than the actual image pixel number
         _pixel_ray_data_caches.resize(1e6);
 
         return true;
     }
 
-    color_t getInScatter(renderState_t& state, ray_t& stepRay, float currentStep) const
+    virtual void cleanup()
     {
-        color_t inScatter(0.f);
-        surfacePoint_t sp;
-        sp.P = stepRay.from;
+        std::cout << "Decoupled_scatter_integrator cleanup()" << std::endl;
 
-        ray_t lightRay;
-        lightRay.from = sp.P;
+#if 0
 
-        float const inv_num_volumes = 1.0f / float(_volumes.size());
+        int count = 0;
 
-        for(std::vector<light_t *>::const_iterator l=_lights.begin(); l!=_lights.end(); ++l)
+        for (size_t i = 0; i < _pixel_ray_data_caches.size(); ++i)
         {
-            color_t lcol(0.0);
+            Pixel_ray_data_cache const& data = _pixel_ray_data_caches[i];
 
-            // handle lights with delta distribution, e.g. point and directional lights
-            if( (*l)->diracLight() )
+            if (data.density_samples.size() < 2) continue;
+
+            std::stringstream ss;
+            ss << "/tmp/scatter_density_" << count << ".data";
+            std::ofstream file(ss.str().c_str());
+
+            for (size_t j = 0; j < data.density_samples.size(); ++j)
             {
-                if( (*l)->illuminate(sp, lcol, lightRay) )
-                {
-                    // ...shadowed...
-                    lightRay.tmin = YAF_SHADOW_BIAS; // < better add some _smart_ self-bias value...this is bad.
-                    if (lightRay.tmax < 0.f) lightRay.tmax = 1e10; // infinitely distant light
-                    bool shadowed = scene->isShadowed(state, lightRay);
-                    if (!shadowed)
-                    {
-                        float lightTr = 0.0f;
-                        // replace lightTr with precalculated attenuation
+                Ray_volume_sample const& sample = data.density_samples[j];
 
-                        // replaced by
-                        color_t lightstepTau(0.f);
-                        for (unsigned int i = 0; i < _volumes.size(); i++)
-                        {
-                            VolumeRegion* vr = _volumes.at(i);
-                            float t0Tmp = -1, t1Tmp = -1;
-                            if (_volumes.at(i)->intersect(lightRay, t0Tmp, t1Tmp))
-                            {
-                                lightstepTau += vr->tau(lightRay, currentStep, 0.f) * inv_num_volumes;
-                            }
-                        }
-                        // transmittance from the point p in the volume to the light (i.e. how much light reaches p)
-                        lightTr = fExp(-lightstepTau.energy());
-
-                        lightTr *= inv_num_volumes;
-
-                        inScatter += lightTr * lcol;
-                    }
-                }
+                file << sample.distance << " " << sample.transmittance << " " << sample.sigma_t << " " << sample.pdf << std::endl;
             }
-            else // area light and suchlike
+
+            std::stringstream ss_2;
+            ss_2 << "/tmp/scatter_samples_" << count << ".data";
+            std::ofstream file_samples(ss_2.str().c_str());
+
+            for (size_t j = 0; j < data.debug_sample_positions.size(); ++j)
             {
-                int n = (*l)->nSamples() >> 2; // samples / 4
-                if (n < 1) n = 1;
-                float iN = 1.f / (float)n; // inverse of n
-                color_t ccol(0.0);
-                float lightTr = 0.0f;
-                lSample_t ls;
+                file_samples << data.debug_sample_positions[j] << " " << 0.0f << " " << data.debug_sample_contributions[j] << std::endl;
+            }
 
-                for(int i=0; i<n; ++i)
-                {
-                    // ...get sample val...
-                    ls.s1 = (*state.prng)();
-                    ls.s2 = (*state.prng)();
 
-                    if((*l)->illumSample(sp, ls, lightRay))
-                    {
-                        // ...shadowed...
-                        lightRay.tmin = YAF_SHADOW_BIAS; // < better add some _smart_ self-bias value...this is bad.
-                        if (lightRay.tmax < 0.f) lightRay.tmax = 1e10; // infinitely distant light
-                        bool shadowed = scene->isShadowed(state, lightRay);
-                        if(!shadowed) {
-                            ccol += ls.col / ls.pdf;
 
-                            // replaced by
-                            color_t lightstepTau(0.f);
-                            for (unsigned int i = 0; i < _volumes.size(); i++)
-                            {
-                                VolumeRegion* vr = _volumes.at(i);
-                                float t0Tmp = -1, t1Tmp = -1;
-                                if (_volumes.at(i)->intersect(lightRay, t0Tmp, t1Tmp))
-                                {
-                                    lightstepTau += vr->tau(lightRay, currentStep * 4.f, 0.0f);
-                                }
-                            }
-                            // transmittance from the point p in the volume to the light (i.e. how much light reaches p)
-                            lightTr += fExp(-lightstepTau.energy()) * inv_num_volumes;
-                        }
-                    }
-                    lightTr *= inv_num_volumes;
-                } // end of area light sample loop
-
-                lightTr *= iN;
-
-                ccol = ccol * iN;
-                inScatter += lightTr * ccol;
-            } // end of area lights loop
+            ++count;
         }
-
-        return inScatter;
+#endif
     }
 
-
     // optical thickness, absorption, attenuation, extinction
-    virtual colorA_t transmittance(renderState_t &state, ray_t &ray) const
+    virtual colorA_t transmittance(renderState_t &state, ray_t &ray, float step_size) const
     {
         colorA_t Tr(1.f);
         //return Tr;
@@ -178,12 +123,77 @@ public:
             if (vr->intersect(ray, t0, t1))
             {
                 float random = (*state.prng)();
-                color_t opticalThickness = vr->tau(ray, _step_size, random);
+                color_t opticalThickness = vr->tau(ray, step_size, random);
                 Tr *= colorA_t(fExp(-opticalThickness.energy()));
             }
         }
 
         return Tr;
+    }
+
+    // optical thickness, absorption, attenuation, extinction
+    virtual colorA_t transmittance_direct(renderState_t &state, ray_t &ray, float const step_size) const
+    {
+        bool const hit = (ray.tmax > 0.f);
+
+        float t0 = 1e10f;
+        float t1 = -1e10f;
+
+        // find min t0 and max t1
+        for (unsigned int i = 0; i < _volumes.size(); i++)
+        {
+            float t0_tmp = 0.f, t1_tmp = 0.f;
+            VolumeRegion const* vr = _volumes[i];
+
+            if (!vr->intersect(ray, t0_tmp, t1_tmp)) continue;
+
+            if (hit && ray.tmax < t0_tmp) continue;
+
+            if (t0_tmp < 0.f) t0_tmp = 0.f;
+
+            if (hit && ray.tmax < t1_tmp) t1_tmp = ray.tmax;
+
+            if (t1_tmp > t1) t1 = t1_tmp;
+            if (t0_tmp < t0) t0 = t0_tmp;
+        }
+
+        float dist = t1-t0;
+        if (dist < 1e-3f) return 1.0f;
+
+
+
+        Halton halton2(2);
+        halton2.setStart(state.pixelSample + state.samplingOffs);
+
+        float t = t0 + step_size * halton2.getNext();
+        float transmittance = 1.0f;
+
+        while (t < t1)
+        {
+            float const offset = halton2.getNext();
+            vector3d_t const sample_pos = vector3d_t(ray.from) + ray.dir * (t + offset * step_size);
+
+            float sigma_t = 0.0f;
+
+            for (unsigned int i = 0; i < _volumes.size(); i++)
+            {
+                VolumeRegion const* vr = _volumes[i];
+
+                sigma_t += vr->sigma_t(sample_pos, vector3d_t()).energy();
+            }
+
+            transmittance = transmittance * fExp(-step_size * offset * sigma_t);
+
+            t += step_size;
+        }
+
+        return transmittance;
+    }
+
+    // optical thickness, absorption, attenuation, extinction
+    virtual colorA_t transmittance(renderState_t &state, ray_t &ray) const
+    {
+        return transmittance(state, ray, _shadow_step_size);
     }
 
     void get_sigmas_from_all_volumes(std::vector<VolumeRegion*> const& volumes, vector3d_t const& pos, float & sigma_s, float & sigma_t)
@@ -206,7 +216,7 @@ public:
     {
         std::vector<Ray_volume_sample> samples;
 
-        float const delta = _step_size;
+        float const delta = _transmittance_step_size;
 
         bool const hit = (ray.tmax > 0.f);
 
@@ -234,15 +244,28 @@ public:
         float dist = t1-t0;
         if (dist < 1e-3f) return samples;
 
-        float t = t0 + delta;
+        double t = t0;
+
+        vector3d_t const sample_0_pos = vector3d_t(ray.from) + ray.dir * t;
 
         Ray_volume_sample sample_0;
         sample_0.delta = delta;
-        sample_0.sigma_s = 0.0f;
-        sample_0.sigma_t = 0.0f;
         sample_0.transmittance = 1.0f;
-        sample_0.distance = t0;
+        sample_0.distance = t;
+
+        for (unsigned int i = 0; i < _volumes.size(); i++)
+        {
+            VolumeRegion const* vr = _volumes[i];
+
+            sample_0.sigma_s += vr->sigma_s(sample_0_pos, vector3d_t()).energy();
+            sample_0.sigma_t += vr->sigma_t(sample_0_pos, vector3d_t()).energy();
+        }
+
+        sample_0.pdf = sample_0.delta * sample_0.sigma_s * sample_0.transmittance;
+
         samples.push_back(sample_0);
+
+        t += delta;
 
         while (t < t1)
         {
@@ -264,6 +287,8 @@ public:
             Ray_volume_sample const& prev_sample = samples.back();
             sample.transmittance = prev_sample.transmittance * fExp(-prev_sample.delta * prev_sample.sigma_t);
             sample.pdf = sample.delta * sample.sigma_s * sample.transmittance;
+
+            if (sample.pdf < 0.0001f) sample.pdf = 0.0f;
 
             samples.push_back(sample);
 
@@ -323,9 +348,9 @@ public:
 
         float const ksi_1 = halton3.getNext();
 
-        float const a = sample.distance;
-        float const b = sample.distance + sample.delta;
-        float const t = a - (1.0f / sample.sigma_t) * fLog(1.0f - ksi_1 * (1.0f - fExp(-(b - a) * sample.sigma_t)));
+        double const a = sample.distance;
+        double const b = sample.distance + sample.delta;
+        double const t = a - (1.0 / sample.sigma_t) * fLog(1.0 - ksi_1 * (1.0 - fExp(-(b - a) * sample.sigma_t)));
 
 //        float const pdf = sample.sigma_t / (fExp(-(t - a) * sample.sigma_t) - fExp(-(t - b) * sample.sigma_t));
 
@@ -357,7 +382,7 @@ public:
             color_t const s_s = sample.sigma_s;
             // color_t const s_t = sample.sigma_t;
 
-            float const transmittance_to_light = transmittance(state, lightRay).energy();
+            float const transmittance_to_light = transmittance(state, lightRay, _shadow_step_size).energy();
 
             assert(t >= sample.distance);
             float total_transmittance = sample.transmittance * fExp(t - sample.distance) * transmittance_to_light;
@@ -590,7 +615,7 @@ public:
     }
 
 
-    float sample_from_density(renderState_t const& state, std::vector<Ray_volume_sample> const& samples, std::vector<float> const& samples_cdf) const
+    double sample_from_density(renderState_t const& state, std::vector<Ray_volume_sample> const& samples, std::vector<float> const& samples_cdf) const
     {
         float const pdf_sum = samples_cdf.back();
 
@@ -599,7 +624,9 @@ public:
 
         float const ksi_0 = halton2.getNext();
 
-        int const sample_index = std::min(int(samples.size() - 1), std::lower_bound(samples_cdf.begin(), samples_cdf.end(), ksi_0 * pdf_sum) - samples_cdf.begin());
+        int const sample_index = int(std::lower_bound(samples_cdf.begin(), samples_cdf.end() - 2, ksi_0 * pdf_sum) - samples_cdf.begin());
+
+        assert(sample_index < int(samples_cdf.size()));
 
         Ray_volume_sample const& sample = samples[sample_index];
 
@@ -609,26 +636,32 @@ public:
 
         float const ksi_1 = halton3.getNext();
 
-        float const a = sample.distance;
-        float const b = sample.distance + sample.delta;
-        float t = a - (1.0f / sample.sigma_t) * std::log(1.0f - ksi_1 * (1.0f - std::exp(-(b - a) * sample.sigma_t)));
+        double const a = sample.distance + 0.0001 * sample.delta;
+        double const b = sample.distance + sample.delta * 0.9999f;
+        // float t = a - (1.0f / sample.sigma_t) * std::log(1.0f - ksi_1 * (1.0f - std::exp(-(b - a) * sample.sigma_t)));
+        double const t = sample.distance + (0.001 + ksi_1 * 0.998) * sample.delta;
 
-        t = std::max(a + 0.001f * sample.delta, std::min(b - 0.001f * sample.delta, t));
-
+        // t = std::max(a + 0.001f * sample.delta, std::min(b - 0.001f * sample.delta, t));
 
         { // debug sanity
-            assert(t >= a && t <= b);
+
+            if (!(t >= a && t < b))
+            {
+                std::cout << t << " " << a << " " << b << " " << ksi_1 << std::endl;
+                assert(t >= a && t < b);
+            }
+
 
             int const sample_index_new = (t - samples[0].distance) / samples[0].delta;
 
             // std::cout << sample_index << " " << sample_index_new << " " << t << " " << samples[0].distance << std::endl;
 
-            if (!(t >= samples[sample_index_new].distance && sample_index_new >= 0 && sample_index_new < samples.size()))
+            if (!(t >= samples[sample_index_new].distance && sample_index_new >= 0 && sample_index_new < int(samples.size())))
             {
-                std::cout << sample_index << " " << sample_index_new << " " << t << " " << samples[0].distance << " " << a << " " << b << " " << sample.delta << " " << samples.size() << std::endl;
+                std::cout << sample_index << " " << sample_index_new << " " << t << " " << samples[0].distance << " " << a << " " << b << " " << sample.delta << " " << samples.size() << " " << ksi_1 << std::endl;
             }
 
-            assert(t >= samples[sample_index_new].distance && sample_index_new >= 0 && sample_index_new < samples.size());
+            assert(t >= samples[sample_index_new].distance && sample_index_new >= 0 && sample_index_new < int(samples.size()));
 
             float const t_offset = (t - samples[sample_index_new].distance) / samples[0].delta;
 
@@ -638,19 +671,27 @@ public:
         return t;
     }
 
-    float pdf_from_density(float const t, std::vector<Ray_volume_sample> const& samples) const
+    float pdf_from_density(double const t, std::vector<Ray_volume_sample> const& samples) const
     {
         // int const sample_index = std::min(int((t - samples[0].distance) / samples[0].delta), int(samples.size() - 1));
         int const sample_index = (t - samples[0].distance) / samples[0].delta;
-        float const t_offset = std::max(0.0f, std::min(1.0f, (t - samples[sample_index].distance) / samples[0].delta));
 
-        // assert(t >= samples[sample_index].distance);
+
+        if (!(t >= samples[sample_index].distance))
+        {
+            std::cout << sample_index << " " << t << " " << samples[sample_index].distance << " " << t - samples[sample_index].distance << " " << samples[0].distance << " " << samples.size() << std::endl;
+            assert(t >= samples[sample_index].distance);
+        }
+
+        // return samples[sample_index].pdf;
+
+        double const t_offset = (t - samples[sample_index].distance) / samples[0].delta;
         assert(t_offset >= 0.0f && t_offset <= 1.0f);
 
-        return samples[sample_index].pdf;
+        if (sample_index == samples.size() - 1) return samples[sample_index].pdf;
 
-        //assert(sample_index + 1 < samples.size());
-        // return samples[sample_index].pdf * (1.0f - t_offset) + samples[sample_index + 1].pdf * t_offset;
+        assert(sample_index + 1 < samples.size());
+        return samples[sample_index].pdf * (1.0 - t_offset) + samples[sample_index + 1].pdf * t_offset;
     }
 
 
@@ -661,7 +702,7 @@ public:
         std::vector<float> samples_cdf(samples.size());
         samples_cdf[0] = samples[0].pdf;
 
-        for (unsigned int i = 1; i < samples_cdf.size(); ++i)
+        for (size_t i = 1; i < samples_cdf.size(); ++i)
         {
             samples_cdf[i] = samples_cdf[i - 1] + samples[i].pdf;
         }
@@ -670,7 +711,7 @@ public:
     }
 
 
-    float pdf_from_light(ray_t const& ray, light_t const* light, float const t0, float const t1, vector3d_t const sample_pos) const
+    float pdf_from_light(ray_t const& ray, light_t const* light, float const t0, float const t1, vector3d_t const sample_pos, double const t) const
     {
         lSample_t light_sample;
         vector3d_t dummy_wo;
@@ -682,16 +723,17 @@ public:
         vector3d_t const closest_pos = vector3d_t(ray.from) + ray.dir * closest_t;
 
 
-        float const D = (closest_pos - light_pos).length();
-        float const a = t0 - closest_t;
-        float const b = t1 - closest_t;
+        double const D = (closest_pos - light_pos).length();
+        double const a = t0 - closest_t;
+        double const b = t1 - closest_t;
 
-        float const theta_a = std::atan(a / D);
-        float const theta_b = std::atan(b / D);
+        double const theta_a = std::atan(a / D);
+        double const theta_b = std::atan(b / D);
 
-        float const dist_sample_to_light_sqr = (light_pos - sample_pos).lengthSqr();
+        // double const dist_sample_to_light_sqr = (light_pos - sample_pos).lengthSqr();
 
-        float const pdf = D / ((theta_b - theta_a) * dist_sample_to_light_sqr);
+        // double const pdf = D / ((theta_b - theta_a) * dist_sample_to_light_sqr);
+        double const pdf = D / ((theta_b - theta_a) * (D * D + t * t));
 
         delete light_sample.sp;
 
@@ -699,14 +741,14 @@ public:
     }
 
 
-    float sample_from_light(renderState_t const& state, ray_t const& ray, light_t const* light, float const t0, float const t1) const
+    double sample_from_light(renderState_t const& state, ray_t const& ray, light_t const* light, float const t0, float const t1) const
     {
         vector3d_t dummy_wo;
         lSample_t light_sample;
         light_sample.sp = new surfacePoint_t;
         light->emitSample(dummy_wo, light_sample);
         vector3d_t const& light_pos = vector3d_t(light_sample.sp->P);
-        float const closest_t = project_point_on_ray(light_pos, ray);
+        double const closest_t = project_point_on_ray(light_pos, ray);
         vector3d_t const closest_pos = vector3d_t(ray.from) + ray.dir * closest_t;
 
 //        std::cout << "lpos: " << light_pos << " "
@@ -714,18 +756,27 @@ public:
 //                  << std::endl;
 
 
-        float const D = (closest_pos - light_pos).length();
-        float const a = t0 - closest_t;
-        float const b = t1 - closest_t;
+        double const D = (closest_pos - light_pos).length();
+        double const a = t0 - closest_t;
+        double const b = t1 - closest_t;
 
-        float const theta_a = std::atan(a / D);
-        float const theta_b = std::atan(b / D);
+        double const theta_a = std::atan(a / D);
+        double const theta_b = std::atan(b / D);
 
         Halton halton2(2);
         halton2.setStart(state.pixelSample + state.samplingOffs);
 
         float const ksi = halton2.getNext();
-        float const t = D * std::tan((1.0f - ksi) * theta_a + ksi * theta_b);
+        double const t = D * std::tan((1.0 - ksi) * theta_a + ksi * theta_b);
+
+        { // debug sanity
+
+            if (!(t >= a && t < b && closest_t + t >= t0 && closest_t + t < t1))
+            {
+                std::cout << t << " " << a << " " << b << " " << " real t: " << (closest_t + t) << " " << t0 << " " << t1 << " " << ksi << std::endl;
+                assert(t >= a && t < b && closest_t + t >= t0 && closest_t + t < t1);
+            }
+        }
 
         delete light_sample.sp;
 
@@ -733,23 +784,11 @@ public:
     }
 
 
-    colorA_t evaluate_light(renderState_t & state, light_t const* light, vector3d_t const& sample_pos, std::vector<Ray_volume_sample> const& samples, float const t) const
+    colorA_t evaluate_light(renderState_t & state, light_t const* light, vector3d_t const& sample_pos, std::vector<Ray_volume_sample> const& samples, double const t) const
     {
         colorA_t color(0.0f);
 
-        // vector3d_t dummy_wo;
-        // lSample_t light_sample;
-        // light_sample.sp = new surfacePoint_t;
-        color_t light_color; // = light->emitSample(dummy_wo, light_sample);
-
-        // vector3d_t const& light_pos = vector3d_t(light_sample.sp->P);
-
-//        vector3d_t sample_to_light = (light_pos - sample_pos);
-//        float const dist_sample_to_light = sample_to_light.length();
-//        sample_to_light.normalize();
-
-        // ray_t lightRay(sample_pos, sample_to_light, 0.0f, dist_sample_to_light);
-
+        color_t light_color;
         surfacePoint_t sp;
         sp.P = sample_pos;
 
@@ -798,54 +837,57 @@ public:
 
         vector3d_t light_pos = vector3d_t(lightRay.from) + lightRay.dir * lightRay.tmax;
         vector3d_t sample_to_light = (light_pos - sample_pos);
-        float const dist_sample_to_light = sample_to_light.length();
+        float const dist_sample_to_light_sqr = sample_to_light.lengthSqr();
 
 
         bool const shadowed = scene->isShadowed(state, lightRay);
+        // bool const shadowed = false;
 
         if (!shadowed)
         {
-            int const sample_index = std::min(int((t - samples[0].distance) / samples[0].delta), int(samples.size() - 1));
-
-            // std::cout << "eval light: " << sample_index << std::endl;
+            int const sample_index = (t - samples[0].distance) / samples[0].delta;
 
             Ray_volume_sample const& sample_0 = samples[sample_index];
 
-            color_t const s_s = sample_0.sigma_s;
-            // color_t const s_t = sample.sigma_t;
+            if (sample_index == samples.size() - 1)
+            {
+                color_t const& s_s = sample_0.sigma_s;
+                color_t const& s_t = sample_0.sigma_t;
 
-            float const transmittance_to_light = transmittance(state, lightRay).energy();
+                float const transmittance_to_light = transmittance_direct(state, lightRay, _shadow_step_size).energy();
 
-            // assert(t >= sample_0.distance); // FIXME: this fails sometimes, t is then very close to sample_0.distance
-            float total_transmittance = sample_0.transmittance * fExp(t - sample_0.distance) * transmittance_to_light;
+                assert(t >= sample_0.distance); // FIXME: this fails sometimes, t is then very close to sample_0.distance
+                float const total_transmittance = sample_0.transmittance * fExp(-(t - sample_0.distance) * s_t.energy()) * transmittance_to_light;
 
-            color = s_s * total_transmittance * light_color / (dist_sample_to_light * dist_sample_to_light);
+                color = s_s * total_transmittance * light_color / dist_sample_to_light_sqr;
+            }
+            else
+            {
+                assert(sample_index + 1 < int(samples.size()));
 
-            /*
-            assert(sample_index < samples.size());
+                Ray_volume_sample const& sample_1 = samples[sample_index + 1];
 
-            float const t_offset = std::max(0.0f, std::min(1.0f, (t - samples[sample_index].distance) / samples[0].delta));
+                float const t_offset = (t - sample_0.distance) / sample_0.delta;
 
-            assert(t_offset >= 0.0f && t_offset <= 1.0f);
 
-            color_t const s_s = samples[sample_index].sigma_s * (1.0f - t_offset) + samples[sample_index + 1].sigma_s * t_offset;
+                if (!(t_offset >= 0.0f && t_offset <= 1.0f))
+                {
+                    std::cout << t << " " << sample_0.distance << " " << sample_0.delta << " " << double(t) - double(sample_0.distance) << std::endl;
+                    assert(t_offset >= 0.0f && t_offset <= 1.0f);
+                }
 
-            // color_t const s_s = sample.sigma_s;
-            // color_t const s_t = sample.sigma_t;
+                color_t const s_s = sample_0.sigma_s * (1.0f - t_offset) + sample_1.sigma_s * t_offset;
+                color_t const s_t = sample_0.sigma_t * (1.0f - t_offset) + sample_1.sigma_t * t_offset;
 
-            float const transmittance_to_light = transmittance(state, lightRay).energy();
+                float const transmittance_to_light = transmittance_direct(state, lightRay, _shadow_step_size).energy();
 
-            // assert(t >= samples[sample_index].distance);
+                assert(t >= samples[sample_index].distance);
 
-            float const sample_transmittance = samples[sample_index].transmittance * (1.0f - t_offset) + samples[sample_index + 1].transmittance * t_offset;
+                float const total_transmittance = sample_0.transmittance * fExp(-(t - sample_0.distance) * s_t.energy()) * transmittance_to_light;
 
-            float total_transmittance = sample_transmittance * transmittance_to_light;
-
-            color = s_s * total_transmittance * light_color / (dist_sample_to_light * dist_sample_to_light);
-            */
+                color = s_s * total_transmittance * light_color / dist_sample_to_light_sqr;
+            }
         }
-
-        // delete light_sample.sp;
 
         return color;
     }
@@ -858,7 +900,7 @@ public:
         if (_volumes.size() == 0) return result;
 
 
-        assert(state.pixelNumber < _pixel_ray_data_caches.size());
+        assert(state.pixelNumber < int(_pixel_ray_data_caches.size()));
 
         float t0, t1;
 
@@ -888,27 +930,36 @@ public:
 //        std::vector<float>             samples_cdf = calc_density_samples_pdf(samples);
 
 
-        // iterate over PDFs
+        // iterate over PDFs (balance heuristic, Veach thesis p. 267)
         //     1. draw sample from PDF (n + 1: n <- number of lights, one sample from density and 1 from each light's PDF)
         //     2. calc sample position and calculate inscatter from all lights
         //     3. divide by the average of all PDFs at the sample position
 
 
-        int const num_pdfs = 1 + _lights.size();
+        int num_pdfs = 0;
 
-        // sample from density's pdf
+        bool sample_lights = true;
+        bool sample_density = true;
+
+        if (sample_density) ++num_pdfs;
+        if (sample_lights) num_pdfs += _lights.size();
+
+        if (sample_density)
         {
             // Take sample
-            float const t = sample_from_density(state, samples, samples_cdf);
+            double const t = sample_from_density(state, samples, samples_cdf);
             vector3d_t const sample_pos = vector3d_t(ray.from) + ray.dir * t;
 
             // calc average PDF
             float const pdf_sum = samples_cdf.back();
             float average_pdf = pdf_from_density(t, samples) / pdf_sum;
 
-            for (size_t i = 0; i < _lights.size(); ++i)
+            if (sample_lights)
             {
-                average_pdf += pdf_from_light(ray, _lights[i], t0, t1, sample_pos);
+                for (size_t i = 0; i < _lights.size(); ++i)
+                {
+                    average_pdf += pdf_from_light(ray, _lights[i], t0, t1, sample_pos, t);
+                }
             }
 
             average_pdf *= 1.0f / float(num_pdfs);
@@ -927,36 +978,43 @@ public:
             result += inscatter / average_pdf;
         }
 
-        // sample from lights' pdfs
-        for (size_t i = 0; i < _lights.size(); ++i)
+        if (sample_lights)
         {
-            // Take sample
-            float const t = sample_from_light(state, ray, _lights[i], t0, t1);
-            vector3d_t const sample_pos = vector3d_t(ray.from) + ray.dir * t;
-
-            // calc average PDF
-            float const pdf_sum = samples_cdf.back();
-            float average_pdf = pdf_from_density(t, samples) / pdf_sum;
-
-            for (size_t j = 0; j < _lights.size(); ++j)
+            for (size_t i = 0; i < _lights.size(); ++i)
             {
-                average_pdf += pdf_from_light(ray, _lights[j], t0, t1, sample_pos);
+                // Take sample
+                double const t = sample_from_light(state, ray, _lights[i], t0, t1);
+                vector3d_t const sample_pos = vector3d_t(ray.from) + ray.dir * t;
+
+                // calc average PDF
+                float average_pdf = 0.0f;
+
+                if (sample_density)
+                {
+                    float const pdf_sum = samples_cdf.back();
+                    average_pdf += pdf_from_density(t, samples) / pdf_sum;
+                }
+
+                for (size_t j = 0; j < _lights.size(); ++j)
+                {
+                    average_pdf += pdf_from_light(ray, _lights[j], t0, t1, sample_pos, t);
+                }
+
+                average_pdf *= 1.0f / float(num_pdfs);
+
+                // calc estimator (evaluate all lights at sample_pos)
+
+                color_t inscatter(0.0f);
+
+                for (size_t j = 0; j < _lights.size(); ++j)
+                {
+                    inscatter += evaluate_light(state, _lights[j], sample_pos, samples, t);
+                }
+
+                // update result
+
+                result += inscatter / average_pdf;
             }
-
-            average_pdf *= 1.0f / float(num_pdfs);
-
-            // calc estimator (evaluate all lights at sample_pos)
-
-            color_t inscatter(0.0f);
-
-            for (size_t j = 0; j < _lights.size(); ++j)
-            {
-                inscatter += evaluate_light(state, _lights[j], sample_pos, samples, t);
-            }
-
-            // update result
-
-            result += inscatter / average_pdf;
         }
 
         return result * (1.0f / float(num_pdfs));
@@ -967,15 +1025,22 @@ public:
     {
         // return integrate_equi_angular_homogeneous(state, ray, distance_pdf);
         // return integrate_discrete_density(state, ray, distance_pdf);
+        // return integrate_density_pdf(state, ray);
         return integrate_mis(state, ray);
+        // return transmittance(state, ray, _shadow_step_size);
+        // return transmittance_direct(state, ray, _shadow_step_size);
     }
 
 
     static integrator_t* factory(paraMap_t &params, renderEnvironment_t &render)
     {
-        float step_size = 1.f;
+        float step_size = 1.0f;
+        float shadow_step_size = 1.0f;
+
         params.getParam("stepSize", step_size);
-        Decoupled_scatter_integrator * inte = new Decoupled_scatter_integrator(step_size);
+        params.getParam("shadow_step_size", shadow_step_size);
+
+        Decoupled_scatter_integrator * inte = new Decoupled_scatter_integrator(step_size, shadow_step_size);
         return inte;
     }
 
@@ -983,10 +1048,9 @@ public:
     std::vector<VolumeRegion*> _volumes;
     std::vector<light_t*> _lights;
 
-    //mutable std::vector<std::vector<Ray_volume_sample> > _density_samples;
-    //mutable std::vector<std::vector<float> > _density_samples_cdf;
     mutable std::vector<Pixel_ray_data_cache> _pixel_ray_data_caches;
-    float _step_size;
+    float _transmittance_step_size;
+    float _shadow_step_size;
 
 };
 

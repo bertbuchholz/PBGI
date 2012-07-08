@@ -37,7 +37,22 @@ class NoiseVolume : public DensityVolume {
 
            assert(d >= 0.0f && d <= 1.0f);
 
-           d = 1.0f / (1.0f + fExp(sharpness * (1.0f - cover - d)));
+           // d = 1.0f / (1.0f + fExp(sharpness * (1.0f - cover - d)));
+
+           if (d < 0.5f)
+           {
+               d = 0.5f * fPow(d * 2.0f, sharpness);
+           }
+           else
+           {
+                // d = 1.0f + 0.5f * fPow(2.0f * (d - 1.0f), sharpness);
+               d = (-fPow(1.0f - (d - 0.5f) * 2.0f, sharpness) * 0.5f) + 1.0f;
+           }
+
+
+
+           d = 0.5f - std::cos(d * M_PI) / 2.0f;
+
            d *= density;
 
            return d;

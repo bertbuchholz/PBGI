@@ -897,6 +897,7 @@ bool scene_t::render()
 	bool success = surfIntegrator->render(imageFilm);
 
 	surfIntegrator->cleanup();
+        volIntegrator->cleanup();
 	imageFilm->flush();
 
 	return success;

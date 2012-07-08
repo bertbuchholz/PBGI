@@ -66,7 +66,7 @@ class YAFRAYCORE_EXPORT surfaceIntegrator_t: public integrator_t
 	public:
 		/*! gets called before the scene rendering (i.e. before first call to integrate)
 			\return false when preprocessing could not be done properly, true otherwise */
-		virtual bool preprocess() { return true; };
+                virtual bool preprocess() { return true; }
 		/*! allow the integrator to do some cleanup when an image is done
 		(possibly also important for multiframe rendering in the future)	*/
 		virtual void cleanup() {}
@@ -79,12 +79,10 @@ class YAFRAYCORE_EXPORT surfaceIntegrator_t: public integrator_t
 class YAFRAYCORE_EXPORT volumeIntegrator_t: public integrator_t
 {
 	public:
-		volumeIntegrator_t() {}
 		virtual colorA_t transmittance(renderState_t &state, ray_t &ray) const = 0;
-		virtual colorA_t integrate(renderState_t &state, ray_t &ray) const = 0;
-		virtual bool preprocess() { return true; }
-	
-	protected:
+                virtual colorA_t integrate(renderState_t &state, ray_t &ray) const = 0;
+                virtual bool preprocess() { return true; }
+                virtual void cleanup() {}
 };
 
 __END_YAFRAY
